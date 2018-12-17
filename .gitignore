@@ -1,0 +1,14 @@
+    .DS_Store
+
+cscope.files
+cscope.in.out
+cscope.po.out
+cscope.out
+
+\#*\#
+.\#*\#
+*.sw[a-z]
+
+core
+core.*
+vgcore.*
