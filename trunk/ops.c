@@ -8,6 +8,7 @@
 #include "util.h"
 
 #include <fifo.h>
+#include <strings_ext.h>
 
 #include <files/acc_ctl.h>
 
@@ -51,7 +52,7 @@ struct db_key {
     enum db_obj_type    type;
     uint64_t            ino;
     uint64_t            pgno;
-    const char          name[NAME_MAX+1];
+    char                name[NAME_MAX+1];
 } __attribute__((packed));
 
 struct disk_timespec {
@@ -83,6 +84,15 @@ struct op_args {
     struct back_end     *be;
     struct db_key       k;
     struct db_obj_stat  s;
+    struct open_dir     *odir;
+    char                *buf;
+    size_t              bufsize;
+    off_t               off;
+};
+
+struct open_dir {
+    char        cur_name[NAME_MAX+1];
+    fuse_ino_t  ino;
 };
 
 #define PGSIZE 4096
@@ -90,6 +100,9 @@ struct op_args {
 #define DB_PATHNAME "fs.db"
 
 #define OP_RET_NONE INT_MAX
+
+#define NAME_CUR_DIR "."
+#define NAME_PARENT_DIR ".."
 
 static void verror(int, const char *, va_list);
 
@@ -113,10 +126,20 @@ static void abort_init(struct mount_data *, int, const char *, ...);
 static int new_dir(struct back_end *, fuse_ino_t, const char *, uid_t, gid_t,
                    mode_t);
 
+static int new_dir_link(struct back_end *, fuse_ino_t, fuse_ino_t,
+                        const char *);
+
 static int do_look_up(void *);
+static int do_read_entries(void *);
 
 static void simplefs_init(void *, struct fuse_conn_info *);
 static void simplefs_destroy(void *);
+static void simplefs_getattr(fuse_req_t, fuse_ino_t, struct fuse_file_info *);
+static void simplefs_opendir(fuse_req_t, fuse_ino_t, struct fuse_file_info *);
+static void simplefs_readdir(fuse_req_t, fuse_ino_t, size_t, off_t,
+                             struct fuse_file_info *);
+static void simplefs_releasedir(fuse_req_t, fuse_ino_t,
+                                struct fuse_file_info *);
 
 static void
 verror(int err, const char *fmt, va_list ap)
@@ -313,6 +336,10 @@ new_dir(struct back_end *be, fuse_ino_t parent, const char *name, uid_t uid,
         struct db_key k;
         struct db_obj_stat s;
 
+        err = back_end_trans_new(be);
+        if (err)
+            return err;
+
         k.type = TYPE_STAT;
         k.ino = FUSE_ROOT_ID;
 
@@ -328,10 +355,43 @@ new_dir(struct back_end *be, fuse_ino_t parent, const char *name, uid_t uid,
         s.st_blocks = 0;
         set_ts(&s.st_atim, &s.st_mtim, &s.st_ctim);
 
-        return back_end_insert(be, &k, &s, sizeof(s));
+        err = back_end_insert(be, &k, &s, sizeof(s));
+        if (err)
+            goto err;
+
+        err = new_dir_link(be, s.st_ino, s.st_ino, NAME_CUR_DIR);
+        if (err)
+            goto err;
+        err = new_dir_link(be, s.st_ino, s.st_ino, NAME_PARENT_DIR);
+        if (err)
+            goto err;
+
+        err = back_end_trans_commit(be);
+        if (err)
+            goto err;
     }
 
     return 0;
+
+err:
+    back_end_trans_abort(be);
+    return err;
+}
+
+static int
+new_dir_link(struct back_end *be, fuse_ino_t ino, fuse_ino_t newparent,
+             const char *newname)
+{
+    struct db_key k;
+    struct db_obj_dirent de;
+
+    k.type = TYPE_DIRENT;
+    k.ino = newparent;
+    strlcpy(k.name, newname, sizeof(k.name));
+
+    de.ino = ino;
+
+    return back_end_insert(be, &k, &de, sizeof(de));
 }
 
 static int
@@ -340,6 +400,39 @@ do_look_up(void *args)
     struct op_args *opargs = (struct op_args *)args;
 
     return back_end_look_up(opargs->be, &opargs->k, &opargs->s);
+}
+
+static int
+do_read_entries(void *args)
+{
+    int ret;
+    size_t entsize, size;
+    struct back_end_iter *iter;
+    struct db_key k;
+    struct op_args *opargs = (struct op_args *)args;
+
+    ret = back_end_iter_new(&iter, opargs->be);
+    if (ret != 0)
+        return ret;
+
+    k.type = TYPE_DIRENT;
+    k.ino = opargs->odir->ino;
+    strlcpy(k.name, opargs->odir->name, sizeof(k.name));
+
+    ret = back_end_iter_search(iter, &k);
+    if (ret < 0)
+        goto err;
+
+    for (size = 0; size < opargs->size; size += entsize) {
+    }
+
+    back_end_iter_free(iter);
+
+    return 0;
+
+err:
+    back_end_iter_free(iter);
+    return ret;
 }
 
 static void
@@ -438,8 +531,8 @@ simplefs_getattr(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
 
     ret = do_back_end_op(priv, &do_look_up, &opargs);
     if (ret != 1) {
-        fuse_reply_err(req, (ret == 0) ? ENOENT : -ret);
-        return;
+        ret = (ret == 0) ? ENOENT : -ret;
+        goto err;
     }
 
     attr.st_dev = opargs.s.st_dev;
@@ -456,13 +549,99 @@ simplefs_getattr(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
     deserialize_ts(&attr.st_mtim, &opargs.s.st_mtim);
     deserialize_ts(&attr.st_ctim, &opargs.s.st_ctim);
 
-    fuse_reply_attr(req, &attr, 0.0);
+    ret = fuse_reply_attr(req, &attr, 0.0);
+    if (ret != 0)
+        goto err;
+
+    return 0;
+
+err:
+    fuse_reply_err(req, ret);
+}
+
+static void
+simplefs_opendir(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
+{
+    int ret;
+    struct open_dir *odir;
+
+    odir = do_malloc(sizeof(*odir));
+    if (odir == NULL) {
+        ret = errno;
+        goto err;
+    }
+
+    odir->ino = ino;
+    odir->cur_name[0] = '\0';
+
+    fi->fh = (uintptr_t)odir;
+
+    ret = -fuse_reply_open(req, fi);
+    if (ret != 0) {
+        free(odir);
+        goto err;
+    }
+
+    return;
+
+err:
+    fuse_reply_err(req, ret);
+}
+
+static void
+simplefs_readdir(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off,
+                 struct fuse_file_info *fi)
+{
+    char *buf;
+    int ret;
+    struct fspriv *priv;
+    struct mount_data *md = fuse_req_userdata(req);
+    struct op_args opargs;
+
+    buf = do_malloc(size);
+    if (buf == NULL) {
+        ret = errno;
+        goto err;
+    }
+
+    opars.be = priv->be;
+
+    opargs.odir = (struct open_dir *)(fi->fh);
+    opargs.buf = buf;
+    opargs.size = size;
+    opargs.off = off;
+
+    ret = -do_back_end_op(priv, &do_read_entries, &opargs);
+    if (ret != 0) {
+        free(buf);
+        goto err;
+    }
+
+    return;
+
+err:
+    fuse_reply_err(req, ret);
+}
+
+static void
+simplefs_releasedir(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
+{
+    struct open_dir *odir;
+
+    (void)ino;
+
+    odir = (struct open_dir *)(fi->fh);
+
+    free(odir);
 }
 
 struct fuse_lowlevel_ops simplefs_ops = {
     .init       = &simplefs_init,
     .destroy    = &simplefs_destroy,
-    .getattr    = &simplefs_getattr
+    .getattr    = &simplefs_getattr,
+    .opendir    = &simplefs_opendir,
+    .readdir    = &simplefs_readdir,
+    .releasedir = &simplefs_releasedir
 };
 
 /* vi: set expandtab sw=4 ts=4: */
