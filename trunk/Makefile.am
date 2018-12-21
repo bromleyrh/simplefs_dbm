@@ -11,7 +11,7 @@ bin_PROGRAMS = simplefs
 if DEBUG
 AM_CFLAGS = -ggdb3 -O0 -pipe
 else
-AM_CFLAGS = -O2 -pipe
+AM_CFLAGS = -DNDEBUG -O2 -pipe
 endif
 
 simplefs_SOURCES = back_end.c ops.c simplefs.c util.c
