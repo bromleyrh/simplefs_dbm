@@ -17,6 +17,7 @@
 
 #include <assert.h>
 #include <errno.h>
+#include <inttypes.h>
 #include <limits.h>
 #include <pthread.h>
 #include <stdarg.h>
@@ -322,22 +323,23 @@ dump_cb(const void *key, const void *data, size_t datasize, void *ctx)
         assert(datasize == sizeof(*hdr));
         hdr = (struct db_obj_header *)data;
 
-        fprintf(stderr, "Header: next_ino %lu\n",
-                (unsigned long)(hdr->next_ino));
+        fprintf(stderr, "Header: next_ino %" PRIu64 "\n", hdr->next_ino);
         break;
     case TYPE_DIRENT:
         assert(datasize == sizeof(*de));
         de = (struct db_obj_dirent *)data;
 
-        fprintf(stderr, "Directory entry: directory %lu, name %s -> node %lu\n",
-                k->ino, k->name, de->ino);
+        fprintf(stderr, "Directory entry: directory %" PRIu64 ", name %s -> "
+                        "node %" PRIu64 "\n",
+                (uint64_t)(k->ino), k->name, (uint64_t)(de->ino));
         break;
     case TYPE_STAT:
         assert(datasize == sizeof(*s));
         s = (struct db_obj_stat *)data;
 
-        fprintf(stderr, "I-node entry: node %lu -> st_ino %lu \n", k->ino,
-                s->st_ino);
+        fprintf(stderr, "I-node entry: node %" PRIu64 " -> st_ino %" PRIu64
+                        "\n",
+                (uint64_t)(k->ino), (uint64_t)(s->st_ino));
         break;
     default:
         abort();
@@ -879,7 +881,7 @@ simplefs_readdir(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off,
     struct fspriv *priv;
     struct mount_data *md = fuse_req_userdata(req);
     struct op_args opargs;
-    struct open_dir *odir = (struct open_dir *)(fi->fh);
+    struct open_dir *odir = (struct open_dir *)(uintptr_t)(fi->fh);
 
     if ((off > 0) && (odir->cur_name[0] == '\0')) {
         ret = fuse_reply_buf(req, NULL, 0);
@@ -929,7 +931,7 @@ simplefs_releasedir(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
 
     (void)ino;
 
-    odir = (struct open_dir *)(fi->fh);
+    odir = (struct open_dir *)(uintptr_t)(fi->fh);
 
     free(odir);
 
