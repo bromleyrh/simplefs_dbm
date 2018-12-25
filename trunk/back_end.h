@@ -46,6 +46,8 @@ int back_end_replace(struct back_end *be, const void *key, const void *data,
 int back_end_look_up(struct back_end *be, const void *key, void *retkey,
                      void *retdata);
 
+int back_end_delete(struct back_end *be, const void *key);
+
 int back_end_walk(struct back_end *be, back_end_walk_cb_t fn, void *ctx);
 
 int back_end_iter_new(struct back_end_iter **iter, struct back_end *be);

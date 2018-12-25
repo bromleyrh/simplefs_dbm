@@ -7,6 +7,7 @@
 #include "simplefs.h"
 #include "util.h"
 
+#include <avl_tree.h>
 #include <fifo.h>
 #include <strings_ext.h>
 
@@ -26,22 +27,38 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <unistd.h>
 
 #include <sys/mount.h>
 #include <sys/stat.h>
+#include <sys/types.h>
+#include <sys/wait.h>
 
-struct fspriv {
-    struct back_end *be;
-    struct fifo     *db_queue;
-    pthread_t       worker_td;
+struct ref_inodes {
+    struct avl_tree *ref_inodes;
+    pthread_mutex_t ref_inodes_mtx;
 };
 
-struct db_queue_elem {
+struct fspriv {
+    struct back_end     *be;
+    struct fifo         *queue;
+    pthread_t           worker_td;
+    struct ref_inodes   ref_inodes;
+};
+
+struct queue_elem {
     int             (*op)(void *);
     void            *args;
     pthread_mutex_t mtx;
     pthread_cond_t  cv;
     int             ret;
+};
+
+struct ref_ino {
+    fuse_ino_t  ino;
+    uint64_t    nlink;
+    uint64_t    refcnt;
+    uint64_t    nlookup;
 };
 
 enum db_obj_type {
@@ -85,16 +102,22 @@ struct db_obj_stat {
     struct disk_timespec    st_atim;
     struct disk_timespec    st_mtim;
     struct disk_timespec    st_ctim;
+    uint32_t                num_ents;
 } __attribute__((packed));
 
 struct op_args {
     fuse_req_t          req;
     struct back_end     *be;
-    struct db_key       k;
-    struct db_obj_stat  s;
-    /* mkdir() */
+    struct ref_inodes   *ref_inodes;
+    struct ref_ino      *refinop;
+    fuse_ino_t          ino;
     fuse_ino_t          parent;
     const char          *name;
+    struct db_key       k;
+    struct db_obj_stat  s;
+    /* forget() */
+    unsigned long       nlookup;
+    /* mkdir() */
     mode_t              mode;
     struct stat         attr;
     /* readdir() */
@@ -128,15 +151,23 @@ static int uint64_cmp(uint64_t, uint64_t);
 static int db_key_cmp(const void *, const void *, struct back_end_key_ctx *);
 
 static void *worker_td(void *);
-
-static int do_back_end_op(struct fspriv *, int (*)(void *), void *);
-
+static int do_queue_op(struct fspriv *, int (*)(void *), void *);
 static int join_worker(struct fspriv *);
 
 static int dump_cb(const void *, const void *, size_t, void *);
 static int dump_db(struct back_end *);
 
+static int ref_inode_cmp(const void *, const void *, void *);
+
+static void adj_refcnt(uint64_t *, int32_t);
 static int get_next_ino(struct back_end *, fuse_ino_t *);
+static int unref_inode(struct back_end *, struct ref_inodes *, struct ref_ino *,
+                       int32_t, int32_t, int32_t);
+static int free_ref_inodes_cb(const void *, void *);
+
+static int inc_refcnt(struct ref_inodes *, fuse_ino_t, int32_t, int32_t,
+                      struct ref_ino **);
+static int dec_refcnt(struct ref_inodes *, int32_t, int32_t, struct ref_ino *);
 
 static void do_set_ts(struct disk_timespec *);
 static void set_ts(struct disk_timespec *, struct disk_timespec *,
@@ -145,23 +176,33 @@ static void deserialize_ts(struct timespec *, struct disk_timespec *);
 
 static void deserialize_stat(struct stat *, struct db_obj_stat *);
 
+static int fusermount_unmount(const char *);
 static void abort_init(struct mount_data *, int, const char *, ...);
 
-static int new_dir(struct back_end *, fuse_ino_t, const char *, uid_t, gid_t,
-                   mode_t, struct stat *);
+static int new_dir(struct back_end *, struct ref_inodes *, fuse_ino_t,
+                   const char *, uid_t, gid_t, mode_t, struct stat *,
+                   struct ref_ino **);
 
 static int new_dir_link(struct back_end *, fuse_ino_t, fuse_ino_t,
                         const char *);
+static int rem_dir_link(struct back_end *, struct ref_inodes *, fuse_ino_t,
+                        fuse_ino_t, const char *);
 
+static int do_forget(void *);
 static int do_look_up(void *);
 static int do_create_dir(void *);
+static int do_remove_dir(void *);
 static int do_read_entries(void *);
+static int do_open(void *);
+static int do_close(void *);
 
 static void simplefs_init(void *, struct fuse_conn_info *);
 static void simplefs_destroy(void *);
 static void simplefs_lookup(fuse_req_t, fuse_ino_t, const char *name);
+static void simplefs_forget(fuse_req_t, fuse_ino_t, unsigned long);
 static void simplefs_getattr(fuse_req_t, fuse_ino_t, struct fuse_file_info *);
 static void simplefs_mkdir(fuse_req_t, fuse_ino_t, const char *, mode_t);
+static void simplefs_rmdir(fuse_req_t, fuse_ino_t, const char *);
 static void simplefs_opendir(fuse_req_t, fuse_ino_t, struct fuse_file_info *);
 static void simplefs_readdir(fuse_req_t, fuse_ino_t, size_t, off_t,
                              struct fuse_file_info *);
@@ -228,14 +269,14 @@ static void *
 worker_td(void *args)
 {
     int ret;
-    struct db_queue_elem *op;
     struct fspriv *priv;
     struct mount_data *md = (struct mount_data *)args;
+    struct queue_elem *op;
 
     priv = md->priv;
 
     for (;;) {
-        ret = fifo_get(priv->db_queue, &op);
+        ret = fifo_get(priv->queue, &op);
         if (ret != 0)
             break;
         if (op->op == NULL)
@@ -253,10 +294,10 @@ worker_td(void *args)
 }
 
 static int
-do_back_end_op(struct fspriv *fspriv, int (*op_fn)(void *), void *args)
+do_queue_op(struct fspriv *fspriv, int (*op_fn)(void *), void *args)
 {
     int err;
-    struct db_queue_elem op, *opp;
+    struct queue_elem op, *opp;
 
     err = -pthread_mutex_init(&op.mtx, NULL);
     if (err)
@@ -271,7 +312,7 @@ do_back_end_op(struct fspriv *fspriv, int (*op_fn)(void *), void *args)
     op.ret = OP_RET_NONE;
 
     opp = &op;
-    err = fifo_put(fspriv->db_queue, &opp);
+    err = fifo_put(fspriv->queue, &opp);
     if (err)
         goto err2;
 
@@ -296,12 +337,12 @@ static int
 join_worker(struct fspriv *priv)
 {
     int err;
-    struct db_queue_elem op, *opp;
+    struct queue_elem op, *opp;
     void *retval;
 
     op.op = NULL;
     opp = &op;
-    err = fifo_put(priv->db_queue, &opp);
+    err = fifo_put(priv->queue, &opp);
     if (err)
         return err;
 
@@ -361,6 +402,22 @@ dump_db(struct back_end *be)
 }
 
 static int
+ref_inode_cmp(const void *k1, const void *k2, void *ctx)
+{
+    struct ref_ino *ino1 = *(struct ref_ino **)k1;
+    struct ref_ino *ino2 = *(struct ref_ino **)k2;
+
+    return uint64_cmp(ino1->ino, ino2->ino);
+}
+
+static void
+adj_refcnt(uint64_t *refcnt, int32_t delta)
+{
+    if (delta != 0)
+        *refcnt = (delta == -INT_MAX) ? 0 : (*refcnt + delta);
+}
+
+static int
 get_next_ino(struct back_end *be, fuse_ino_t *ino)
 {
     fuse_ino_t ret;
@@ -385,6 +442,114 @@ get_next_ino(struct back_end *be, fuse_ino_t *ino)
 
     *ino = ret;
     return 0;
+}
+
+static int
+unref_inode(struct back_end *be, struct ref_inodes *ref_inodes,
+            struct ref_ino *ino, int32_t nlink, int32_t nref, int32_t nlookup)
+{
+    int ret;
+    struct db_key k;
+    struct db_obj_stat s;
+
+    k.type = TYPE_STAT;
+    k.ino = ino->ino;
+    ret = back_end_look_up(be, &k, NULL, &s);
+    if (ret != 1)
+        return (ret == 0) ? -ENOENT : ret;
+
+    pthread_mutex_lock(&ref_inodes->ref_inodes_mtx);
+    adj_refcnt(&s.st_ino, nlink);
+    adj_refcnt(&ino->refcnt, nref);
+    adj_refcnt(&ino->nlookup, nlookup);
+    pthread_mutex_unlock(&ref_inodes->ref_inodes_mtx);
+
+    if ((s.st_ino == 0) && (ino->refcnt == 0) && (ino->nlookup == 0))
+        return back_end_delete(be, &k);
+
+    if (nlink != 0)
+        return back_end_replace(be, &k, &s, sizeof(s));
+
+    return 0;
+}
+
+static int
+free_ref_inodes_cb(const void *keyval, void *ctx)
+{
+    struct fspriv *priv = (struct fspriv *)ctx;
+    struct ref_ino *ino = *(struct ref_ino **)keyval;
+
+    unref_inode(priv->be, &priv->ref_inodes, ino, 0, -INT_MAX, -INT_MAX);
+
+    free(ino);
+
+    return 0;
+}
+
+static int
+inc_refcnt(struct ref_inodes *ref_inodes, fuse_ino_t ino, int32_t nref,
+           int32_t nlookup, struct ref_ino **inop)
+{
+    int ret;
+    struct ref_ino refino, *refinop = NULL;
+
+    pthread_mutex_lock(&ref_inodes->ref_inodes_mtx);
+
+    refino.ino = ino;
+    refinop = &refino;
+
+    ret = avl_tree_search(ref_inodes->ref_inodes, &refinop, &refinop);
+    if (ret == 1) {
+        adj_refcnt(&refinop->refcnt, nref);
+        adj_refcnt(&refinop->nlookup, nlookup);
+    } else {
+        refinop = do_malloc(sizeof(*refinop));
+        if (refinop == NULL) {
+            ret = -errno;
+            goto err;
+        }
+
+        refinop->ino = ino;
+        refinop->refcnt = nref;
+        refinop->nlookup = nlookup;
+
+        ret = avl_tree_insert(ref_inodes->ref_inodes, &refinop);
+        if (ret != 0) {
+            free(refinop);
+            goto err;
+        }
+    }
+
+    pthread_mutex_unlock(&ref_inodes->ref_inodes_mtx);
+
+    *inop = refinop;
+    return 0;
+
+err:
+    pthread_mutex_unlock(&ref_inodes->ref_inodes_mtx);
+    return ret;
+}
+
+static int
+dec_refcnt(struct ref_inodes *ref_inodes, int32_t nref, int32_t nlookup,
+           struct ref_ino *inop)
+{
+    int err = 0;
+
+    pthread_mutex_lock(&ref_inodes->ref_inodes_mtx);
+
+    adj_refcnt(&inop->refcnt, -nref);
+    adj_refcnt(&inop->nlookup, -nlookup);
+
+    if ((inop->refcnt == 0) && (inop->nlookup == 0)) {
+        err = avl_tree_delete(ref_inodes->ref_inodes, &inop);
+        if (!err)
+            free(inop);
+    }
+
+    pthread_mutex_unlock(&ref_inodes->ref_inodes_mtx);
+
+    return err;
 }
 
 static void
@@ -436,6 +601,31 @@ deserialize_stat(struct stat *s, struct db_obj_stat *ds)
     deserialize_ts(&s->st_ctim, &ds->st_ctim);
 }
 
+static int
+fusermount_unmount(const char *name)
+{
+    int status;
+    pid_t pid;
+
+    pid = fork();
+    if (pid == 0) {
+        execlp("fusermount", "fusermount", "-u", name, NULL);
+        abort();
+    }
+    if (pid == -1)
+        return -errno;
+
+    if (waitpid(pid, &status, 0) == -1)
+        return -errno;
+
+    if (!WIFEXITED(status))
+        return -EIO;
+
+    status = WEXITSTATUS(status);
+
+    return (status == 0) ? 0 : -EIO;
+}
+
 static void
 abort_init(struct mount_data *md, int err, const char *fmt, ...)
 {
@@ -445,30 +635,32 @@ abort_init(struct mount_data *md, int err, const char *fmt, ...)
     verror(err, fmt, ap);
     va_end(ap);
 
-    if (umount(md->mountpoint) == -1)
+    if (fusermount_umount(md->mountpoint) == -1)
         abort();
 }
 
 static int
-new_dir(struct back_end *be, fuse_ino_t parent, const char *name, uid_t uid,
-        gid_t gid, mode_t mode, struct stat *attr)
+new_dir(struct back_end *be, struct ref_inodes *ref_inodes, fuse_ino_t parent,
+        const char *name, uid_t uid, gid_t gid, mode_t mode, struct stat *attr,
+        struct ref_ino **inop)
 {
     fuse_ino_t ino;
-    int err;
+    int ret;
     int rootdir = (parent == 0);
     struct db_key k;
     struct db_obj_stat s;
+    struct ref_ino *refinop;
 
-    err = back_end_trans_new(be);
-    if (err)
-        return err;
+    ret = back_end_trans_new(be);
+    if (ret != 0)
+        return ret;
 
     if (rootdir)
         parent = ino = FUSE_ROOT_ID;
     else {
-        err = get_next_ino(be, &ino);
-        if (err)
-            return err;
+        ret = get_next_ino(be, &ino);
+        if (ret != 0)
+            return ret;
     }
 
     k.type = TYPE_STAT;
@@ -477,7 +669,7 @@ new_dir(struct back_end *be, fuse_ino_t parent, const char *name, uid_t uid,
     s.st_dev = 64 * 1024;
     s.st_ino = ino;
     s.st_mode = S_IFDIR | (mode & ALLPERMS);
-    s.st_nlink = 2;
+    s.st_nlink = 0;
     s.st_uid = uid;
     s.st_gid = gid;
     s.st_rdev = 0;
@@ -485,44 +677,77 @@ new_dir(struct back_end *be, fuse_ino_t parent, const char *name, uid_t uid,
     s.st_blksize = PGSIZE;
     s.st_blocks = 0;
     set_ts(&s.st_atim, &s.st_mtim, &s.st_ctim);
+    s.num_ent = 0;
 
-    err = back_end_insert(be, &k, &s, sizeof(s));
-    if (err)
-        goto err;
+    ret = back_end_insert(be, &k, &s, sizeof(s));
+    if (ret != 0)
+        goto err1;
 
-    err = new_dir_link(be, ino, ino, NAME_CUR_DIR);
-    if (err)
-        goto err;
-    err = new_dir_link(be, parent, ino, NAME_PARENT_DIR);
-    if (err)
-        goto err;
+    ret = new_dir_link(be, ino, ino, NAME_CUR_DIR);
+    if (ret != 0)
+        goto err1;
+    ret = new_dir_link(be, parent, ino, NAME_PARENT_DIR);
+    if (ret != 0)
+        goto err1;
 
     if (!rootdir) {
-        err = new_dir_link(be, ino, parent, name);
-        if (err)
-            goto err;
+        ret = new_dir_link(be, ino, parent, name);
+        if (ret != 0)
+            goto err1;
     }
 
-    err = back_end_trans_commit(be);
-    if (err)
-        goto err;
+    if (ref_inodes != NULL) {
+        ret = inc_refcnt(ref_inodes, ino, 0, 1, &refinop);
+        if (ret != 0)
+            goto err1;
+    }
+
+    if (!rootdir) {
+        struct db_obj_stat ps;
+
+        k.ino = parent;
+
+        ret = back_end_look_up(be, &k, &ps, sizeof(ps));
+        if (ret != 1) {
+            if (ret == 0)
+                ret = -ENOENT;
+            goto err2;
+        }
+
+        ++(ps.num_ents);
+
+        ret = back_end_replace(be, &k, &ps, sizeof(ps));
+        if (ret != 0)
+            goto err2;
+    }
+
+    ret = back_end_trans_commit(be);
+    if (ret != 0)
+        goto err2;
 
     if (attr != NULL)
         deserialize_stat(attr, &s);
+    if (ref_inodes != NULL)
+        *inop = refinop;
 
     return 0;
 
-err:
+err2:
+    if (ref_inodes != NULL)
+        dec_refcnt(ref_inodes, 0, -1, refinop);
+err1:
     back_end_trans_abort(be);
-    return err;
+    return ret;
 }
 
 static int
 new_dir_link(struct back_end *be, fuse_ino_t ino, fuse_ino_t newparent,
              const char *newname)
 {
+    int ret;
     struct db_key k;
     struct db_obj_dirent de;
+    struct db_obj_stat s;
 
     k.type = TYPE_DIRENT;
     k.ino = newparent;
@@ -530,7 +755,71 @@ new_dir_link(struct back_end *be, fuse_ino_t ino, fuse_ino_t newparent,
 
     de.ino = ino;
 
-    return back_end_insert(be, &k, &de, sizeof(de));
+    ret = back_end_insert(be, &k, &de, sizeof(de));
+    if (ret != 0)
+        return ret;
+
+    k.type = TYPE_STAT;
+    k.ino = ino;
+
+    ret = back_end_look_up(be, &k, NULL, &s);
+    if (ret != 1)
+        return (ret == 0) ? -ENOENT : ret;
+
+    ++(s.st_nlink);
+
+    return back_end_replace(be, &k, &s, sizeof(s));
+}
+
+static int
+rem_dir_link(struct back_end *be, struct ref_inodes *ref_inodes, fuse_ino_t ino,
+             fuse_ino_t parent, const char *name)
+{
+    int ret;
+    struct db_key k;
+    struct db_obj_stat s;
+
+    k.type = TYPE_DIRENT;
+    k.ino = parent;
+    strlcpy(k.name, name, sizeof(k.name));
+
+    ret = back_end_delete(be, &k);
+    if (ret != 0)
+        return ret;
+
+    k.type = TYPE_STAT;
+    k.ino = ino;
+
+    ret = back_end_look_up(be, &k, NULL, &s);
+    if (ret != 1)
+        return (ret == 0) ? -ENOENT : ret;
+
+    --(s.st_nlink);
+
+    if (s.st_nlink > 0)
+        return back_end_replace(be, &k, &s, sizeof(s));
+
+    return 0;
+}
+
+static int
+do_forget(void *args)
+{
+    int ret;
+    struct op_args *opargs = (struct op_args *)args;
+    struct ref_ino refino, *refinop;
+
+    refino.ino = opargs->ino;
+    refinop = &refino;
+
+    pthread_mutex_lock(&opargs->ref_inodes->ref_inodes_mtx);
+    ret = avl_tree_search(opargs->ref_inodes->ref_inodes, &refinop, &refinop);
+    pthread_mutex_unlock(&opargs->ref_inodes->ref_inodes_mtx);
+    if (ret != 1)
+        return (ret == 0) ? -ENOENT : ret;
+
+    return unref_inode(opargs->be, opargs->ref_inodes, refinop, 0, 0,
+                       -(opargs->nlookup));
 }
 
 static int
@@ -566,14 +855,38 @@ do_create_dir(void *args)
     struct fuse_context *ctx = fuse_get_context();
     struct op_args *opargs = (struct op_args *)args;
 
-    err = new_dir(opargs->be, opargs->parent, opargs->name, ctx->uid, ctx->gid,
-                  opargs->mode & ~(ctx->umask), &opargs->attr);
+    err = new_dir(opargs->be, opargs->ref_inodes, opargs->ino, opargs->name,
+                  ctx->uid, ctx->gid, opargs->mode & ~(ctx->umask),
+                  &opargs->attr, &opargs->refinop);
     if (err)
         return err;
 
     dump_db(opargs->be);
 
     return 0;
+}
+
+static int
+do_remove_dir(void *args)
+{
+    int ret;
+    struct db_key k;
+    struct db_obj_stat s;
+    struct op_args *opargs = (struct op_args *)args;
+
+    k.type = TYPE_STAT;
+    k.ino = opargs->ino;
+    ret = back_end_look_up(opargs->be, &k, NULL, &s);
+    if (ret != 0)
+        return ret;
+    if (s.num_ents != 0)
+        return -ENOTEMPTY;
+
+    ret = back_end_trans_new(opargs->be);
+    if (ret != 0)
+        return ret;
+
+    return back_end_trans_commit(opargs->be);
 }
 
 static int
@@ -650,6 +963,43 @@ err:
     return ret;
 }
 
+static int
+do_open(void *args)
+{
+    int ret;
+    struct db_key k;
+    struct db_obj_stat s;
+    struct op_args *opargs = (struct op_args *)args;
+
+    k.type = TYPE_STAT;
+    k.ino = opargs->ino;
+
+    ret = back_end_look_up(opargs->be, &k, NULL, &s);
+    if (ret != 1)
+        return (ret == 0) ? -ENOENT : ret;
+
+    return inc_refcnt(opargs->ref_inodes, opargs->ino, 1, 0, &opargs->refinop);
+}
+
+static int
+do_close(void *args)
+{
+    int ret;
+    struct op_args *opargs = (struct op_args *)args;
+    struct ref_ino refino, *refinop;
+
+    refino.ino = opargs->ino;
+    refinop = &refino;
+
+    pthread_mutex_lock(&opargs->ref_inodes->ref_inodes_mtx);
+    ret = avl_tree_search(opargs->ref_inodes->ref_inodes, &refinop, &refinop);
+    pthread_mutex_unlock(&opargs->ref_inodes->ref_inodes_mtx);
+    if (ret != 1)
+        return (ret == 0) ? -ENOENT : ret;
+
+    return unref_inode(opargs->be, opargs->ref_inodes, refinop, 0, -1, 0);
+}
+
 static void
 simplefs_init(void *userdata, struct fuse_conn_info *conn)
 {
@@ -667,7 +1017,7 @@ simplefs_init(void *userdata, struct fuse_conn_info *conn)
         goto err1;
     }
 
-    err = fifo_new(&priv->db_queue, sizeof(struct db_queue_elem *), 1024);
+    err = fifo_new(&priv->queue, sizeof(struct queue_elem *), 1024);
     if (err)
         goto err2;
 
@@ -694,24 +1044,36 @@ simplefs_init(void *userdata, struct fuse_conn_info *conn)
             goto err4;
 
         /* create root directory */
-        err = new_dir(priv->be, 0, NULL, ctx->uid, ctx->gid,
-                      ACCESSPERMS & ~(ctx->umask), NULL);
+        err = new_dir(priv->be, NULL, 0, NULL, ctx->uid, ctx->gid,
+                      ACCESSPERMS & ~(ctx->umask), NULL, NULL);
         if (err)
             goto err4;
     }
+
+    err = avl_tree_new(&priv->ref_inodes.ref_inodes, sizeof(struct ref_ino *),
+                       &ref_inode_cmp, 0, NULL, NULL, NULL);
+    if (err)
+        goto err4;
+    err = -pthread_mutex_init(&priv->ref_inodes.ref_inodes_mtx, NULL);
+    if (err)
+        goto err5;
 
     md->priv = priv;
 
     err = -pthread_create(&priv->worker_td, NULL, &worker_td, md);
     if (err)
-        goto err4;
+        goto err6;
 
     return;
 
+err6:
+    pthread_mutex_destroy(&priv->ref_inodes.ref_inodes_mtx);
+err5:
+    avl_tree_free(priv->ref_inodes.ref_inodes);
 err4:
     back_end_close(priv->be);
 err3:
-    fifo_free(priv->db_queue);
+    fifo_free(priv->queue);
 err2:
     free(priv);
 err1:
@@ -721,6 +1083,7 @@ err1:
 static void
 simplefs_destroy(void *userdata)
 {
+    avl_tree_walk_ctx_t wctx = NULL;
     struct fspriv *priv;
     struct mount_data *md = (struct mount_data *)userdata;
 
@@ -728,9 +1091,14 @@ simplefs_destroy(void *userdata)
 
     join_worker(priv);
 
+    avl_tree_walk(priv->ref_inodes.ref_inodes, NULL, &free_ref_inodes_cb, priv,
+                  &wctx);
+    avl_tree_free(priv->ref_inodes.ref_inodes);
+    pthread_mutex_destroy(&priv->ref_inodes.ref_inodes_mtx);
+
     back_end_close(priv->be);
 
-    fifo_free(priv->db_queue);
+    fifo_free(priv->queue);
 
     free(priv);
 }
@@ -743,6 +1111,7 @@ simplefs_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
     struct fuse_entry_param e;
     struct mount_data *md = fuse_req_userdata(req);
     struct op_args opargs;
+    struct ref_ino *refinop;
 
     priv = (struct fspriv *)(md->priv);
 
@@ -752,24 +1121,51 @@ simplefs_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
     opargs.k.ino = parent;
     strlcpy(opargs.k.name, name, sizeof(opargs.k.name));
 
-    ret = do_back_end_op(priv, &do_look_up, &opargs);
+    ret = do_queue_op(priv, &do_look_up, &opargs);
     if (ret != 1) {
         ret = (ret == 0) ? ENOENT : -ret;
         goto err;
     }
+
+    ret = inc_refcnt(&priv->ref_inodes, opargs.s.st_ino, 0, 1, &refinop);
+    if (ret != 0)
+        goto err;
 
     e.ino = opargs.s.st_ino;
     deserialize_stat(&e.attr, &opargs.s);
     e.attr_timeout = e.entry_timeout = 600.0;
 
     ret = fuse_reply_entry(req, &e);
-    if (ret != 0)
+    if (ret != 0) {
+        dec_refcnt(&priv->ref_inodes, 0, -1, refinop);
         goto err;
+    }
 
     return;
 
 err:
-    fuse_reply_err(req, ret);
+    fuse_reply_err(req, -ret);
+}
+
+static void
+simplefs_forget(fuse_req_t req, fuse_ino_t ino, unsigned long nlookup)
+{
+    int ret;
+    struct fspriv *priv;
+    struct mount_data *md = fuse_req_userdata(req);
+    struct op_args opargs;
+
+    priv = (struct fspriv *)(md->priv);
+
+    opargs.be = priv->be;
+    opargs.ref_inodes = &priv->ref_inodes;
+
+    opargs.ino = ino;
+    opargs.nlookup = nlookup;
+
+    do_queue_op(priv, &do_forget, &opargs);
+
+    fuse_reply_none(req);
 }
 
 static void
@@ -790,7 +1186,7 @@ simplefs_getattr(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
     opargs.k.type = TYPE_STAT;
     opargs.k.ino = ino;
 
-    ret = do_back_end_op(priv, &do_look_up, &opargs);
+    ret = do_queue_op(priv, &do_look_up, &opargs);
     if (ret != 1) {
         ret = (ret == 0) ? ENOENT : -ret;
         goto err;
@@ -805,7 +1201,7 @@ simplefs_getattr(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
     return;
 
 err:
-    fuse_reply_err(req, ret);
+    fuse_reply_err(req, -ret);
 }
 
 static void
@@ -820,12 +1216,13 @@ simplefs_mkdir(fuse_req_t req, fuse_ino_t parent, const char *name, mode_t mode)
     priv = (struct fspriv *)(md->priv);
 
     opargs.be = priv->be;
+    opargs.ref_inodes = &priv->ref_inodes;
 
-    opargs.parent = parent;
+    opargs.ino = parent;
     opargs.name = name;
     opargs.mode = mode;
 
-    ret = do_back_end_op(priv, &do_create_dir, &opargs);
+    ret = do_queue_op(priv, &do_create_dir, &opargs);
     if (ret != 0)
         goto err;
 
@@ -834,6 +1231,46 @@ simplefs_mkdir(fuse_req_t req, fuse_ino_t parent, const char *name, mode_t mode)
     e.attr = opargs.attr;
     e.attr_timeout = e.entry_timeout = 600.0;
     ret = fuse_reply_entry(req, &e);
+    if (ret != 0) {
+        dec_refcnt(&priv->ref_inodes, 0, -1, opargs.refinop);
+        goto err;
+    }
+
+    return;
+
+err:
+    fuse_reply_err(req, -ret);
+}
+
+static void
+simplefs_rmdir(fuse_req_t req, fuse_ino_t parent, const char *name)
+{
+    int ret;
+    struct fspriv *priv;
+    struct mount_data *md = fuse_req_userdata(req);
+    struct op_args opargs;
+
+    priv = md->priv;
+
+    opargs.be = priv->be;
+
+    opargs.k.type = TYPE_DIRENT;
+    opargs.k.ino = parent;
+    strlcpy(opargs.k.name, name, sizeof(opargs.k.name));
+
+    ret = do_queue_op(priv, &do_look_up, &opargs);
+    if (ret != 0)
+        goto err;
+
+    opargs.parent = parent;
+    opargs.ino = opargs.s.st_ino;
+    opargs.name = name;
+
+    ret = do_queue_op(priv, &do_remove_dir, &opargs);
+    if (ret != 0)
+        goto err;
+
+    ret = fuse_reply_err(req, 0);
     if (ret != 0)
         goto err;
 
@@ -847,12 +1284,26 @@ static void
 simplefs_opendir(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
 {
     int ret;
+    struct fspriv *priv;
+    struct mount_data *md = fuse_req_userdata(req);
+    struct op_args opargs;
     struct open_dir *odir;
+
+    priv = md->priv;
+
+    opargs.be = priv->be;
+    opargs.ref_inodes = &priv->ref_inodes;
+
+    opargs.ino = ino;
+
+    ret = do_queue_op(priv, &do_open, &opargs);
+    if (ret != 0)
+        goto err1;
 
     odir = do_malloc(sizeof(*odir));
     if (odir == NULL) {
         ret = errno;
-        goto err;
+        goto err2;
     }
 
     odir->ino = ino;
@@ -861,15 +1312,17 @@ simplefs_opendir(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
     fi->fh = (uintptr_t)odir;
 
     ret = -fuse_reply_open(req, fi);
-    if (ret != 0) {
-        free(odir);
-        goto err;
-    }
+    if (ret != 0)
+        goto err3;
 
     return;
 
-err:
-    fuse_reply_err(req, ret);
+err3:
+    free(odir);
+err2:
+    do_queue_op(priv, &do_close, &opargs);
+err1:
+    fuse_reply_err(req, -ret);
 }
 
 static void
@@ -907,7 +1360,7 @@ simplefs_readdir(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off,
     opargs.bufsize = size;
     opargs.off = off;
 
-    ret = -do_back_end_op(priv, &do_read_entries, &opargs);
+    ret = do_queue_op(priv, &do_read_entries, &opargs);
     if (ret != 0) {
         free(buf);
         goto err;
@@ -921,29 +1374,44 @@ simplefs_readdir(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off,
     return;
 
 err:
-    fuse_reply_err(req, ret);
+    fuse_reply_err(req, -ret);
 }
 
 static void
 simplefs_releasedir(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
 {
+    int ret;
+    struct fspriv *priv;
+    struct mount_data *md = fuse_req_userdata(req);
+    struct op_args opargs;
     struct open_dir *odir;
 
     (void)ino;
 
+    priv = md->priv;
+
     odir = (struct open_dir *)(uintptr_t)(fi->fh);
+
+    opargs.be = priv->be;
+    opargs.ref_inodes = &priv->ref_inodes;
+
+    opargs.ino = ino;
+
+    ret = do_queue_op(priv, &do_close, &opargs);
 
     free(odir);
 
-    fuse_reply_err(req, 0);
+    fuse_reply_err(req, -ret);
 }
 
 struct fuse_lowlevel_ops simplefs_ops = {
     .init       = &simplefs_init,
     .destroy    = &simplefs_destroy,
     .lookup     = &simplefs_lookup,
+    .forget     = &simplefs_forget,
     .getattr    = &simplefs_getattr,
     .mkdir      = &simplefs_mkdir,
+    .rmdir      = &simplefs_rmdir,
     .opendir    = &simplefs_opendir,
     .readdir    = &simplefs_readdir,
     .releasedir = &simplefs_releasedir

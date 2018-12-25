@@ -243,6 +243,14 @@ back_end_look_up(struct back_end *be, const void *key, void *retkey,
 }
 
 int
+back_end_delete(struct back_end *be, const void *key)
+{
+    struct db_ctx *dbctx = (struct db_ctx *)(be->ctx);
+
+    return db_delete(dbctx->db, key);
+}
+
+int
 back_end_walk(struct back_end *be, back_end_walk_cb_t fn, void *ctx)
 {
     struct db_ctx *dbctx = (struct db_ctx *)(be->ctx);
