@@ -94,15 +94,18 @@ init_fuse(int argc, char **argv, struct fuse_data *fusedata)
         goto err1;
     }
 
+    if ((fuse_opt_add_arg(&args, "-o") == -1)
+        || (fuse_opt_add_arg(&args, "auto_unmount") == -1)) {
+        errmsg = "Out of memory";
+        goto err1;
+    }
+
     err = -EIO;
     errmsg = "Error mounting FUSE file system";
 
     fusedata->chan = fuse_mount(fusedata->mountpoint, &args);
     if (fusedata->chan == NULL)
         goto err2;
-
-    if (fuse_set_signal_handlers(fusedata->sess) == -1)
-        goto err3;
 
     fusedata->sess = fuse_lowlevel_new(&args, &simplefs_ops,
                                        sizeof(simplefs_ops), &fusedata->md);

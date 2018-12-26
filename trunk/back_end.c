@@ -236,7 +236,8 @@ back_end_look_up(struct back_end *be, const void *key, void *retkey,
             assert(res != 0);
             return (res == 1) ? 0 : res;
         }
-        return get_next_elem(retkey, retdata, dbctx->key_ctx->last_key, dbctx);
+        res = get_next_elem(retkey, retdata, dbctx->key_ctx->last_key, dbctx);
+        return (res == -EADDRNOTAVAIL) ? 0: res;
     }
 
     return res;
