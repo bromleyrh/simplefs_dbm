@@ -30,8 +30,10 @@
 #include <unistd.h>
 
 #include <sys/mount.h>
+#include <sys/param.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <sys/uio.h>
 #include <sys/wait.h>
 
 struct ref_inodes {
@@ -114,26 +116,32 @@ struct op_args {
     fuse_ino_t          ino;
     fuse_ino_t          parent;
     const char          *name;
+    char                *buf;
+    off_t               off;
     struct db_key       k;
     struct db_obj_stat  s;
+    struct stat         attr;
     /* lookup() */
     int                 inc_lookup_cnt;
     /* forget() */
     unsigned long       nlookup;
+    /* setattr() */
+    int                 to_set;
     /* mknod() */
     dev_t               rdev;
     /* mkdir() */
     mode_t              mode;
-    struct stat         attr;
     /* rename() */
     fuse_ino_t          newparent;
     const char          *newname;
+    /* read() */
+    size_t              size;
+    struct iovec        *iov;
+    int                 count;
     /* readdir() */
     struct open_dir     *odir;
-    char                *buf;
     size_t              bufsize;
     size_t              buflen;
-    off_t               off;
 };
 
 struct open_dir {
@@ -141,7 +149,11 @@ struct open_dir {
     fuse_ino_t  ino;
 };
 
-#define PGSIZE 4096
+struct open_file {
+    fuse_ino_t ino;
+};
+
+#define PG_SIZE (128 * 1024)
 
 #define DB_PATHNAME "fs.db"
 
@@ -151,6 +163,9 @@ struct open_dir {
 
 #define NAME_CUR_DIR "."
 #define NAME_PARENT_DIR ".."
+
+#define CACHE_TIMEOUT 0.0
+#define KEEP_CACHE_OPEN 1
 
 static void verror(int, const char *, va_list);
 
@@ -180,12 +195,17 @@ static int dec_refcnt(struct ref_inodes *, int32_t, int32_t, int32_t,
 static int set_ref_inode_nodelete(struct back_end *, struct ref_inodes *,
                                   fuse_ino_t, int);
 
-static void do_set_ts(struct disk_timespec *);
+static void do_set_ts(struct disk_timespec *, struct timespec *);
 static void set_ts(struct disk_timespec *, struct disk_timespec *,
                    struct disk_timespec *);
 static void deserialize_ts(struct timespec *, struct disk_timespec *);
 
 static void deserialize_stat(struct stat *, struct db_obj_stat *);
+
+static int truncate_file(struct back_end *, fuse_ino_t, size_t, size_t);
+static int delete_file(struct back_end *, fuse_ino_t);
+
+static void free_iov(struct iovec *, int);
 
 static int fusermount_unmount(const char *);
 static void abort_init(struct mount_data *, int, const char *, ...);
@@ -211,14 +231,18 @@ static int rem_dir_link(struct back_end *, struct ref_inodes *, fuse_ino_t,
                         fuse_ino_t, const char *, struct ref_ino **);
 
 static int do_look_up(void *);
+static int do_setattr(void *);
 static int do_forget(void *);
 static int do_create_node(void *);
 static int do_create_dir(void *);
 static int do_remove_node_link(void *);
 static int do_remove_dir(void *);
 static int do_rename(void *);
+static int do_create_node_link(void *);
 static int do_read_entries(void *);
 static int do_open(void *);
+static int do_read(void *);
+static int do_write(void *);
 static int do_close(void *);
 
 static void simplefs_init(void *, struct fuse_conn_info *);
@@ -226,12 +250,21 @@ static void simplefs_destroy(void *);
 static void simplefs_lookup(fuse_req_t, fuse_ino_t, const char *);
 static void simplefs_forget(fuse_req_t, fuse_ino_t, unsigned long);
 static void simplefs_getattr(fuse_req_t, fuse_ino_t, struct fuse_file_info *);
+static void simplefs_setattr(fuse_req_t, fuse_ino_t, struct stat *, int,
+                             struct fuse_file_info *);
 static void simplefs_mknod(fuse_req_t, fuse_ino_t, const char *, mode_t, dev_t);
 static void simplefs_mkdir(fuse_req_t, fuse_ino_t, const char *, mode_t);
 static void simplefs_unlink(fuse_req_t, fuse_ino_t, const char *);
 static void simplefs_rmdir(fuse_req_t, fuse_ino_t, const char *);
 static void simplefs_rename(fuse_req_t, fuse_ino_t, const char *, fuse_ino_t,
                             const char *);
+static void simplefs_link(fuse_req_t, fuse_ino_t, fuse_ino_t, const char *);
+static void simplefs_open(fuse_req_t, fuse_ino_t, struct fuse_file_info *);
+static void simplefs_read(fuse_req_t, fuse_ino_t, size_t, off_t,
+                          struct fuse_file_info *);
+static void simplefs_write(fuse_req_t, fuse_ino_t, const char *, size_t, off_t,
+                           struct fuse_file_info *);
+static void simplefs_flush(fuse_req_t, fuse_ino_t, struct fuse_file_info *);
 static void simplefs_opendir(fuse_req_t, fuse_ino_t, struct fuse_file_info *);
 static void simplefs_readdir(fuse_req_t, fuse_ino_t, size_t, off_t,
                              struct fuse_file_info *);
@@ -412,6 +445,10 @@ dump_cb(const void *key, const void *data, size_t datasize, void *ctx)
                         "\n",
                 (uint64_t)(k->ino), (uint64_t)(s->st_ino));
         break;
+    case TYPE_PAGE:
+        fprintf(stderr, "Page: node %" PRIu64 ", page %" PRIu64 ", size %zd\n",
+                (uint64_t)(k->ino), (uint64_t)(k->pgno), datasize);
+        break;
     default:
         abort();
     }
@@ -498,7 +535,7 @@ unref_inode(struct back_end *be, struct ref_inodes *ref_inodes,
     pthread_mutex_unlock(&ref_inodes->ref_inodes_mtx);
 
     if ((nlinkp == 0) && (refcntp == 0) && (nlookupp == 0))
-        return back_end_delete(be, &k);
+        return delete_file(be, ino->ino);
 
     if (nlink != 0) {
         s.st_nlink = (uint32_t)nlinkp;
@@ -633,14 +670,8 @@ set_ref_inode_nodelete(struct back_end *be, struct ref_inodes *ref_inodes,
 
     pthread_mutex_unlock(&ref_inodes->ref_inodes_mtx);
 
-    if (!nodelete && (nlink == 0) && (refcnt == 0) && (nlookup == 0)) {
-        struct db_key k;
-
-        k.type = TYPE_STAT;
-        k.ino = ino;
-
-        return back_end_delete(be, &k);
-    }
+    if (!nodelete && (nlink == 0) && (refcnt == 0) && (nlookup == 0))
+        return delete_file(be, ino);
 
     return 0;
 
@@ -650,7 +681,7 @@ err:
 }
 
 static void
-do_set_ts(struct disk_timespec *ts)
+do_set_ts(struct disk_timespec *ts, struct timespec *srcts)
 {
     struct timespec timespec;
 
@@ -666,11 +697,11 @@ set_ts(struct disk_timespec *atim, struct disk_timespec *mtim,
        struct disk_timespec *ctim)
 {
     if (atim != NULL)
-        do_set_ts(atim);
+        do_set_ts(atim, NULL);
     if (mtim != NULL)
-        do_set_ts(mtim);
+        do_set_ts(mtim, NULL);
     if (ctim != NULL)
-        do_set_ts(ctim);
+        do_set_ts(ctim, NULL);
 }
 
 static void
@@ -696,6 +727,96 @@ deserialize_stat(struct stat *s, struct db_obj_stat *ds)
     deserialize_ts(&s->st_atim, &ds->st_atim);
     deserialize_ts(&s->st_mtim, &ds->st_mtim);
     deserialize_ts(&s->st_ctim, &ds->st_ctim);
+}
+
+static int
+truncate_file(struct back_end *be, fuse_ino_t ino, size_t oldsize,
+              size_t newsize)
+{
+    int ret;
+    size_t lastpgsz;
+    struct db_key k;
+    uint64_t i;
+    uint64_t newnumpg, oldnumpg;
+
+    if (newsize >= oldsize)
+        return 0;
+
+    oldnumpg = (oldsize + PG_SIZE - 1) / PG_SIZE;
+    newnumpg = (newsize + PG_SIZE - 1) / PG_SIZE;
+
+    k.type = TYPE_PAGE;
+    k.ino = ino;
+
+    for (i = oldnumpg - 1;; i--) {
+        k.pgno = i;
+
+        ret = back_end_delete(be, &k);
+        if (ret != 0)
+            return ret;
+
+        if (i == newnumpg)
+            break;
+    }
+
+    if ((newnumpg > 0) && (lastpgsz = newsize % PG_SIZE) > 0) {
+        char buf[PG_SIZE];
+
+        k.pgno = newnumpg - 1;
+
+        ret = back_end_look_up(be, &k, NULL, buf);
+        if (ret != 1)
+            return (ret == 0) ? -ENOENT : ret;
+
+        return back_end_replace(be, &k, buf, lastpgsz);
+    }
+
+    return 0;
+}
+
+static int
+delete_file(struct back_end *be, fuse_ino_t ino)
+{
+    int ret;
+    struct db_key k;
+    struct db_obj_stat s;
+
+    k.type = TYPE_STAT;
+    k.ino = ino;
+
+    ret = back_end_look_up(be, &k, NULL, &s);
+    if (ret != 1)
+        return (ret == 0) ? -ENOENT : ret;
+
+    if (S_ISREG(s.st_mode)) {
+        uint64_t i, numpg;
+
+        numpg = (s.st_size + PG_SIZE - 1) / PG_SIZE;
+
+        k.type = TYPE_PAGE;
+
+        i = numpg;
+        while (i > 0) {
+            k.pgno = --i;
+
+            ret = back_end_delete(be, &k);
+            if (ret != 0)
+                return ret;
+        }
+    }
+
+    k.type = TYPE_STAT;
+
+    return back_end_delete(be, &k);
+}
+
+static void
+free_iov(struct iovec *iov, int count)
+{
+    int i;
+
+    for (i = 0; i < count; i++)
+        free(iov[i].iov_base);
 }
 
 static int
@@ -769,7 +890,7 @@ new_node(struct back_end *be, struct ref_inodes *ref_inodes, fuse_ino_t parent,
     s.st_gid = gid;
     s.st_rdev = 0;
     s.st_size = 0;
-    s.st_blksize = PGSIZE;
+    s.st_blksize = PG_SIZE;
     s.st_blocks = 0;
     set_ts(&s.st_atim, &s.st_mtim, &s.st_ctim);
     s.num_ents = 0;
@@ -902,7 +1023,7 @@ new_dir(struct back_end *be, struct ref_inodes *ref_inodes, fuse_ino_t parent,
     s.st_gid = gid;
     s.st_rdev = 0;
     s.st_size = 0;
-    s.st_blksize = PGSIZE;
+    s.st_blksize = PG_SIZE;
     s.st_blocks = 0;
     set_ts(&s.st_atim, &s.st_mtim, &s.st_ctim);
     s.num_ents = 0;
@@ -1217,6 +1338,49 @@ do_look_up(void *args)
 }
 
 static int
+do_setattr(void *args)
+{
+    int ret;
+    struct db_key k;
+    struct db_obj_stat s;
+    struct op_args *opargs = (struct op_args *)args;
+
+    k.type = TYPE_STAT;
+    k.ino = opargs->ino;
+
+    ret = back_end_look_up(opargs->be, &k, NULL, &s);
+    if (ret != 1)
+        return (ret == 0) ? -ENOENT : ret;
+
+    if (opargs->to_set & FUSE_SET_ATTR_SIZE) {
+        if (!S_ISREG(s.st_mode))
+            return -EINVAL;
+        ret = truncate_file(opargs->be, opargs->ino, s.st_size,
+                            opargs->attr.st_size);
+        if (ret != 0)
+            return ret;
+        s.st_size = opargs->attr.st_size;
+    }
+
+    if (opargs->to_set & FUSE_SET_ATTR_ATIME_NOW)
+        do_set_ts(&s.st_atim, NULL);
+    if (opargs->to_set & FUSE_SET_ATTR_MTIME_NOW)
+        do_set_ts(&s.st_mtim, NULL);
+    if (opargs->to_set & FUSE_SET_ATTR_ATIME)
+        do_set_ts(&s.st_atim, &opargs->attr.st_atim);
+    if (opargs->to_set & FUSE_SET_ATTR_MTIME)
+        do_set_ts(&s.st_mtim, &opargs->attr.st_mtim);
+
+    ret = back_end_replace(opargs->be, &k, &s, sizeof(s));
+    if (ret != 0)
+        return ret;
+
+    deserialize_stat(&opargs->attr, &s);
+
+    return 0;
+}
+
+static int
 do_forget(void *args)
 {
     int ret;
@@ -1430,6 +1594,52 @@ err1:
 }
 
 static int
+do_create_node_link(void *args)
+{
+    int ret;
+    struct db_key k;
+    struct op_args *opargs = (struct op_args *)args;
+    struct ref_ino *refinop;
+
+    ret = back_end_trans_new(opargs->be);
+    if (ret != 0)
+        return ret;
+
+    ret = new_node_link(opargs->be, opargs->ref_inodes, opargs->ino,
+                        opargs->newparent, opargs->newname, &refinop);
+    if (ret != 0)
+        goto err1;
+
+    ret = inc_refcnt(opargs->be, opargs->ref_inodes, opargs->ino, 0, 0, 1,
+                     &opargs->refinop);
+    if (ret != 0)
+        goto err2;
+
+    ret = back_end_trans_commit(opargs->be);
+    if (ret != 0)
+        goto err3;
+
+    k.type = TYPE_STAT;
+    k.ino = opargs->ino;
+    ret = back_end_look_up(opargs->be, &k, NULL, &opargs->s);
+    if (ret != 1) {
+        if (ret == 0)
+            ret = -ENOENT;
+        goto err3;
+    }
+
+    return 0;
+
+err3:
+    dec_refcnt(opargs->ref_inodes, 0, 0, -1, opargs->refinop);
+err2:
+    dec_refcnt(opargs->ref_inodes, -1, 0, 0, refinop);
+err1:
+    back_end_trans_abort(opargs->be);
+    return ret;
+}
+
+static int
 do_read_entries(void *args)
 {
     int ret;
@@ -1520,6 +1730,163 @@ do_open(void *args)
 
     return inc_refcnt(opargs->be, opargs->ref_inodes, opargs->ino, 0, 1, 0,
                       &opargs->refinop);
+}
+
+static int
+do_read(void *args)
+{
+    int count, iovsz;
+    int i;
+    int ret;
+    off_t off;
+    size_t size;
+    struct db_key k;
+    struct db_obj_stat s;
+    struct iovec *iov;
+    struct op_args *opargs = (struct op_args *)args;
+    uint64_t firstpgidx, lastpgidx;
+
+    k.type = TYPE_STAT;
+    k.ino = opargs->ino;
+
+    ret = back_end_look_up(opargs->be, &k, NULL, &s);
+    if (ret != 1)
+        return (ret == 0) ? -ENOENT : ret;
+
+    firstpgidx = opargs->off / PG_SIZE;
+    lastpgidx = (MIN(opargs->off + opargs->size, s.st_size) - 1) / PG_SIZE;
+    count = lastpgidx - firstpgidx + 1;
+
+    iov = do_calloc(count, sizeof(*iov));
+    if (iov == NULL)
+        return -errno;
+
+    k.type = TYPE_PAGE;
+
+    off = opargs->off;
+    size = opargs->size;
+    iovsz = 0;
+    for (i = 0; i < count; i++) {
+        char buf[PG_SIZE];
+        size_t pgoff;
+        size_t sz;
+
+        k.pgno = off / PG_SIZE;
+
+        pgoff = off - (k.pgno * PG_SIZE);
+
+        sz = MIN((k.pgno + 1) * PG_SIZE, s.st_size) - off;
+        if (sz > size)
+            sz = size;
+
+        iov[i].iov_base = do_malloc(sz);
+        if (iov[i].iov_base == NULL) {
+            ret = -errno;
+            goto err;
+        }
+        ++iovsz;
+
+        ret = back_end_look_up(opargs->be, &k, NULL, buf);
+        if (ret != 1) {
+            if (ret != 0)
+                goto err;
+            memset(iov[i].iov_base, 0, sz);
+        } else
+            memcpy(iov[i].iov_base, buf + pgoff, sz);
+
+        iov[i].iov_len = sz;
+
+        off += sz;
+        size -= sz;
+    }
+
+    opargs->iov = iov;
+    opargs->count = count;
+
+    return 0;
+
+err:
+    free_iov(iov, iovsz);
+    return ret;
+}
+
+static int
+do_write(void *args)
+{
+    int ret;
+    off_t off;
+    size_t size;
+    struct db_key k;
+    struct db_obj_stat s;
+    struct op_args *opargs = (struct op_args *)args;
+
+    k.type = TYPE_STAT;
+    k.ino = opargs->ino;
+
+    ret = back_end_look_up(opargs->be, &k, NULL, &s);
+    if (ret != 1)
+        return (ret == 0) ? -ENOENT : ret;
+
+    ret = back_end_trans_new(opargs->be);
+    if (ret != 0)
+        return ret;
+
+    k.type = TYPE_PAGE;
+
+    off = opargs->off;
+    size = opargs->size;
+    while (size > 0) {
+        char buf[PG_SIZE];
+        size_t pgoff;
+        size_t sz;
+
+        k.pgno = off / PG_SIZE;
+
+        pgoff = off - k.pgno * PG_SIZE;
+
+        sz = (k.pgno + 1) * PG_SIZE - off;
+        if (sz > size)
+            sz = size;
+
+        ret = back_end_look_up(opargs->be, &k, NULL, buf);
+        if (ret != 1) {
+            if (ret != 0)
+                return ret;
+
+            memcpy(buf + pgoff, opargs->buf + opargs->size - sz, sz);
+
+            ret = back_end_insert(opargs->be, &k, buf, pgoff + sz);
+        } else {
+            memcpy(buf + pgoff, opargs->buf + opargs->size - sz, sz);
+
+            ret = back_end_replace(opargs->be, &k, buf, sizeof(buf));
+        }
+        if (ret != 0)
+            return ret;
+
+        off += sz;
+        size -= sz;
+    }
+
+    if (off > s.st_size) {
+        s.st_size = off;
+
+        k.type = TYPE_STAT;
+
+        ret = back_end_replace(opargs->be, &k, &s, sizeof(s));
+        if (ret != 0)
+            return ret;
+    }
+
+    ret = back_end_trans_commit(opargs->be);
+    if (ret != 0)
+        goto err;
+
+    return 0;
+
+err:
+    back_end_trans_abort(opargs->be);
+    return ret;
 }
 
 static int
@@ -1667,18 +2034,20 @@ simplefs_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
 
     ret = do_queue_op(priv, &do_look_up, &opargs);
     if (ret != 1) {
-        if (ret == 0)
-            ret = -ENOENT;
-        goto err;
+        if (ret != 0)
+            goto err;
+        e.ino = 0;
+    } else {
+        e.ino = opargs.s.st_ino;
+        deserialize_stat(&e.attr, &opargs.s);
     }
-
-    e.ino = opargs.s.st_ino;
-    deserialize_stat(&e.attr, &opargs.s);
-    e.attr_timeout = e.entry_timeout = 600.0;
+    e.generation = 1;
+    e.attr_timeout = e.entry_timeout = CACHE_TIMEOUT;
 
     ret = fuse_reply_entry(req, &e);
     if (ret != 0) {
-        dec_refcnt(&priv->ref_inodes, 0, 0, -1, opargs.refinop);
+        if (e.ino != 0)
+            dec_refcnt(&priv->ref_inodes, 0, 0, -1, opargs.refinop);
         goto err;
     }
 
@@ -1741,7 +2110,40 @@ simplefs_getattr(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
     if (S_ISDIR(attr.st_mode))
         attr.st_size = opargs.s.num_ents;
 
-    ret = fuse_reply_attr(req, &attr, 0.0);
+    ret = fuse_reply_attr(req, &attr, CACHE_TIMEOUT);
+    if (ret != 0)
+        goto err;
+
+    return;
+
+err:
+    fuse_reply_err(req, -ret);
+}
+
+static void
+simplefs_setattr(fuse_req_t req, fuse_ino_t ino, struct stat *attr, int to_set,
+                 struct fuse_file_info *fi)
+{
+    int ret;
+    struct fspriv *priv;
+    struct mount_data *md = fuse_req_userdata(req);
+    struct op_args opargs;
+
+    (void)fi;
+
+    priv = md->priv;
+
+    opargs.be = priv->be;
+
+    opargs.ino = ino;
+    opargs.attr = *attr;
+    opargs.to_set = to_set;
+
+    ret = do_queue_op(priv, &do_setattr, &opargs);
+    if (ret != 0)
+        goto err;
+
+    ret = fuse_reply_attr(req, &opargs.attr, CACHE_TIMEOUT);
     if (ret != 0)
         goto err;
 
@@ -1778,7 +2180,7 @@ simplefs_mknod(fuse_req_t req, fuse_ino_t parent, const char *name, mode_t mode,
     e.ino = opargs.attr.st_ino;
     e.generation = 1;
     e.attr = opargs.attr;
-    e.attr_timeout = e.entry_timeout = 600.0;
+    e.attr_timeout = e.entry_timeout = CACHE_TIMEOUT;
     ret = fuse_reply_entry(req, &e);
     if (ret != 0) {
         dec_refcnt(&priv->ref_inodes, 0, 0, -1, opargs.refinop);
@@ -1816,7 +2218,7 @@ simplefs_mkdir(fuse_req_t req, fuse_ino_t parent, const char *name, mode_t mode)
     e.ino = opargs.attr.st_ino;
     e.generation = 1;
     e.attr = opargs.attr;
-    e.attr_timeout = e.entry_timeout = 600.0;
+    e.attr_timeout = e.entry_timeout = CACHE_TIMEOUT;
     ret = fuse_reply_entry(req, &e);
     if (ret != 0) {
         dec_refcnt(&priv->ref_inodes, 0, 0, -1, opargs.refinop);
@@ -1938,16 +2340,183 @@ simplefs_rename(fuse_req_t req, fuse_ino_t parent, const char *name,
 
     ret = do_queue_op(priv, &do_rename, &opargs);
     if (ret != 0)
-        goto err1;
+        goto err;
 
     ret = fuse_reply_err(req, 0);
     if (ret != 0)
-        goto err1;
+        goto err;
 
     return;
 
+err:
+    fuse_reply_err(req, -ret);
+}
+
+static void
+simplefs_link(fuse_req_t req, fuse_ino_t ino, fuse_ino_t newparent,
+              const char *newname)
+{
+    int ret;
+    struct fspriv *priv;
+    struct fuse_entry_param e;
+    struct mount_data *md = fuse_req_userdata(req);
+    struct op_args opargs;
+
+    priv = md->priv;
+
+    opargs.be = priv->be;
+    opargs.ref_inodes = &priv->ref_inodes;
+
+    opargs.ino = ino;
+    opargs.newparent = newparent;
+    opargs.newname = newname;
+
+    ret = do_queue_op(priv, &do_create_node_link, &opargs);
+    if (ret != 0)
+        goto err;
+
+    e.ino = opargs.s.st_ino;
+    e.generation = 1;
+    deserialize_stat(&e.attr, &opargs.s);
+    e.attr_timeout = e.entry_timeout = CACHE_TIMEOUT;
+    ret = fuse_reply_entry(req, &e);
+    if (ret != 0) {
+        dec_refcnt(&priv->ref_inodes, 0, 0, -1, opargs.refinop);
+        goto err;
+    }
+
+    return;
+
+err:
+    fuse_reply_err(req, -ret);
+}
+
+static void
+simplefs_open(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
+{
+    int ret;
+    struct fspriv *priv;
+    struct mount_data *md = fuse_req_userdata(req);
+    struct op_args opargs;
+    struct open_file *ofile;
+
+    priv = md->priv;
+
+    opargs.be = priv->be;
+    opargs.ref_inodes = &priv->ref_inodes;
+
+    opargs.ino = ino;
+
+    ret = do_queue_op(priv, &do_open, &opargs);
+    if (ret != 0)
+        goto err1;
+
+    ofile = do_malloc(sizeof(*ofile));
+    if (ofile == NULL) {
+        ret = -errno;
+        goto err2;
+    }
+
+    ofile->ino = ino;
+
+    fi->fh = (uintptr_t)ofile;
+    fi->keep_cache = KEEP_CACHE_OPEN;
+
+    ret = -fuse_reply_open(req, fi);
+    if (ret != 0)
+        goto err3;
+
+    return;
+
+err3:
+    free(ofile);
+err2:
+    do_queue_op(priv, &do_close, &opargs);
 err1:
     fuse_reply_err(req, -ret);
+}
+
+static void
+simplefs_read(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off,
+              struct fuse_file_info *fi)
+{
+    int ret;
+    struct fspriv *priv;
+    struct mount_data *md = fuse_req_userdata(req);
+    struct op_args opargs;
+
+    (void)fi;
+
+    priv = md->priv;
+
+    opargs.be = priv->be;
+
+    opargs.ino = ino;
+
+    opargs.size = size;
+    opargs.off = off;
+
+    ret = do_queue_op(priv, &do_read, &opargs);
+    if (ret != 0)
+        goto err;
+
+    ret = fuse_reply_iov(req, opargs.iov, opargs.count);
+    free_iov(opargs.iov, opargs.count);
+    if (ret != 0)
+        goto err;
+
+    return;
+
+err:
+    fuse_reply_err(req, -ret);
+}
+
+static void
+simplefs_write(fuse_req_t req, fuse_ino_t ino, const char *buf, size_t size,
+               off_t off, struct fuse_file_info *fi)
+{
+    int ret;
+    struct fspriv *priv;
+    struct mount_data *md = fuse_req_userdata(req);
+    struct op_args opargs;
+
+    (void)fi;
+
+    priv = md->priv;
+
+    opargs.be = priv->be;
+
+    opargs.ino = ino;
+
+    opargs.buf = (char *)buf;
+    opargs.size = size;
+    opargs.off = off;
+
+    ret = do_queue_op(priv, &do_write, &opargs);
+    if (ret != 0)
+        goto err;
+
+    ret = fuse_reply_write(req, size);
+    if (ret != 0)
+        goto err;
+
+    return;
+
+err:
+    fuse_reply_err(req, -ret);
+}
+
+static void
+simplefs_flush(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
+{
+    int ret;
+
+    (void)ino;
+    (void)fi;
+
+    ret = fuse_reply_err(req, 0);
+    if (ret != 0)
+        fuse_reply_err(req, -ret);
 }
 
 static void
@@ -1980,7 +2549,7 @@ simplefs_opendir(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
     odir->cur_name[0] = '\0';
 
     fi->fh = (uintptr_t)odir;
-    fi->keep_cache = 1;
+    fi->keep_cache = KEEP_CACHE_OPEN;
 
     ret = -fuse_reply_open(req, fi);
     if (ret != 0)
@@ -2049,6 +2618,31 @@ err:
 }
 
 static void
+simplefs_release(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
+{
+    int ret;
+    struct fspriv *priv;
+    struct mount_data *md = fuse_req_userdata(req);
+    struct op_args opargs;
+    struct open_file *ofile;
+
+    priv = md->priv;
+
+    ofile = (struct open_file *)(uintptr_t)(fi->fh);
+
+    opargs.be = priv->be;
+    opargs.ref_inodes = &priv->ref_inodes;
+
+    opargs.ino = ino;
+
+    ret = do_queue_op(priv, &do_close, &opargs);
+
+    free(ofile);
+
+    fuse_reply_err(req, -ret);
+}
+
+static void
 simplefs_releasedir(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
 {
     int ret;
@@ -2056,8 +2650,6 @@ simplefs_releasedir(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
     struct mount_data *md = fuse_req_userdata(req);
     struct op_args opargs;
     struct open_dir *odir;
-
-    (void)ino;
 
     priv = md->priv;
 
@@ -2094,11 +2686,18 @@ struct fuse_lowlevel_ops simplefs_ops = {
     .lookup     = &simplefs_lookup,
     .forget     = &simplefs_forget,
     .getattr    = &simplefs_getattr,
+    .setattr    = &simplefs_setattr,
     .mknod      = &simplefs_mknod,
     .mkdir      = &simplefs_mkdir,
     .unlink     = &simplefs_unlink,
     .rmdir      = &simplefs_rmdir,
     .rename     = &simplefs_rename,
+    .link       = &simplefs_link,
+    .open       = &simplefs_open,
+    .read       = &simplefs_read,
+    .write      = &simplefs_write,
+    .flush      = &simplefs_flush,
+    .release    = &simplefs_release,
     .opendir    = &simplefs_opendir,
     .readdir    = &simplefs_readdir,
     .releasedir = &simplefs_releasedir,
