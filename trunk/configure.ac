@@ -82,13 +82,13 @@ AC_ARG_ENABLE([assertions],
               [  --enable-assertions     enable debugging assertions],
               [case "$enableval" in
                    yes)
-                       debug=true;;
+                       assertions=true;;
                    no)
-                       debug=false;;
+                       assertions=false;;
                    *)
                        AC_MSG_ERROR([invalid "--enable-assertions" argument]);;
                esac],
-              [debug=false])
+              [assertions=false])
 AM_CONDITIONAL([ASSERTIONS], [test x$assertions = xtrue])
 
 AC_ARG_WITH([pkgconfigdir],

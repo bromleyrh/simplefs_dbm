@@ -37,15 +37,19 @@ struct db_ctx {
     struct back_end_key_ctx *key_ctx;
 };
 
-static int get_next_elem(void *, void *, const void *, struct db_ctx *);
+static int get_next_elem(void *, void *, size_t *, const void *,
+                         struct db_ctx *);
 
 static int
-get_next_elem(void *retkey, void *retdata, const void *key,
+get_next_elem(void *retkey, void *retdata, size_t *retdatasize, const void *key,
               struct db_ctx *dbctx)
 {
     db_iter_t iter;
     int res;
     size_t datalen;
+
+    if (retdatasize == NULL)
+        retdatasize = &datalen;
 
     res = db_iter_new(&iter, dbctx->db);
     if (res != 0)
@@ -62,7 +66,7 @@ get_next_elem(void *retkey, void *retdata, const void *key,
     if (res != 0)
         goto end;
 
-    res = db_iter_get(iter, retkey, retdata, &datalen);
+    res = db_iter_get(iter, retkey, retdata, retdatasize);
 
 end:
     db_iter_free(iter);
@@ -216,15 +220,18 @@ back_end_replace(struct back_end *be, const void *key, const void *data,
 
 int
 back_end_look_up(struct back_end *be, const void *key, void *retkey,
-                 void *retdata)
+                 void *retdata, size_t *retdatasize)
 {
     int res;
     size_t datalen;
     struct db_ctx *dbctx = (struct db_ctx *)(be->ctx);
 
+    if (retdatasize == NULL)
+        retdatasize = &datalen;
+
     dbctx->key_ctx->last_key_valid = 0;
 
-    res = db_search(dbctx->db, key, retkey, retdata, &datalen);
+    res = db_search(dbctx->db, key, retkey, retdata, retdatasize);
 
     if ((res == 0) && dbctx->key_ctx->last_key_valid) {
         int cmp;
@@ -232,11 +239,12 @@ back_end_look_up(struct back_end *be, const void *key, void *retkey,
         cmp = (*(dbctx->key_cmp))(dbctx->key_ctx->last_key, key, NULL);
         if (cmp > 0) {
             res = db_search(dbctx->db, dbctx->key_ctx->last_key, retkey,
-                            retdata, &datalen);
+                            retdata, retdatasize);
             assert(res != 0);
             return (res == 1) ? 0 : res;
         }
-        res = get_next_elem(retkey, retdata, dbctx->key_ctx->last_key, dbctx);
+        res = get_next_elem(retkey, retdata, retdatasize,
+                            dbctx->key_ctx->last_key, dbctx);
         return (res == -EADDRNOTAVAIL) ? 0: res;
     }
 
@@ -305,12 +313,16 @@ back_end_iter_free(struct back_end_iter *iter)
 }
 
 int
-back_end_iter_get(struct back_end_iter *iter, void *retkey, void *retdata)
+back_end_iter_get(struct back_end_iter *iter, void *retkey, void *retdata,
+                  size_t *retdatasize)
 {
     db_iter_t dbiter = (db_iter_t)(iter->ctx);
     int res;
     size_t datalen;
     struct db_ctx *dbctx = (struct db_ctx *)(iter->be->ctx);
+
+    if (retdatasize == NULL)
+        retdatasize = &datalen;
 
     if (iter->srch_status == 0) {
         int cmp;
@@ -330,7 +342,7 @@ back_end_iter_get(struct back_end_iter *iter, void *retkey, void *retdata)
         }
     }
 
-    return db_iter_get((db_iter_t)(iter->ctx), retkey, retdata, &datalen);
+    return db_iter_get((db_iter_t)(iter->ctx), retkey, retdata, retdatasize);
 }
 
 int

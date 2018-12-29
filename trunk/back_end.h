@@ -44,7 +44,7 @@ int back_end_replace(struct back_end *be, const void *key, const void *data,
                      size_t datasize);
 
 int back_end_look_up(struct back_end *be, const void *key, void *retkey,
-                     void *retdata);
+                     void *retdata, size_t *retdatasize);
 
 int back_end_delete(struct back_end *be, const void *key);
 
@@ -54,7 +54,8 @@ int back_end_iter_new(struct back_end_iter **iter, struct back_end *be);
 
 int back_end_iter_free(struct back_end_iter *iter);
 
-int back_end_iter_get(struct back_end_iter *iter, void *retkey, void *retdata);
+int back_end_iter_get(struct back_end_iter *iter, void *retkey, void *retdata,
+                      size_t *retdatasize);
 
 int back_end_iter_next(struct back_end_iter *iter);
 
