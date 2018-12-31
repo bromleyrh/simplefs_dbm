@@ -110,43 +110,44 @@ struct db_obj_stat {
 } __attribute__((packed));
 
 struct op_args {
-    fuse_req_t          req;
-    struct back_end     *be;
-    struct ref_inodes   *ref_inodes;
-    struct ref_ino      *refinop;
-    fuse_ino_t          ino;
-    fuse_ino_t          parent;
-    const char          *name;
-    char                *buf;
-    off_t               off;
-    struct db_key       k;
-    struct db_obj_stat  s;
-    struct stat         attr;
+    fuse_req_t              req;
+    const struct fuse_ctx   *ctx;
+    struct back_end         *be;
+    struct ref_inodes       *ref_inodes;
+    struct ref_ino          *refinop;
+    fuse_ino_t              ino;
+    fuse_ino_t              parent;
+    const char              *name;
+    char                    *buf;
+    off_t                   off;
+    struct db_key           k;
+    struct db_obj_stat      s;
+    struct stat             attr;
     /* lookup() */
-    int                 inc_lookup_cnt;
+    int                     inc_lookup_cnt;
     /* forget() */
-    unsigned long       nlookup;
+    unsigned long           nlookup;
     /* setattr() */
-    int                 to_set;
+    int                     to_set;
     /* mknod() */
-    dev_t               rdev;
+    dev_t                   rdev;
     /* mkdir() */
-    mode_t              mode;
+    mode_t                  mode;
     /* symlink() */
-    const char          *link;
+    const char              *link;
     /* rename() */
-    fuse_ino_t          newparent;
-    const char          *newname;
+    fuse_ino_t              newparent;
+    const char              *newname;
     /* read() */
-    size_t              size;
-    struct iovec        *iov;
-    int                 count;
+    size_t                  size;
+    struct iovec            *iov;
+    int                     count;
     /* readdir() */
-    struct open_dir     *odir;
-    size_t              bufsize;
-    size_t              buflen;
+    struct open_dir         *odir;
+    size_t                  bufsize;
+    size_t                  buflen;
     /* access() */
-    int                 mask;
+    int                     mask;
 };
 
 struct open_dir {
@@ -1455,9 +1456,11 @@ do_forget(void *args)
 static int
 do_create_node(void *args)
 {
+    const struct fuse_ctx *ctx;
     int err;
-    struct fuse_context *ctx = fuse_get_context();
     struct op_args *opargs = (struct op_args *)args;
+
+    ctx = opargs->ctx;
 
     if (((opargs->mode & S_IFMT) == S_IFDIR)
         || ((opargs->mode & S_IFMT) == S_IFLNK))
@@ -1477,9 +1480,11 @@ do_create_node(void *args)
 static int
 do_create_dir(void *args)
 {
+    const struct fuse_ctx *ctx;
     int err;
-    struct fuse_context *ctx = fuse_get_context();
     struct op_args *opargs = (struct op_args *)args;
+
+    ctx = opargs->ctx;
 
     err = new_dir(opargs->be, opargs->ref_inodes, opargs->ino, opargs->name,
                   ctx->uid, ctx->gid, opargs->mode & ~(ctx->umask),
@@ -1558,10 +1563,12 @@ do_remove_dir(void *args)
 static int
 do_create_symlink(void *args)
 {
+    const struct fuse_ctx *ctx;
     int ret;
     struct db_key k;
-    struct fuse_context *ctx = fuse_get_context();
     struct op_args *opargs = (struct op_args *)args;
+
+    ctx = opargs->ctx;
 
     ret = new_node(opargs->be, opargs->ref_inodes, opargs->parent, opargs->name,
                    ctx->uid, ctx->gid, S_IFLNK | ALLPERMS, 0, &opargs->attr,
@@ -1588,7 +1595,7 @@ do_create_symlink(void *args)
 static int
 do_rename(void *args)
 {
-    int ret;
+    int existing, ret;
     struct db_key k;
     struct db_obj_dirent dde, sde;
     struct db_obj_stat ds, ps, ss;
@@ -1656,7 +1663,10 @@ do_rename(void *args)
             if (ret != 0)
                 goto err1;
         }
-    }
+
+        existing = 1;
+    } else
+        existing = 0;
 
     if (S_ISDIR(ss.st_mode)) {
         ret = new_dir_link(opargs->be, opargs->ref_inodes, ss.st_ino,
@@ -1674,22 +1684,24 @@ do_rename(void *args)
         if (ret != 0)
             goto err1;
 
-        k.type = TYPE_STAT;
-        k.ino = opargs->newparent;
+        if (!existing) {
+            k.type = TYPE_STAT;
+            k.ino = opargs->newparent;
 
-        ret = back_end_look_up(opargs->be, &k, NULL, &ps, NULL);
-        if (ret != 1) {
-            if (ret == 0)
-                ret = -ENOENT;
-            goto err2;
+            ret = back_end_look_up(opargs->be, &k, NULL, &ps, NULL);
+            if (ret != 1) {
+                if (ret == 0)
+                    ret = -ENOENT;
+                goto err2;
+            }
+
+            ++(ps.num_ents);
+
+            assert(ps.st_ino == k.ino);
+            ret = back_end_replace(opargs->be, &k, &ps, sizeof(ps));
+            if (ret != 0)
+                goto err2;
         }
-
-        ++(ps.num_ents);
-
-        assert(ps.st_ino == k.ino);
-        ret = back_end_replace(opargs->be, &k, &ps, sizeof(ps));
-        if (ret != 0)
-            goto err2;
 
         ret = rem_node_link(opargs->be, opargs->ref_inodes, ss.st_ino,
                             opargs->parent, opargs->name, &refinop[2]);
@@ -2084,9 +2096,11 @@ do_access(void *args)
 static int
 do_create(void *args)
 {
+    const struct fuse_ctx *ctx;
     int err;
-    struct fuse_context *ctx = fuse_get_context();
     struct op_args *opargs = (struct op_args *)args;
+
+    ctx = opargs->ctx;
 
     err = new_node(opargs->be, opargs->ref_inodes, opargs->parent, opargs->name,
                    ctx->uid, ctx->gid, opargs->mode & ~(ctx->umask), 0,
@@ -2106,7 +2120,6 @@ simplefs_init(void *userdata, struct fuse_conn_info *conn)
     int err;
     struct db_args args;
     struct fspriv *priv;
-    struct fuse_context *ctx = fuse_get_context();
     struct mount_data *md = (struct mount_data *)userdata;
     struct ref_ino *refinop;
 
@@ -2153,8 +2166,8 @@ simplefs_init(void *userdata, struct fuse_conn_info *conn)
             goto err6;
 
         /* create root directory */
-        err = new_dir(priv->be, &priv->ref_inodes, 0, NULL, ctx->uid, ctx->gid,
-                      ACCESSPERMS & ~(ctx->umask), NULL, &refinop);
+        err = new_dir(priv->be, &priv->ref_inodes, 0, NULL, 0, 0, ACCESSPERMS,
+                      NULL, &refinop);
         if (err)
             goto err6;
     }
@@ -2386,6 +2399,8 @@ simplefs_mknod(fuse_req_t req, fuse_ino_t parent, const char *name, mode_t mode,
 
     priv = md->priv;
 
+    opargs.ctx = fuse_req_ctx(req);
+
     opargs.be = priv->be;
     opargs.ref_inodes = &priv->ref_inodes;
 
@@ -2424,6 +2439,8 @@ simplefs_mkdir(fuse_req_t req, fuse_ino_t parent, const char *name, mode_t mode)
     struct op_args opargs;
 
     priv = md->priv;
+
+    opargs.ctx = fuse_req_ctx(req);
 
     opargs.be = priv->be;
     opargs.ref_inodes = &priv->ref_inodes;
@@ -2551,6 +2568,8 @@ simplefs_symlink(fuse_req_t req, const char *link, fuse_ino_t parent,
     struct op_args opargs;
 
     priv = md->priv;
+
+    opargs.ctx = fuse_req_ctx(req);
 
     opargs.be = priv->be;
     opargs.ref_inodes = &priv->ref_inodes;
@@ -3053,6 +3072,8 @@ simplefs_create(fuse_req_t req, fuse_ino_t parent, const char *name,
     struct open_file *ofile;
 
     priv = md->priv;
+
+    opargs.ctx = fuse_req_ctx(req);
 
     opargs.be = priv->be;
     opargs.ref_inodes = &priv->ref_inodes;
