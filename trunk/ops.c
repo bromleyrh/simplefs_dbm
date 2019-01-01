@@ -874,7 +874,7 @@ abort_init(struct mount_data *md, int err, const char *fmt, ...)
     verror(err, fmt, ap);
     va_end(ap);
 
-    if (fusermount_unmount(md->mountpoint) == -1)
+    if (fusermount_unmount(md->mountpoint) != 0)
         abort();
 }
 

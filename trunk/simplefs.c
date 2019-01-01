@@ -10,8 +10,11 @@
 #include <fuse_lowlevel.h>
 
 #include <errno.h>
+#include <limits.h>
+#include <signal.h>
 #include <stddef.h>
 #include <stdlib.h>
+#include <unistd.h>
 
 #include <sys/resource.h>
 
@@ -23,13 +26,41 @@ struct fuse_data {
     struct fuse_session *sess;
 };
 
+static void int_handler(int);
+
+static int set_up_signal_handlers(void);
+
 static int enable_debugging_features(void);
 
 static int parse_cmdline(struct fuse_args *, struct fuse_data *);
 
+static int do_fuse_daemonize(void);
+
 static int init_fuse(int, char **, struct fuse_data *);
 static int process_fuse_events(struct fuse_data *);
 static void terminate_fuse(struct fuse_data *);
+
+static void
+int_handler(int signum)
+{
+    (void)signum;
+}
+
+static int
+set_up_signal_handlers()
+{
+    static const struct sigaction sa_term = {
+        .sa_handler = &int_handler
+    }, sa_pipe = {
+        .sa_handler = SIG_IGN
+    };
+
+    return ((sigaction(SIGINT, &sa_term, NULL) == -1)
+            || (sigaction(SIGTERM, &sa_term, NULL) == -1)
+            || (sigaction(SIGHUP, &sa_pipe, NULL) == -1)
+            || (sigaction(SIGPIPE, &sa_pipe, NULL) == -1))
+           ? -errno : 0;
+}
 
 static int
 enable_debugging_features()
@@ -95,9 +126,10 @@ init_fuse(int argc, char **argv, struct fuse_data *fusedata)
     }
 
     if ((fuse_opt_add_arg(&args, "-o") == -1)
-        || (fuse_opt_add_arg(&args, "auto_unmount") == -1)) {
+        || (fuse_opt_add_arg(&args, "auto_unmount,default_permissions")
+            == -1)) {
         errmsg = "Out of memory";
-        goto err1;
+        goto err2;
     }
 
     err = -EIO;
@@ -121,17 +153,50 @@ init_fuse(int argc, char **argv, struct fuse_data *fusedata)
 err3:
     fuse_unmount(fusedata->mountpoint, fusedata->chan);
 err2:
+    fuse_opt_free_args(&args);
     free((void *)(fusedata->mountpoint));
 err1:
-    fuse_opt_free_args(&args);
     error(0, -err, "%s", errmsg);
+    return err;
+}
+
+static int
+do_fuse_daemonize()
+{
+    char cwd[PATH_MAX];
+    int dfd;
+    int err;
+
+    if (getcwd(cwd, sizeof(cwd)) == NULL)
+        return -errno;
+
+    dfd = open(cwd, O_DIRECTORY | O_RDONLY);
+    if (dfd == -1)
+        return -errno;
+
+    if (fuse_daemonize(0) == -1) {
+        err = -EIO;
+        goto err;
+    }
+
+    if (fchdir(dfd) == -1) {
+        err = -errno;
+        goto err;
+    }
+
+    close(dfd);
+
+    return 0;
+
+err:
+    close(dfd);
     return err;
 }
 
 static int
 process_fuse_events(struct fuse_data *fusedata)
 {
-    if (!(fusedata->foreground) && (fuse_daemonize(0) == -1))
+    if (!(fusedata->foreground) && (do_fuse_daemonize() == -1))
         goto err;
 
     if (fuse_session_loop_mt(fusedata->sess) == -1)
@@ -147,9 +212,9 @@ err:
 static void
 terminate_fuse(struct fuse_data *fusedata)
 {
-    fuse_session_destroy(fusedata->sess);
-
     fuse_unmount(fusedata->mountpoint, fusedata->chan);
+
+    fuse_session_destroy(fusedata->sess);
 
     free((void *)(fusedata->mountpoint));
 }
@@ -161,6 +226,9 @@ main(int argc, char **argv)
     struct fuse_data fusedata;
 
     if (enable_debugging_features() != 0)
+        return EXIT_FAILURE;
+
+    if (set_up_signal_handlers() == -1)
         return EXIT_FAILURE;
 
     if (init_fuse(argc, argv, &fusedata) != 0)
