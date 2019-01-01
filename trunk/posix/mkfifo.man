@@ -1,0 +1,148 @@
+MKFIFO(3POSIX)                                       POSIX Programmer's Manual                                       MKFIFO(3POSIX)
+
+PROLOG
+       This  manual  page is part of the POSIX Programmer's Manual.  The Linux implementation of this interface may differ (consult
+       the corresponding Linux manual page for details of Linux behavior), or the interface may not be implemented on Linux.
+
+NAME
+       mkfifo, mkfifoat — make a FIFO special file relative to directory file descriptor
+
+SYNOPSIS
+       #include <sys/stat.h>
+
+       int mkfifo(const char *path, mode_t mode);
+       int mkfifoat(int fd, const char *path, mode_t mode);
+
+DESCRIPTION
+       The mkfifo() function shall create a new FIFO special file named by the pathname pointed to by path.   The  file  permission
+       bits of the new FIFO shall be initialized from mode.  The file permission bits of the mode argument shall be modified by the
+       process' file creation mask.
+
+       When bits in mode other than the file permission bits are set, the effect is implementation-defined.
+
+       If path names a symbolic link, mkfifo() shall fail and set errno to [EEXIST].
+
+       The FIFO's user ID shall be set to the process' effective user ID. The FIFO's group ID shall be set to the group ID  of  the
+       parent  directory  or to the effective group ID of the process. Implementations shall provide a way to initialize the FIFO's
+       group ID to the group ID of the parent directory. Implementations may, but need not, provide an  implementation-defined  way
+       to initialize the FIFO's group ID to the effective group ID of the calling process.
+
+       Upon  successful completion, mkfifo() shall mark for update the last data access, last data modification, and last file sta‐
+       tus change timestamps of the file. Also, the last data modification and last file status change timestamps of the  directory
+       that contains the new entry shall be marked for update.
+
+       The  mkfifoat()  function  shall  be  equivalent to the mkfifo() function except in the case where path specifies a relative
+       path. In this case the newly created FIFO is created relative to the  directory  associated  with  the  file  descriptor  fd
+       instead  of  the  current  working  directory.  If the file descriptor was opened without O_SEARCH, the function shall check
+       whether directory searches are permitted using the current permissions of the directory underlying the file  descriptor.  If
+       the file descriptor was opened with O_SEARCH, the function shall not perform the check.
+
+       If  mkfifoat() is passed the special value AT_FDCWD in the fd parameter, the current working directory shall be used and the
+       behavior shall be identical to a call to mkfifo().
+
+RETURN VALUE
+       Upon successful completion, these functions shall return 0.  Otherwise, these functions shall return −1  and  set  errno  to
+       indicate the error. If −1 is returned, no FIFO shall be created.
+
+ERRORS
+       These functions shall fail if:
+
+       EACCES A component of the path prefix denies search permission, or write permission is denied on the parent directory of the
+              FIFO to be created.
+
+       EEXIST The named file already exists.
+
+       ELOOP  A loop exists in symbolic links encountered during resolution of the path argument.
+
+       ENAMETOOLONG
+              The length of a component of a pathname is longer than {NAME_MAX}.
+
+       ENOENT A component of the path prefix of path does not name an existing file or path is an empty string.
+
+       ENOENT or ENOTDIR
+              The path argument contains at least one non-<slash> character and ends with one or more trailing <slash>  characters.
+              If path names an existing file, an [ENOENT] error shall not occur.
+
+       ENOSPC The  directory  that  would  contain  the  new  file  cannot be extended or the file system is out of file-allocation
+              resources.
+
+       ENOTDIR
+              A component of the path prefix names an existing file that is neither a directory nor a symbolic link to a directory.
+
+       EROFS  The named file resides on a read-only file system.
+
+       The mkfifoat() function shall fail if:
+
+       EACCES fd was not opened with O_SEARCH and the permissions of the directory underlying fd do not permit directory searches.
+
+       EBADF  The path argument does not specify an absolute path and the fd argument is neither AT_FDCWD nor a valid file descrip‐
+              tor open for reading or searching.
+
+       ENOTDIR
+              The path argument is not an absolute path and fd is a file descriptor associated with a non-directory file.
+
+       These functions may fail if:
+
+       ELOOP  More than {SYMLOOP_MAX} symbolic links were encountered during resolution of the path argument.
+
+       ENAMETOOLONG
+              The  length  of  a  pathname  exceeds  {PATH_MAX}, or pathname resolution of a symbolic link produced an intermediate
+              result with a length that exceeds {PATH_MAX}.
+
+       The following sections are informative.
+
+EXAMPLES
+   Creating a FIFO File
+       The following example shows how to create a FIFO file named /home/cnd/mod_done, with read/write permissions for  owner,  and
+       with read permissions for group and others.
+
+           #include <sys/types.h>
+           #include <sys/stat.h>
+
+           int status;
+           ...
+           status = mkfifo("/home/cnd/mod_done", S_IWUSR | S_IRUSR |
+               S_IRGRP | S_IROTH);
+
+APPLICATION USAGE
+       None.
+
+RATIONALE
+       The  syntax  of  this function is intended to maintain compatibility with historical implementations of mknod().  The latter
+       function was included in the 1984 /usr/group standard but only for use in creating FIFO special files. The mknod()  function
+       was  originally excluded from the POSIX.1‐1988 standard as implementation-defined and replaced by mkdir() and mkfifo().  The
+       mknod() function is now included for alignment with the Single UNIX Specification.
+
+       The POSIX.1‐1990 standard required that the group ID of a newly created FIFO be set to the group ID of its parent  directory
+       or  to  the  effective  group ID of the creating process. FIPS 151‐2 required that implementations provide a way to have the
+       group ID be set to the group ID of the containing directory, but did not prohibit implementations also supporting a  way  to
+       set  the  group ID to the effective group ID of the creating process.  Conforming applications should not assume which group
+       ID will be used. If it matters, an application can use chown() to set the group ID after the FIFO is created,  or  determine
+       under what conditions the implementation will set the desired group ID.
+
+       The purpose of the mkfifoat() function is to create a FIFO special file in directories other than the current working direc‐
+       tory without exposure to race conditions. Any part of the path of a file could be changed in parallel to a call to mkfifo(),
+       resulting  in  unspecified behavior. By opening a file descriptor for the target directory and using the mkfifoat() function
+       it can be guaranteed that the newly created FIFO is located relative to the desired directory.
+
+FUTURE DIRECTIONS
+       None.
+
+SEE ALSO
+       chmod(), mknod(), umask()
+
+       The Base Definitions volume of POSIX.1‐2008, <sys_stat.h>, <sys_types.h>
+
+COPYRIGHT
+       Portions of this text are reprinted and reproduced in electronic form from IEEE  Std  1003.1,  2013  Edition,  Standard  for
+       Information Technology -- Portable Operating System Interface (POSIX), The Open Group Base Specifications Issue 7, Copyright
+       (C) 2013 by the Institute of Electrical and Electronics Engineers, Inc and The Open Group.  (This is POSIX.1-2008  with  the
+       2013  Technical  Corrigendum  1 applied.) In the event of any discrepancy between this version and the original IEEE and The
+       Open Group Standard, the original IEEE and The Open Group Standard is the referee document. The  original  Standard  can  be
+       obtained online at http://www.unix.org/online.html .
+
+       Any  typographical  or formatting errors that appear in this page are most likely to have been introduced during the conver‐
+       sion of the source files to man  page  format.  To  report  such  errors,  see  https://www.kernel.org/doc/man-pages/report‐
+       ing_bugs.html .
+
+IEEE/The Open Group                                             2013                                                 MKFIFO(3POSIX)

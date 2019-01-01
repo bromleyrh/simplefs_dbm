@@ -1,0 +1,103 @@
+FSTAT(3POSIX)                                        POSIX Programmer's Manual                                        FSTAT(3POSIX)
+
+PROLOG
+       This  manual  page is part of the POSIX Programmer's Manual.  The Linux implementation of this interface may differ (consult
+       the corresponding Linux manual page for details of Linux behavior), or the interface may not be implemented on Linux.
+
+NAME
+       fstat — get file status
+
+SYNOPSIS
+       #include <sys/stat.h>
+
+       int fstat(int fildes, struct stat *buf);
+
+DESCRIPTION
+       The fstat() function shall obtain information about an open file associated with the file descriptor fildes, and shall write
+       it to the area pointed to by buf.
+
+       If  fildes  references  a  shared memory object, the implementation shall update in the stat structure pointed to by the buf
+       argument the st_uid, st_gid, st_size, and st_mode fields, and only the S_IRUSR,  S_IWUSR,  S_IRGRP,  S_IWGRP,  S_IROTH,  and
+       S_IWOTH file permission bits need be valid.  The implementation may update other fields and flags.
+
+       If  fildes  references  a  typed  memory object, the implementation shall update in the stat structure pointed to by the buf
+       argument the st_uid, st_gid, st_size, and st_mode fields, and only the S_IRUSR,  S_IWUSR,  S_IRGRP,  S_IWGRP,  S_IROTH,  and
+       S_IWOTH file permission bits need be valid. The implementation may update other fields and flags.
+
+       The  buf  argument is a pointer to a stat structure, as defined in <sys/stat.h>, into which information is placed concerning
+       the file.
+
+       For all other file types defined in this volume of POSIX.1‐2008, the structure  members  st_mode,  st_ino,  st_dev,  st_uid,
+       st_gid,  st_atim, st_ctim, and st_mtim shall have meaningful values and the value of the st_nlink member shall be set to the
+       number of links to the file.
+
+       An implementation that provides additional or alternative file access control mechanisms may,  under  implementation-defined
+       conditions, cause fstat() to fail.
+
+       The fstat() function shall update any time-related fields (as described in the Base Definitions volume of POSIX.1‐2008, Sec‐
+       tion 4.8, File Times Update), before writing into the stat structure.
+
+RETURN VALUE
+       Upon successful completion, 0 shall be returned. Otherwise, −1 shall be returned and errno set to indicate the error.
+
+ERRORS
+       The fstat() function shall fail if:
+
+       EBADF  The fildes argument is not a valid file descriptor.
+
+       EIO    An I/O error occurred while reading from the file system.
+
+       EOVERFLOW
+              The file size in bytes or the number of blocks allocated to the file or the file serial number cannot be  represented
+              correctly in the structure pointed to by buf.
+
+       The fstat() function may fail if:
+
+       EOVERFLOW
+              One of the values is too large to store into the structure pointed to by the buf argument.
+
+       The following sections are informative.
+
+EXAMPLES
+   Obtaining File Status Information
+       The  following  example shows how to obtain file status information for a file named /home/cnd/mod1.  The structure variable
+       buffer is defined for the stat structure. The /home/cnd/mod1 file is opened with read/write privileges and is passed to  the
+       open file descriptor fildes.
+
+           #include <sys/types.h>
+           #include <sys/stat.h>
+           #include <fcntl.h>
+
+           struct stat buffer;
+           int         status;
+           ...
+           fildes = open("/home/cnd/mod1", O_RDWR);
+           status = fstat(fildes, &buffer);
+
+APPLICATION USAGE
+       None.
+
+RATIONALE
+       None.
+
+FUTURE DIRECTIONS
+       None.
+
+SEE ALSO
+       fstatat()
+
+       The Base Definitions volume of POSIX.1‐2008, Section 4.8, File Times Update, <sys_stat.h>, <sys_types.h>
+
+COPYRIGHT
+       Portions  of  this  text  are  reprinted  and reproduced in electronic form from IEEE Std 1003.1, 2013 Edition, Standard for
+       Information Technology -- Portable Operating System Interface (POSIX), The Open Group Base Specifications Issue 7, Copyright
+       (C)  2013  by the Institute of Electrical and Electronics Engineers, Inc and The Open Group.  (This is POSIX.1-2008 with the
+       2013 Technical Corrigendum 1 applied.) In the event of any discrepancy between this version and the original  IEEE  and  The
+       Open  Group  Standard,  the  original IEEE and The Open Group Standard is the referee document. The original Standard can be
+       obtained online at http://www.unix.org/online.html .
+
+       Any typographical or formatting errors that appear in this page are most likely to have been introduced during  the  conver‐
+       sion  of  the  source  files  to  man  page  format. To report such errors, see https://www.kernel.org/doc/man-pages/report‐
+       ing_bugs.html .
+
+IEEE/The Open Group                                             2013                                                  FSTAT(3POSIX)
