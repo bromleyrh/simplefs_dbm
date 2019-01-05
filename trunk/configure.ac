@@ -2,7 +2,7 @@
 # configure.ac
 #
 
-AC_INIT([simplefs], [0.1])
+AC_INIT([simplefs], m4_esyscmd_s([cat .version]))
 AC_PREREQ([2.69])
 
 AC_CONFIG_SRCDIR([simplefs.c])
