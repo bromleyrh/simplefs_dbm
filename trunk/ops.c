@@ -121,6 +121,7 @@ struct op_args {
     char                    *buf;
     off_t                   off;
     struct db_key           k;
+    struct db_obj_header    hdr;
     struct db_obj_stat      s;
     struct stat             attr;
     /* lookup() */
@@ -252,6 +253,7 @@ static int do_open(void *);
 static int do_read(void *);
 static int do_write(void *);
 static int do_close(void *);
+static int do_read_header(void *);
 static int do_access(void *);
 static int do_create(void *);
 
@@ -2074,6 +2076,21 @@ do_close(void *args)
 }
 
 static int
+do_read_header(void *args)
+{
+    int ret;
+    struct db_key k;
+    struct op_args *opargs = (struct op_args *)args;
+
+    k.type = TYPE_HEADER;
+    ret = back_end_look_up(opargs->be, &k, NULL, &opargs->hdr, NULL);
+    if (ret != 1)
+        return (ret == 0) ? -EILSEQ : ret;
+
+    return 0;
+}
+
+static int
 do_access(void *args)
 {
     int ret;
@@ -2982,10 +2999,9 @@ static void
 simplefs_statfs(fuse_req_t req, fuse_ino_t ino)
 {
     int ret;
-    struct db_key k;
-    struct db_obj_header hdr;
     struct fspriv *priv;
     struct mount_data *md = fuse_req_userdata(req);
+    struct op_args opargs;
     struct statvfs stbuf;
 
     (void)ino;
@@ -2997,13 +3013,11 @@ simplefs_statfs(fuse_req_t req, fuse_ino_t ino)
         goto err;
     }
 
-    k.type = TYPE_HEADER;
-    ret = back_end_look_up(priv->be, &k, NULL, &hdr, NULL);
-    if (ret != 1) {
-        if (ret == 0)
-            ret = -EILSEQ;
+    opargs.be = priv->be;
+
+    ret = do_queue_op(priv, &do_read_header, &opargs);
+    if (ret != 0)
         goto err;
-    }
 
     stbuf.f_blocks = (stbuf.f_blocks * stbuf.f_frsize) / PG_SIZE;
     stbuf.f_bfree = (stbuf.f_bfree * stbuf.f_bsize) / PG_SIZE;
@@ -3013,8 +3027,8 @@ simplefs_statfs(fuse_req_t req, fuse_ino_t ino)
     stbuf.f_frsize = PG_SIZE;
 
     stbuf.f_files = (fsfilcnt_t)ULONG_MAX;
-    stbuf.f_ffree = stbuf.f_favail = (fsfilcnt_t)(stbuf.f_files - hdr.next_ino
-                                      + 1);
+    stbuf.f_ffree = stbuf.f_favail = (fsfilcnt_t)(stbuf.f_files
+                                                  - opargs.hdr.next_ino + 1);
 
     stbuf.f_fsid = 0;
 
