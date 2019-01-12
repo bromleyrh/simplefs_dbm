@@ -2020,11 +2020,11 @@ do_write(void *args)
             if (ret != 0)
                 return ret;
 
-            memcpy(buf + pgoff, opargs->buf + opargs->size - sz, sz);
+            memcpy(buf + pgoff, opargs->buf + opargs->size - size, sz);
 
             ret = back_end_insert(opargs->be, &k, buf, pgoff + sz);
         } else {
-            memcpy(buf + pgoff, opargs->buf + opargs->size - sz, sz);
+            memcpy(buf + pgoff, opargs->buf + opargs->size - size, sz);
 
             ret = back_end_replace(opargs->be, &k, buf, sizeof(buf));
         }
