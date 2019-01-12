@@ -2123,7 +2123,8 @@ simplefs_init(void *userdata, struct fuse_conn_info *conn)
     struct mount_data *md = (struct mount_data *)userdata;
     struct ref_ino *refinop;
 
-    conn->want = FUSE_CAP_ATOMIC_O_TRUNC | FUSE_CAP_EXPORT_SUPPORT;
+    conn->want = FUSE_CAP_ASYNC_READ | FUSE_CAP_ATOMIC_O_TRUNC
+                 | FUSE_CAP_EXPORT_SUPPORT;
 
     priv = do_malloc(sizeof(*priv));
     if (priv == NULL) {
