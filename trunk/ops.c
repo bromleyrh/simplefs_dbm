@@ -2722,7 +2722,7 @@ simplefs_open(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
     fi->fh = (uintptr_t)ofile;
     fi->keep_cache = KEEP_CACHE_OPEN;
 
-    ret = -fuse_reply_open(req, fi);
+    ret = fuse_reply_open(req, fi);
     if (ret != 0)
         goto err3;
 
