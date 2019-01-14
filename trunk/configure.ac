@@ -46,6 +46,9 @@ AX_CHECK_COMPILE_FLAG([-Werror -fstack-protector-all],
 )
 AC_SUBST([stack_protector])
 
+AC_CHECK_MEMBERS([struct stat.st_atimespec, struct stat.st_mtimespec,
+                  struct stat.st_ctimespec])
+
 AX_FUNC_ERROR
 
 AC_ARG_WITH([libfuse-3],
@@ -61,7 +64,9 @@ AC_ARG_WITH([libfuse-3],
             [libfuse3=false])
 AM_CONDITIONAL([LIBFUSE_3], [test x$libfuse3 = xtrue])
 
-if test x$libfuse3 = xtrue; then
+if test x$platform = xdarwin; then
+    fusepkg=osxfuse
+elif test x$libfuse3 = xtrue; then
     fusepkg=fuse3
 else
     fusepkg=fuse

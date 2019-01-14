@@ -52,6 +52,12 @@ static int init_fuse(int, char **, struct fuse_data *);
 static int process_fuse_events(struct fuse_data *);
 static void terminate_fuse(struct fuse_data *);
 
+#ifdef __APPLE__
+#define DEFAULT_FUSE_OPTIONS "default_permissions"
+#else
+#define DEFAULT_FUSE_OPTIONS "auto_unmount,default_permissions"
+#endif
+
 static void
 int_handler(int signum)
 {

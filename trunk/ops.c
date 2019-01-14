@@ -2,6 +2,8 @@
  * ops.c
  */
 
+#include "config.h"
+
 #include "back_end.h"
 #include "common.h"
 #include "ops.h"
@@ -106,9 +108,15 @@ struct db_obj_stat {
     int64_t                 st_size;
     int64_t                 st_blksize;
     int64_t                 st_blocks;
+#ifdef HAVE_STRUCT_STAT_ST_MTIMESPEC
+    struct disk_timespec    st_atimespec;
+    struct disk_timespec    st_mtimespec;
+    struct disk_timespec    st_ctimespec;
+#else
     struct disk_timespec    st_atim;
     struct disk_timespec    st_mtim;
     struct disk_timespec    st_ctim;
+#endif
     uint32_t                num_ents;
 } __attribute__((packed));
 
@@ -164,6 +172,12 @@ struct open_file {
 };
 
 #define SIMPLEFS_MOUNT_PIPE_FD 4
+
+#ifdef HAVE_STRUCT_STAT_ST_MTIMESPEC
+#define st_atim st_atimespec
+#define st_mtim st_mtimespec
+#define st_ctim st_ctimespec
+#endif
 
 #define FMT_VERSION 2
 
