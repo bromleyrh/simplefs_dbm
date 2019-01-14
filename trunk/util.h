@@ -3,7 +3,7 @@
  */
 
 #ifndef _UTIL_H
-#define _UTIL__H
+#define _UTIL_H
 
 #include <stddef.h>
 
