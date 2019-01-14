@@ -105,11 +105,11 @@ cat <<- EOF
 
 $PACKAGE_NAME configuration
 
-                Compiler: $CC
+               Compiler: $CC
 
-               Debugging: $debug
+              Debugging: $debug
 
-     Installation prefix: $prefix
+    Installation prefix: $prefix
 
 EOF
 
