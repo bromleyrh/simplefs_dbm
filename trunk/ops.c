@@ -2273,7 +2273,8 @@ simplefs_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
     if (ret != 0) {
         if (e.ino != 0)
             dec_refcnt(&priv->ref_inodes, 0, 0, -1, opargs.refinop);
-        goto err;
+        if (ret != -ENOENT)
+            goto err;
     }
 
     return;
@@ -2336,7 +2337,7 @@ simplefs_getattr(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
         attr.st_size = opargs.s.num_ents;
 
     ret = fuse_reply_attr(req, &attr, CACHE_TIMEOUT);
-    if (ret != 0)
+    if ((ret != 0) && (ret != -ENOENT))
         goto err;
 
     return;
@@ -2369,7 +2370,7 @@ simplefs_setattr(fuse_req_t req, fuse_ino_t ino, struct stat *attr, int to_set,
         goto err;
 
     ret = fuse_reply_attr(req, &opargs.attr, CACHE_TIMEOUT);
-    if (ret != 0)
+    if ((ret != 0) && (ret != -ENOENT))
         goto err;
 
     return;
@@ -2398,7 +2399,7 @@ simplefs_readlink(fuse_req_t req, fuse_ino_t ino)
 
     ret = fuse_reply_readlink(req, opargs.link);
     free((void *)(opargs.link));
-    if (ret != 0)
+    if ((ret != 0) && (ret != -ENOENT))
         goto err;
 
     return;
@@ -2440,7 +2441,8 @@ simplefs_mknod(fuse_req_t req, fuse_ino_t parent, const char *name, mode_t mode,
     ret = fuse_reply_entry(req, &e);
     if (ret != 0) {
         dec_refcnt(&priv->ref_inodes, 0, 0, -1, opargs.refinop);
-        goto err;
+        if (ret != -ENOENT)
+            goto err;
     }
 
     return;
@@ -2480,7 +2482,8 @@ simplefs_mkdir(fuse_req_t req, fuse_ino_t parent, const char *name, mode_t mode)
     ret = fuse_reply_entry(req, &e);
     if (ret != 0) {
         dec_refcnt(&priv->ref_inodes, 0, 0, -1, opargs.refinop);
-        goto err;
+        if (ret != -ENOENT)
+            goto err;
     }
 
     return;
@@ -2524,7 +2527,7 @@ simplefs_unlink(fuse_req_t req, fuse_ino_t parent, const char *name)
         goto err;
 
     ret = fuse_reply_err(req, 0);
-    if (ret != 0)
+    if ((ret != 0) && (ret != -ENOENT))
         goto err;
 
     return;
@@ -2568,7 +2571,7 @@ simplefs_rmdir(fuse_req_t req, fuse_ino_t parent, const char *name)
         goto err;
 
     ret = fuse_reply_err(req, 0);
-    if (ret != 0)
+    if ((ret != 0) && (ret != -ENOENT))
         goto err;
 
     return;
@@ -2610,7 +2613,8 @@ simplefs_symlink(fuse_req_t req, const char *link, fuse_ino_t parent,
     ret = fuse_reply_entry(req, &e);
     if (ret != 0) {
         dec_refcnt(&priv->ref_inodes, 0, 0, -1, opargs.refinop);
-        goto err;
+        if (ret != -ENOENT)
+            goto err;
     }
 
     return;
@@ -2643,7 +2647,7 @@ simplefs_rename(fuse_req_t req, fuse_ino_t parent, const char *name,
         goto err;
 
     ret = fuse_reply_err(req, 0);
-    if (ret != 0)
+    if ((ret != 0) && (ret != -ENOENT))
         goto err;
 
     return;
@@ -2682,7 +2686,8 @@ simplefs_link(fuse_req_t req, fuse_ino_t ino, fuse_ino_t newparent,
     ret = fuse_reply_entry(req, &e);
     if (ret != 0) {
         dec_refcnt(&priv->ref_inodes, 0, 0, -1, opargs.refinop);
-        goto err;
+        if (ret != -ENOENT)
+            goto err;
     }
 
     return;
@@ -2694,6 +2699,7 @@ err:
 static void
 simplefs_open(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
 {
+    int interrupted = 0;
     int ret;
     struct fspriv *priv;
     struct mount_data *md = fuse_req_userdata(req);
@@ -2723,8 +2729,11 @@ simplefs_open(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
     fi->keep_cache = KEEP_CACHE_OPEN;
 
     ret = fuse_reply_open(req, fi);
-    if (ret != 0)
+    if (ret != 0) {
+        if (ret == -ENOENT)
+            interrupted = 1;
         goto err3;
+    }
 
     return;
 
@@ -2733,7 +2742,8 @@ err3:
 err2:
     do_queue_op(priv, &do_close, &opargs);
 err1:
-    fuse_reply_err(req, -ret);
+    if (!interrupted)
+        fuse_reply_err(req, -ret);
 }
 
 static void
@@ -2762,7 +2772,7 @@ simplefs_read(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off,
 
     ret = fuse_reply_iov(req, opargs.iov, opargs.count);
     free_iov(opargs.iov, opargs.count);
-    if (ret != 0)
+    if ((ret != 0) && (ret != -ENOENT))
         goto err;
 
     return;
@@ -2797,7 +2807,7 @@ simplefs_write(fuse_req_t req, fuse_ino_t ino, const char *buf, size_t size,
         goto err;
 
     ret = fuse_reply_write(req, size);
-    if (ret != 0)
+    if ((ret != 0) && (ret != -ENOENT))
         goto err;
 
     return;
@@ -2815,13 +2825,14 @@ simplefs_flush(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
     (void)fi;
 
     ret = fuse_reply_err(req, 0);
-    if (ret != 0)
+    if ((ret != 0) && (ret != -ENOENT))
         fuse_reply_err(req, -ret);
 }
 
 static void
 simplefs_opendir(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
 {
+    int interrupted = 0;
     int ret;
     struct fspriv *priv;
     struct mount_data *md = fuse_req_userdata(req);
@@ -2852,8 +2863,11 @@ simplefs_opendir(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
     fi->keep_cache = KEEP_CACHE_OPEN;
 
     ret = fuse_reply_open(req, fi);
-    if (ret != 0)
+    if (ret != 0) {
+        if (ret == -ENOENT)
+            interrupted = 1;
         goto err3;
+    }
 
     return;
 
@@ -2862,7 +2876,8 @@ err3:
 err2:
     do_queue_op(priv, &do_close, &opargs);
 err1:
-    fuse_reply_err(req, -ret);
+    if (!interrupted)
+        fuse_reply_err(req, -ret);
 }
 
 static void
@@ -2878,7 +2893,7 @@ simplefs_readdir(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off,
 
     if ((off > 0) && (odir->cur_name[0] == '\0')) {
         ret = fuse_reply_buf(req, NULL, 0);
-        if (ret != 0)
+        if ((ret != 0) && (ret != -ENOENT))
             goto err;
         return;
     }
@@ -2908,7 +2923,7 @@ simplefs_readdir(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off,
 
     ret = fuse_reply_buf(req, buf, opargs.buflen);
     free(buf);
-    if (ret != 0)
+    if ((ret != 0) && (ret != -ENOENT))
         goto err;
 
     return;
@@ -2953,7 +2968,7 @@ simplefs_fsync(fuse_req_t req, fuse_ino_t ino, int datasync,
     (void)fi;
 
     ret = fuse_reply_err(req, 0);
-    if (ret != 0)
+    if ((ret != 0) && (ret != -ENOENT))
         fuse_reply_err(req, -ret);
 }
 
@@ -2993,7 +3008,7 @@ simplefs_fsyncdir(fuse_req_t req, fuse_ino_t ino, int datasync,
     (void)fi;
 
     ret = fuse_reply_err(req, 0);
-    if (ret != 0)
+    if ((ret != 0) && (ret != -ENOENT))
         fuse_reply_err(req, -ret);
 }
 
@@ -3039,7 +3054,7 @@ simplefs_statfs(fuse_req_t req, fuse_ino_t ino)
     stbuf.f_namemax = NAME_MAX;
 
     ret = fuse_reply_statfs(req, &stbuf);
-    if (ret != 0)
+    if ((ret != 0) && (ret != -ENOENT))
         goto err;
 
     return;
@@ -3068,7 +3083,7 @@ simplefs_access(fuse_req_t req, fuse_ino_t ino, int mask)
         goto err;
 
     ret = fuse_reply_err(req, -ret);
-    if (ret != 0)
+    if ((ret != 0) && (ret != -ENOENT))
         goto err;
 
     return;
@@ -3081,6 +3096,7 @@ static void
 simplefs_create(fuse_req_t req, fuse_ino_t parent, const char *name,
                 mode_t mode, struct fuse_file_info *fi)
 {
+    int interrupted = 0;
     int ret;
     struct fspriv *priv;
     struct fuse_entry_param e;
@@ -3119,8 +3135,11 @@ simplefs_create(fuse_req_t req, fuse_ino_t parent, const char *name,
     e.attr = opargs.attr;
     e.attr_timeout = e.entry_timeout = CACHE_TIMEOUT;
     ret = fuse_reply_create(req, &e, fi);
-    if (ret != 0)
+    if (ret != 0) {
+        if (ret == -ENOENT)
+            interrupted = 1;
         goto err3;
+    }
 
     return;
 
@@ -3130,7 +3149,8 @@ err3:
 err2:
     dec_refcnt(&priv->ref_inodes, 0, 0, -1, opargs.refinop);
 err1:
-    fuse_reply_err(req, -ret);
+    if (!interrupted)
+        fuse_reply_err(req, -ret);
 }
 
 struct fuse_lowlevel_ops simplefs_ops = {
