@@ -8,11 +8,13 @@ noinst_HEADERS = back_end.h common.h ops.h simplefs.h util.h
 
 bin_PROGRAMS = simplefs
 
-if DEBUG
-AM_CFLAGS = -ggdb3 -O0 -pipe
-else
-AM_CFLAGS = -DNDEBUG -O2 -pipe
-endif
+##if DEBUG
+##AM_CFLAGS = -ggdb3 -O0 -pipe
+##else
+##AM_CFLAGS = -DNDEBUG -O2 -pipe
+##endif
+
+AM_CFLAGS = -DNDEBUG -ggdb3 -O0 -pipe
 
 simplefs_SOURCES = back_end.c ops.c simplefs.c util.c
 simplefs_CFLAGS = $(AM_CFLAGS) -DFUSE_USE_VERSION=26 @fuse_cflags@ \
