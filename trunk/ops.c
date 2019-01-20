@@ -1442,17 +1442,36 @@ do_forget(void *args)
     struct op_args *opargs = (struct op_args *)args;
     struct ref_ino refino, *refinop;
 
+    ret = back_end_trans_new(opargs->be);
+    if (ret != 0)
+        return ret;
+
     refino.ino = opargs->ino;
     refinop = &refino;
 
     pthread_mutex_lock(&opargs->ref_inodes->ref_inodes_mtx);
     ret = avl_tree_search(opargs->ref_inodes->ref_inodes, &refinop, &refinop);
     pthread_mutex_unlock(&opargs->ref_inodes->ref_inodes_mtx);
-    if (ret != 1)
-        return (ret == 0) ? -ENOENT : ret;
+    if (ret != 1) {
+        if (ret == 0)
+            ret = -ENOENT;
+        goto err;
+    }
 
-    return unref_inode(opargs->be, opargs->ref_inodes, refinop, 0, 0,
-                       -(opargs->nlookup));
+    ret = unref_inode(opargs->be, opargs->ref_inodes, refinop, 0, 0,
+                      -(opargs->nlookup));
+    if (ret != 0)
+        goto err;
+
+    ret = back_end_trans_commit(opargs->be);
+    if (ret != 0)
+        goto err;
+
+    return 0;
+
+err:
+    back_end_trans_abort(opargs->be);
+    return ret;
 }
 
 static int
