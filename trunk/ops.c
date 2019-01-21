@@ -518,7 +518,7 @@ get_next_ino(struct back_end *be, fuse_ino_t *ino)
     struct db_obj_header hdr;
 
     k.type = TYPE_HEADER;
-    res = back_end_look_up(be, &k, NULL, &hdr, NULL);
+    res = back_end_look_up(be, &k, NULL, &hdr, NULL, 1);
     if (res != 1)
         return (res == 0) ? -EILSEQ : res;
 
@@ -547,7 +547,7 @@ unref_inode(struct back_end *be, struct ref_inodes *ref_inodes,
 
     k.type = TYPE_STAT;
     k.ino = ino->ino;
-    ret = back_end_look_up(be, &k, NULL, &s, NULL);
+    ret = back_end_look_up(be, &k, NULL, &s, NULL, 1);
     if (ret != 1)
         return (ret == 0) ? -ENOENT : ret;
 
@@ -611,7 +611,7 @@ inc_refcnt(struct back_end *be, struct ref_inodes *ref_inodes, fuse_ino_t ino,
 
         k.type = TYPE_STAT;
         k.ino = ino;
-        ret = back_end_look_up(be, &k, NULL, &s, NULL);
+        ret = back_end_look_up(be, &k, NULL, &s, NULL, 1);
         if (ret != 1) {
             if (ret == 0)
                 ret = -ENOENT;
@@ -787,7 +787,7 @@ truncate_file(struct back_end *be, fuse_ino_t ino, size_t oldsize,
 
         k.pgno = newnumpg - 1;
 
-        ret = back_end_look_up(be, &k, NULL, buf, NULL);
+        ret = back_end_look_up(be, &k, NULL, buf, NULL, 1);
         if (ret != 1)
             return (ret == 0) ? -ENOENT : ret;
 
@@ -807,7 +807,7 @@ delete_file(struct back_end *be, fuse_ino_t ino)
     k.type = TYPE_STAT;
     k.ino = ino;
 
-    ret = back_end_look_up(be, &k, NULL, &s, NULL);
+    ret = back_end_look_up(be, &k, NULL, &s, NULL, 1);
     if (ret != 1)
         return (ret == 0) ? -ENOENT : ret;
 
@@ -934,7 +934,7 @@ new_node(struct back_end *be, struct ref_inodes *ref_inodes, fuse_ino_t parent,
 
     k.ino = parent;
 
-    ret = back_end_look_up(be, &k, NULL, &ps, NULL);
+    ret = back_end_look_up(be, &k, NULL, &ps, NULL, 1);
     if (ret != 1) {
         if (ret == 0)
             ret = -ENOENT;
@@ -992,7 +992,7 @@ new_node_link(struct back_end *be, struct ref_inodes *ref_inodes,
     k.type = TYPE_STAT;
     k.ino = ino;
 
-    ret = back_end_look_up(be, &k, NULL, &s, NULL);
+    ret = back_end_look_up(be, &k, NULL, &s, NULL, 1);
     if (ret != 1)
         return (ret == 0) ? -ENOENT : ret;
 
@@ -1080,7 +1080,7 @@ new_dir(struct back_end *be, struct ref_inodes *ref_inodes, fuse_ino_t parent,
 
         k.ino = parent;
 
-        ret = back_end_look_up(be, &k, NULL, &ps, NULL);
+        ret = back_end_look_up(be, &k, NULL, &ps, NULL, 1);
         if (ret != 1) {
             if (ret == 0)
                 ret = -ENOENT;
@@ -1132,14 +1132,14 @@ rem_dir(struct back_end *be, struct ref_inodes *ref_inodes, fuse_ino_t ino,
 
     k.type = TYPE_STAT;
     k.ino = ino;
-    ret = back_end_look_up(be, &k, NULL, &s, NULL);
+    ret = back_end_look_up(be, &k, NULL, &s, NULL, 1);
     if (ret != 1)
         return (ret == 0) ? -ENOENT : ret;
     if (s.num_ents != 0)
         return -ENOTEMPTY;
 
     k.ino = parent;
-    ret = back_end_look_up(be, &k, NULL, &s, NULL);
+    ret = back_end_look_up(be, &k, NULL, &s, NULL, 1);
     if (ret != 1)
         return (ret == 0) ? -ENOENT : ret;
 
@@ -1217,7 +1217,7 @@ new_dir_link(struct back_end *be, struct ref_inodes *ref_inodes, fuse_ino_t ino,
     k.type = TYPE_STAT;
     k.ino = ino;
 
-    ret = back_end_look_up(be, &k, NULL, &s, NULL);
+    ret = back_end_look_up(be, &k, NULL, &s, NULL, 1);
     if (ret != 1)
         return (ret == 0) ? -ENOENT : ret;
 
@@ -1257,7 +1257,7 @@ rem_node_link(struct back_end *be, struct ref_inodes *ref_inodes,
     k.type = TYPE_STAT;
     k.ino = ino;
 
-    ret = back_end_look_up(be, &k, NULL, &s, NULL);
+    ret = back_end_look_up(be, &k, NULL, &s, NULL, 1);
     if (ret != 1)
         return (ret == 0) ? -ENOENT : ret;
 
@@ -1298,7 +1298,7 @@ rem_dir_link(struct back_end *be, struct ref_inodes *ref_inodes, fuse_ino_t ino,
     k.type = TYPE_STAT;
     k.ino = ino;
 
-    ret = back_end_look_up(be, &k, NULL, &s, NULL);
+    ret = back_end_look_up(be, &k, NULL, &s, NULL, 1);
     if (ret != 1)
         return (ret == 0) ? -ENOENT : ret;
 
@@ -1329,19 +1329,20 @@ do_look_up(void *args)
 
     switch (opargs->k.type) {
     case TYPE_DIRENT:
-        ret = back_end_look_up(opargs->be, &opargs->k, NULL, &de, NULL);
+        ret = back_end_look_up(opargs->be, &opargs->k, NULL, &de, NULL, 1);
         if (ret != 1)
             return ret;
 
         k.type = TYPE_STAT;
         k.ino = de.ino;
-        ret = back_end_look_up(opargs->be, &k, NULL, &opargs->s, NULL);
+        ret = back_end_look_up(opargs->be, &k, NULL, &opargs->s, NULL, 1);
         if (ret != 1)
             return ret;
 
         break;
     case TYPE_STAT:
-        ret = back_end_look_up(opargs->be, &opargs->k, NULL, &opargs->s, NULL);
+        ret = back_end_look_up(opargs->be, &opargs->k, NULL, &opargs->s, NULL,
+                               1);
         if (ret != 1)
             return ret;
 
@@ -1371,7 +1372,7 @@ do_setattr(void *args)
     k.type = TYPE_STAT;
     k.ino = opargs->ino;
 
-    ret = back_end_look_up(opargs->be, &k, NULL, &s, NULL);
+    ret = back_end_look_up(opargs->be, &k, NULL, &s, NULL, 1);
     if (ret != 1)
         return (ret == 0) ? -ENOENT : ret;
 
@@ -1418,7 +1419,7 @@ do_read_symlink(void *args)
     k.ino = opargs->ino;
     k.pgno = 0;
 
-    ret = back_end_look_up(opargs->be, &k, NULL, NULL, &buflen);
+    ret = back_end_look_up(opargs->be, &k, NULL, NULL, &buflen, 1);
     if (ret != 1)
         return (ret == 0) ? -ENOENT : ret;
 
@@ -1426,7 +1427,8 @@ do_read_symlink(void *args)
     if (opargs->link == NULL)
         return -errno;
 
-    ret = back_end_look_up(opargs->be, &k, NULL, (void *)(opargs->link), NULL);
+    ret = back_end_look_up(opargs->be, &k, NULL, (void *)(opargs->link), NULL,
+                           1);
     if (ret != 1) {
         free((void *)(opargs->link));
         return (ret == 0) ? -ENOENT : ret;
@@ -1534,7 +1536,7 @@ do_remove_node_link(void *args)
     k.type = TYPE_STAT;
     k.ino = opargs->parent;
 
-    ret = back_end_look_up(opargs->be, &k, NULL, &s, NULL);
+    ret = back_end_look_up(opargs->be, &k, NULL, &s, NULL, 1);
     if (ret != 1) {
         if (ret == 0)
             ret = -ENOENT;
@@ -1627,14 +1629,14 @@ do_rename(void *args)
     k.ino = opargs->parent;
     strlcpy(k.name, opargs->name, sizeof(k.name));
 
-    ret = back_end_look_up(opargs->be, &k, NULL, &sde, NULL);
+    ret = back_end_look_up(opargs->be, &k, NULL, &sde, NULL, 1);
     if (ret != 1)
         return (ret == 0) ? -ENOENT : ret;
 
     k.type = TYPE_STAT;
     k.ino = sde.ino;
 
-    ret = back_end_look_up(opargs->be, &k, NULL, &ss, NULL);
+    ret = back_end_look_up(opargs->be, &k, NULL, &ss, NULL, 1);
     if (ret != 1)
         return (ret == 0) ? -ENOENT : ret;
 
@@ -1646,7 +1648,7 @@ do_rename(void *args)
     k.ino = opargs->newparent;
     strlcpy(k.name, opargs->newname, sizeof(k.name));
 
-    ret = back_end_look_up(opargs->be, &k, NULL, &dde, NULL);
+    ret = back_end_look_up(opargs->be, &k, NULL, &dde, NULL, 1);
     if (ret != 0) {
         if (ret != 1)
             goto err1;
@@ -1654,7 +1656,7 @@ do_rename(void *args)
         k.type = TYPE_STAT;
         k.ino = dde.ino;
 
-        ret = back_end_look_up(opargs->be, &k, NULL, &ds, NULL);
+        ret = back_end_look_up(opargs->be, &k, NULL, &ds, NULL, 1);
         if (ret != 1) {
             if (ret == 0)
                 ret = -ENOENT;
@@ -1709,7 +1711,7 @@ do_rename(void *args)
             k.type = TYPE_STAT;
             k.ino = opargs->newparent;
 
-            ret = back_end_look_up(opargs->be, &k, NULL, &ps, NULL);
+            ret = back_end_look_up(opargs->be, &k, NULL, &ps, NULL, 1);
             if (ret != 1) {
                 if (ret == 0)
                     ret = -ENOENT;
@@ -1731,7 +1733,7 @@ do_rename(void *args)
 
         k.ino = opargs->parent;
 
-        ret = back_end_look_up(opargs->be, &k, NULL, &ps, NULL);
+        ret = back_end_look_up(opargs->be, &k, NULL, &ps, NULL, 1);
         if (ret != 1) {
             if (ret == 0)
                 ret = -ENOENT;
@@ -1782,7 +1784,7 @@ do_create_node_link(void *args)
     k.type = TYPE_STAT;
     k.ino = opargs->newparent;
 
-    ret = back_end_look_up(opargs->be, &k, NULL, &ps, NULL);
+    ret = back_end_look_up(opargs->be, &k, NULL, &ps, NULL, 1);
     if (ret != 1) {
         if (ret == 0)
             ret = -ENOENT;
@@ -1807,7 +1809,7 @@ do_create_node_link(void *args)
 
     k.type = TYPE_STAT;
     k.ino = opargs->ino;
-    ret = back_end_look_up(opargs->be, &k, NULL, &opargs->s, NULL);
+    ret = back_end_look_up(opargs->be, &k, NULL, &opargs->s, NULL, 1);
     if (ret != 1) {
         if (ret == 0)
             ret = -ENOENT;
@@ -1910,7 +1912,7 @@ do_open(void *args)
     k.type = TYPE_STAT;
     k.ino = opargs->ino;
 
-    ret = back_end_look_up(opargs->be, &k, NULL, &s, NULL);
+    ret = back_end_look_up(opargs->be, &k, NULL, &s, NULL, 1);
     if (ret != 1)
         return (ret == 0) ? -ENOENT : ret;
 
@@ -1935,7 +1937,7 @@ do_read(void *args)
     k.type = TYPE_STAT;
     k.ino = opargs->ino;
 
-    ret = back_end_look_up(opargs->be, &k, NULL, &s, NULL);
+    ret = back_end_look_up(opargs->be, &k, NULL, &s, NULL, 1);
     if (ret != 1)
         return (ret == 0) ? -ENOENT : ret;
 
@@ -1972,7 +1974,7 @@ do_read(void *args)
         }
         ++iovsz;
 
-        ret = back_end_look_up(opargs->be, &k, NULL, buf, NULL);
+        ret = back_end_look_up(opargs->be, &k, NULL, buf, NULL, 1);
         if (ret != 1) {
             if (ret != 0)
                 goto err;
@@ -2009,7 +2011,7 @@ do_write(void *args)
     k.type = TYPE_STAT;
     k.ino = opargs->ino;
 
-    ret = back_end_look_up(opargs->be, &k, NULL, &s, NULL);
+    ret = back_end_look_up(opargs->be, &k, NULL, &s, NULL, 1);
     if (ret != 1)
         return (ret == 0) ? -ENOENT : ret;
 
@@ -2034,7 +2036,7 @@ do_write(void *args)
         if (sz > size)
             sz = size;
 
-        ret = back_end_look_up(opargs->be, &k, NULL, buf, NULL);
+        ret = back_end_look_up(opargs->be, &k, NULL, buf, NULL, 1);
         if (ret != 1) {
             if (ret != 0)
                 return ret;
@@ -2104,7 +2106,7 @@ do_read_header(void *args)
     struct op_args *opargs = (struct op_args *)args;
 
     k.type = TYPE_HEADER;
-    ret = back_end_look_up(opargs->be, &k, NULL, &opargs->hdr, NULL);
+    ret = back_end_look_up(opargs->be, &k, NULL, &opargs->hdr, NULL, 1);
     if (ret != 1)
         return (ret == 0) ? -EILSEQ : ret;
 
@@ -2123,7 +2125,7 @@ do_access(void *args)
         k.type = TYPE_STAT;
         k.ino = opargs->ino;
 
-        ret = back_end_look_up(opargs->be, &k, NULL, &s, NULL);
+        ret = back_end_look_up(opargs->be, &k, NULL, &s, NULL, 1);
         if (ret != 1)
             return (ret == 0) ? -ENOENT : ret;
     }

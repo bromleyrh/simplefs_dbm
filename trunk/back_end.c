@@ -220,7 +220,7 @@ back_end_replace(struct back_end *be, const void *key, const void *data,
 
 int
 back_end_look_up(struct back_end *be, const void *key, void *retkey,
-                 void *retdata, size_t *retdatasize)
+                 void *retdata, size_t *retdatasize, int look_up_nearest)
 {
     int res;
     size_t datalen;
@@ -233,7 +233,7 @@ back_end_look_up(struct back_end *be, const void *key, void *retkey,
 
     res = db_search(dbctx->db, key, retkey, retdata, retdatasize);
 
-    if ((res == 0) && dbctx->key_ctx->last_key_valid) {
+    if (look_up_nearest && (res == 0) && dbctx->key_ctx->last_key_valid) {
         int cmp;
 
         cmp = (*(dbctx->key_cmp))(dbctx->key_ctx->last_key, key, NULL);

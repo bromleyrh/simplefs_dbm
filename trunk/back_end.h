@@ -44,7 +44,7 @@ int back_end_replace(struct back_end *be, const void *key, const void *data,
                      size_t datasize);
 
 int back_end_look_up(struct back_end *be, const void *key, void *retkey,
-                     void *retdata, size_t *retdatasize);
+                     void *retdata, size_t *retdatasize, int look_up_nearest);
 
 int back_end_delete(struct back_end *be, const void *key);
 
