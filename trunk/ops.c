@@ -2666,6 +2666,12 @@ simplefs_rename(fuse_req_t req, fuse_ino_t parent, const char *name,
     struct mount_data *md = fuse_req_userdata(req);
     struct op_args opargs;
 
+    if ((strcmp(name, ".") == 0) || (strcmp(name, "..") == 0)
+        || (strcmp(newname, ".") == 0) || (strcmp(newname, "..") == 0)) {
+        ret = EINVAL;
+        goto err;
+    }
+
     priv = md->priv;
 
     opargs.be = priv->be;
