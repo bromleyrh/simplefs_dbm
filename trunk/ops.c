@@ -2308,7 +2308,6 @@ err:
 static void
 simplefs_forget(fuse_req_t req, fuse_ino_t ino, unsigned long nlookup)
 {
-    int ret;
     struct fspriv *priv;
     struct mount_data *md = fuse_req_userdata(req);
     struct op_args opargs;
