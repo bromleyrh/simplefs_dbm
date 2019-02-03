@@ -325,8 +325,6 @@ back_end_iter_get(struct back_end_iter *iter, void *retkey, void *retdata,
         retdatasize = &datalen;
 
     if (iter->srch_status == 0) {
-        int cmp;
-
         assert(dbctx->key_ctx->last_key_valid);
 
         res = db_iter_search(dbiter, dbctx->key_ctx->last_key);
