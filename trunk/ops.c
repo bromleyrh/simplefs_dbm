@@ -1942,7 +1942,8 @@ do_read(void *args)
         return (ret == 0) ? -ENOENT : ret;
 
     firstpgidx = opargs->off / PG_SIZE;
-    lastpgidx = (MIN(opargs->off + opargs->size, s.st_size) - 1) / PG_SIZE;
+    lastpgidx = (MIN(opargs->off + (off_t)opargs->size, s.st_size) - 1)
+                / PG_SIZE;
     count = lastpgidx - firstpgidx + 1;
 
     iov = do_calloc(count, sizeof(*iov));
@@ -1963,7 +1964,7 @@ do_read(void *args)
 
         pgoff = off - (k.pgno * PG_SIZE);
 
-        sz = MIN((k.pgno + 1) * PG_SIZE, s.st_size) - off;
+        sz = MIN((off_t)((k.pgno + 1) * PG_SIZE), s.st_size) - off;
         if (sz > size)
             sz = size;
 
