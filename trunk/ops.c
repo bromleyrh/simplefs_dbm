@@ -469,7 +469,7 @@ dump_cb(const void *key, const void *data, size_t datasize, void *ctx)
                 (uint64_t)(k->ino), (uint64_t)(s->st_ino));
         break;
     case TYPE_PAGE:
-        fprintf(stderr, "Page: node %" PRIu64 ", page %" PRIu64 ", size %zd\n",
+        fprintf(stderr, "Page: node %" PRIu64 ", page %" PRIu64 ", size %zu\n",
                 (uint64_t)(k->ino), (uint64_t)(k->pgno), datasize);
         break;
     default:
