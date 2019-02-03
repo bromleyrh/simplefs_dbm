@@ -184,7 +184,9 @@ static void *worker_td(void *);
 static int do_queue_op(struct fspriv *, int (*)(void *), void *);
 static int join_worker(struct fspriv *);
 
+#ifndef NDEBUG
 static int dump_cb(const void *, const void *, size_t, void *);
+#endif
 static int dump_db(struct back_end *);
 
 static int ref_inode_cmp(const void *, const void *, void *);
@@ -437,6 +439,7 @@ join_worker(struct fspriv *priv)
     return err ? err : (intptr_t)retval;
 }
 
+#ifndef NDEBUG
 static int
 dump_cb(const void *key, const void *data, size_t datasize, void *ctx)
 {
@@ -480,6 +483,8 @@ dump_cb(const void *key, const void *data, size_t datasize, void *ctx)
 
     return 0;
 }
+
+#endif
 
 static int
 dump_db(struct back_end *be)
