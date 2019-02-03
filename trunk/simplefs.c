@@ -2,9 +2,12 @@
  * simplefs.c
  */
 
-#include "common.h"
 #include "ops.h"
 #include "simplefs.h"
+
+#define NO_ASSERT
+#include "common.h"
+#undef NO_ASSERT
 
 #include <fuse.h>
 #include <fuse_lowlevel.h>

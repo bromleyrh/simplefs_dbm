@@ -2,8 +2,11 @@
  * util.c
  */
 
-#include "common.h"
 #include "util.h"
+
+#define NO_ASSERT
+#include "common.h"
+#undef NO_ASSERT
 
 #include <errno.h>
 #include <stddef.h>
