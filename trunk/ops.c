@@ -445,6 +445,8 @@ dump_cb(const void *key, const void *data, size_t datasize, void *ctx)
     struct db_obj_header *hdr;
     struct db_obj_stat *s;
 
+    (void)ctx;
+
     switch (k->type) {
     case TYPE_HEADER:
         assert(datasize == sizeof(*hdr));
@@ -496,6 +498,8 @@ ref_inode_cmp(const void *k1, const void *k2, void *ctx)
 {
     struct ref_ino *ino1 = *(struct ref_ino **)k1;
     struct ref_ino *ino2 = *(struct ref_ino **)k2;
+
+    (void)ctx;
 
     return uint64_cmp(ino1->ino, ino2->ino);
 }
@@ -708,6 +712,8 @@ do_set_ts(struct disk_timespec *ts, struct timespec *srcts)
 {
     struct timespec timespec;
 
+    (void)srcts;
+
     if (clock_gettime(CLOCK_REALTIME, &timespec) == 0) {
         ts->tv_sec = timespec.tv_sec;
         ts->tv_nsec = timespec.tv_nsec;
@@ -890,6 +896,8 @@ new_node(struct back_end *be, struct ref_inodes *ref_inodes, fuse_ino_t parent,
     struct db_key k;
     struct db_obj_stat ps, s;
     struct ref_ino *refinop[2];
+
+    (void)rdev;
 
     if ((mode & S_IFMT) == S_IFDIR)
         return -EINVAL;
@@ -2911,6 +2919,8 @@ simplefs_readdir(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off,
     struct mount_data *md = fuse_req_userdata(req);
     struct op_args opargs;
     struct open_dir *odir = (struct open_dir *)(uintptr_t)(fi->fh);
+
+    (void)ino;
 
     if ((off > 0) && (odir->cur_name[0] == '\0')) {
         ret = fuse_reply_buf(req, NULL, 0);
