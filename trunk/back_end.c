@@ -15,6 +15,7 @@
 #include <limits.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -161,6 +162,19 @@ back_end_open(struct back_end **be, size_t key_size, back_end_key_cmp_t key_cmp,
         goto err3;
     }
     dbctx->key_ctx->last_key_valid = 0;
+
+    /* test for journal replay by attempting read-only open */
+    err = db_open(&dbctx->db, dbargs->db_pathname, key_size,
+                  (db_key_cmp_t)key_cmp, dbctx->key_ctx, DB_RDONLY);
+    if (err) {
+        if (err != -EROFS)
+            goto err4;
+        fputs("Replaying file system journal\n", stderr);
+    } else {
+        err = db_close(dbctx->db);
+        if (err)
+            goto err4;
+    }
 
     err = db_open(&dbctx->db, dbargs->db_pathname, key_size,
                   (db_key_cmp_t)key_cmp, dbctx->key_ctx, 0);
