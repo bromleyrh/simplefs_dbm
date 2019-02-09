@@ -1744,23 +1744,23 @@ do_rename(void *args)
                             opargs->parent, opargs->name, &refinop[2]);
         if (ret != 0)
             goto err2;
-
-        k.ino = opargs->parent;
-
-        ret = back_end_look_up(opargs->be, &k, NULL, &ps, NULL, 0);
-        if (ret != 1) {
-            if (ret == 0)
-                ret = -ENOENT;
-            goto err2;
-        }
-
-        --(ps.num_ents);
-
-        assert(ps.st_ino == k.ino);
-        ret = back_end_replace(opargs->be, &k, &ps, sizeof(ps));
-        if (ret != 0)
-            goto err2;
     }
+
+    k.ino = opargs->parent;
+
+    ret = back_end_look_up(opargs->be, &k, NULL, &ps, NULL, 0);
+    if (ret != 1) {
+        if (ret == 0)
+            ret = -ENOENT;
+        goto err2;
+    }
+
+    --(ps.num_ents);
+
+    assert(ps.st_ino == k.ino);
+    ret = back_end_replace(opargs->be, &k, &ps, sizeof(ps));
+    if (ret != 0)
+        goto err2;
 
     ret = back_end_trans_commit(opargs->be);
     if (ret != 0)
