@@ -1704,6 +1704,8 @@ do_rename(void *args)
     } else
         existing = 0;
 
+    k.type = TYPE_STAT;
+
     if (S_ISDIR(ss.st_mode)) {
         ret = new_dir_link(opargs->be, opargs->ref_inodes, ss.st_ino,
                            opargs->newparent, opargs->newname, &refinop[1]);
@@ -1721,7 +1723,6 @@ do_rename(void *args)
             goto err1;
 
         if (!existing) {
-            k.type = TYPE_STAT;
             k.ino = opargs->newparent;
 
             ret = back_end_look_up(opargs->be, &k, NULL, &ps, NULL, 0);
