@@ -98,21 +98,28 @@ static int
 parse_cmdline(struct fuse_args *args, struct fuse_data *fusedata)
 {
     static const struct fuse_opt opts[] = {
-        {"ro", offsetof(struct mount_data, ro), 1},
+        {"-F %s",   offsetof(struct mount_data, db_pathname),   0},
+        {"ro",      offsetof(struct mount_data, ro),            1},
         FUSE_OPT_END
     };
 
-    if (fuse_parse_cmdline(args, (char **)&fusedata->mountpoint, NULL,
-                           &fusedata->foreground)
-        == -1)
-        return -EINVAL;
-
     fusedata->md.mountpoint = fusedata->mountpoint;
 
+    fusedata->md.db_pathname = NULL;
     fusedata->md.ro = 0;
 
-    return (fuse_opt_parse(args, &fusedata->md, opts, NULL) == -1)
-           ? -EINVAL : 0;
+    if (fuse_opt_parse(args, &fusedata->md, opts, NULL) == -1)
+        return -EINVAL;
+
+    if (fuse_parse_cmdline(args, (char **)&fusedata->mountpoint, NULL,
+                           &fusedata->foreground)
+        == -1) {
+        if (fusedata->md.db_pathname != NULL)
+            free((void *)(fusedata->md.db_pathname));
+        return -EINVAL;
+    }
+
+    return 0;
 }
 
 static int
@@ -158,6 +165,8 @@ err3:
 err2:
     fuse_opt_free_args(&args);
     free((void *)(fusedata->mountpoint));
+    if (fusedata->md.db_pathname != NULL)
+        free((void *)(fusedata->md.db_pathname));
 err1:
     error(0, -err, "%s", errmsg);
     return err;
@@ -243,6 +252,9 @@ main(int argc, char **argv)
         status = EXIT_SUCCESS;
 
     terminate_fuse(&fusedata);
+
+    if (fusedata.md.db_pathname != NULL)
+        free((void *)(fusedata.md.db_pathname));
 
     return status;
 }

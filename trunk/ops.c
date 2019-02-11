@@ -2191,7 +2191,8 @@ simplefs_init(void *userdata, struct fuse_conn_info *conn)
     if (err)
         goto err2;
 
-    args.db_pathname = DB_PATHNAME;
+    args.db_pathname = (md->db_pathname == NULL)
+                       ? DB_PATHNAME : md->db_pathname;
     args.db_mode = ACC_MODE_DEFAULT;
 
     err = avl_tree_new(&priv->ref_inodes.ref_inodes, sizeof(struct ref_ino *),
