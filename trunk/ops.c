@@ -304,9 +304,13 @@ verror(int err, const char *fmt, va_list ap)
 
     vsnprintf(buf, sizeof(buf), fmt, ap);
 
-    if (err)
+    if (err) {
+        int old_errno = errno;
+
+        errno = (err < 0) ? -err : err;
         perror(buf);
-    else {
+        errno = old_errno;
+    } else {
         fputs(buf, stderr);
         fputc('\n', stderr);
     }
