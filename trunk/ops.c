@@ -2259,12 +2259,20 @@ simplefs_init(void *userdata, struct fuse_conn_info *conn)
     if (err)
         goto err6;
 
+    /* root I-node implicitly looked up on completion of init request */
+    err = inc_refcnt(priv->be, &priv->ref_inodes, FUSE_ROOT_ID, 0, 0, 1,
+                     &refinop);
+    if (err)
+        goto err7;
+
     pthread_mutex_lock(&mtx);
     init = 1;
     pthread_mutex_unlock(&mtx);
 
     return;
 
+err7:
+    join_worker(priv);
 err6:
     back_end_close(priv->be);
 err5:
