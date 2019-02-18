@@ -171,7 +171,7 @@ struct open_file {
 #define NAME_CUR_DIR "."
 #define NAME_PARENT_DIR ".."
 
-#define CACHE_TIMEOUT 0.0
+#define CACHE_TIMEOUT 1800.0
 #define KEEP_CACHE_OPEN 1
 
 static pthread_mutex_t mtx = PTHREAD_MUTEX_INITIALIZER;
