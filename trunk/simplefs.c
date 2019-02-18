@@ -29,6 +29,8 @@ struct fuse_data {
     struct fuse_session *sess;
 };
 
+static struct fuse_session *sess;
+
 static void int_handler(int);
 
 static int set_up_signal_handlers(void);
@@ -231,6 +233,12 @@ terminate_fuse(struct fuse_data *fusedata)
     free((void *)(fusedata->mountpoint));
 }
 
+void
+simplefs_exit()
+{
+    fuse_session_exit(sess);
+}
+
 int
 main(int argc, char **argv)
 {
@@ -247,6 +255,8 @@ main(int argc, char **argv)
         return EXIT_FAILURE;
 
     status = EXIT_FAILURE;
+
+    sess = fusedata.sess;
 
     if ((process_fuse_events(&fusedata) == 0) && (mount_status() == 0))
         status = EXIT_SUCCESS;

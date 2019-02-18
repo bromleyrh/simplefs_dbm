@@ -219,8 +219,7 @@ static int delete_file(struct back_end *, fuse_ino_t);
 
 static void free_iov(struct iovec *, int);
 
-static int fusermount_unmount(const char *);
-static void abort_init(struct mount_data *, int, const char *, ...);
+static void abort_init(int, const char *, ...);
 
 static int new_node(struct back_end *, struct ref_inodes *, fuse_ino_t,
                     const char *, uid_t, gid_t, mode_t, dev_t, struct stat *,
@@ -860,33 +859,8 @@ free_iov(struct iovec *iov, int count)
         free(iov[i].iov_base);
 }
 
-static int
-fusermount_unmount(const char *name)
-{
-    int status;
-    pid_t pid;
-
-    pid = fork();
-    if (pid == 0) {
-        execlp("fusermount", "fusermount", "-u", name, NULL);
-        abort();
-    }
-    if (pid == -1)
-        return -errno;
-
-    if (waitpid(pid, &status, 0) == -1)
-        return -errno;
-
-    if (!WIFEXITED(status))
-        return -EIO;
-
-    status = WEXITSTATUS(status);
-
-    return (status == 0) ? 0 : -EIO;
-}
-
 static void
-abort_init(struct mount_data *md, int err, const char *fmt, ...)
+abort_init(int err, const char *fmt, ...)
 {
     va_list ap;
 
@@ -894,8 +868,7 @@ abort_init(struct mount_data *md, int err, const char *fmt, ...)
     verror(err, fmt, ap);
     va_end(ap);
 
-    if (fusermount_unmount(md->mountpoint) != 0)
-        abort();
+    simplefs_exit();
 }
 
 static int
@@ -2287,7 +2260,7 @@ err1:
     pthread_mutex_lock(&mtx);
     init = err;
     pthread_mutex_unlock(&mtx);
-    abort_init(md, -err, "Error mounting FUSE file system");
+    abort_init(-err, "Error mounting FUSE file system");
 }
 
 static void
