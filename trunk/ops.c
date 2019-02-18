@@ -174,6 +174,9 @@ struct open_file {
 #define CACHE_TIMEOUT 0.0
 #define KEEP_CACHE_OPEN 1
 
+static pthread_mutex_t mtx = PTHREAD_MUTEX_INITIALIZER;
+static int init;
+
 static void verror(int, const char *, va_list);
 
 static int uint64_cmp(uint64_t, uint64_t);
@@ -2173,6 +2176,11 @@ do_create(void *args)
                       0, &opargs->refinop);
 }
 
+/*
+ * Note: If the init request performs an unmount due to an error, a forget
+ * request for the root I-node is immediately issued, no destroy request is
+ * issued, and the FUSE processing loop blocks until the init request returns.
+ */
 static void
 simplefs_init(void *userdata, struct fuse_conn_info *conn)
 {
@@ -2238,6 +2246,10 @@ simplefs_init(void *userdata, struct fuse_conn_info *conn)
     err = -pthread_create(&priv->worker_td, NULL, &worker_td, md);
     if (err)
         goto err6;
+
+    pthread_mutex_lock(&mtx);
+    init = 1;
+    pthread_mutex_unlock(&mtx);
 
     return;
 
@@ -2327,9 +2339,19 @@ err:
 static void
 simplefs_forget(fuse_req_t req, fuse_ino_t ino, unsigned long nlookup)
 {
+    int initialized;
     struct fspriv *priv;
     struct mount_data *md = fuse_req_userdata(req);
     struct op_args opargs;
+
+    pthread_mutex_lock(&mtx);
+    initialized = init;
+    pthread_mutex_unlock(&mtx);
+    if (!initialized) {
+        /* forget request sent by unmounting before initialization finished
+           successfully */
+        return;
+    }
 
     priv = md->priv;
 
