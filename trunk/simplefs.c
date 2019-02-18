@@ -103,8 +103,6 @@ parse_cmdline(struct fuse_args *args, struct fuse_data *fusedata)
         FUSE_OPT_END
     };
 
-    fusedata->md.mountpoint = fusedata->mountpoint;
-
     fusedata->md.db_pathname = NULL;
     fusedata->md.ro = 0;
 
@@ -118,6 +116,8 @@ parse_cmdline(struct fuse_args *args, struct fuse_data *fusedata)
             free((void *)(fusedata->md.db_pathname));
         return -EINVAL;
     }
+
+    fusedata->md.mountpoint = fusedata->mountpoint;
 
     return 0;
 }
