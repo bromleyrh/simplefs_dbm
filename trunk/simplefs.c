@@ -248,7 +248,7 @@ main(int argc, char **argv)
 
     status = EXIT_FAILURE;
 
-    if (process_fuse_events(&fusedata) == 0)
+    if ((process_fuse_events(&fusedata) == 0) && (mount_status() == 0))
         status = EXIT_SUCCESS;
 
     terminate_fuse(&fusedata);

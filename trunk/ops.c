@@ -2176,6 +2176,18 @@ do_create(void *args)
                       0, &opargs->refinop);
 }
 
+int
+mount_status()
+{
+    int status;
+
+    pthread_mutex_lock(&mtx);
+    status = init;
+    pthread_mutex_unlock(&mtx);
+
+    return (status >= 0) ? 0 : status;
+}
+
 /*
  * Note: If the init request performs an unmount due to an error, a forget
  * request for the root I-node is immediately issued, no destroy request is
@@ -2264,6 +2276,9 @@ err3:
 err2:
     free(priv);
 err1:
+    pthread_mutex_lock(&mtx);
+    init = err;
+    pthread_mutex_unlock(&mtx);
     abort_init(md, -err, "Error mounting FUSE file system");
 }
 
@@ -2354,7 +2369,7 @@ simplefs_forget(fuse_req_t req, fuse_ino_t ino, unsigned long nlookup)
     pthread_mutex_lock(&mtx);
     initialized = init;
     pthread_mutex_unlock(&mtx);
-    if (!initialized) {
+    if (initialized != 1) {
         /* forget request sent by unmounting before initialization finished
            successfully */
         return;
