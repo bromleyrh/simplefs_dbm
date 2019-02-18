@@ -2271,8 +2271,15 @@ static void
 simplefs_destroy(void *userdata)
 {
     avl_tree_walk_ctx_t wctx = NULL;
+    int initialized;
     struct fspriv *priv;
     struct mount_data *md = (struct mount_data *)userdata;
+
+    pthread_mutex_lock(&mtx);
+    initialized = init;
+    pthread_mutex_unlock(&mtx);
+    if (initialized != 1)
+        return;
 
     priv = md->priv;
 
