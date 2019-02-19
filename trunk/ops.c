@@ -1396,6 +1396,8 @@ do_setattr(void *args)
         return ret;
 
     deserialize_stat(&opargs->attr, &s);
+    if (S_ISDIR(opargs->attr.st_mode))
+        opargs->attr.st_size = s.num_ents;
 
     return 0;
 }
@@ -2321,6 +2323,8 @@ simplefs_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
     } else {
         e.ino = opargs.s.st_ino;
         deserialize_stat(&e.attr, &opargs.s);
+        if (S_ISDIR(e.attr.st_mode))
+            e.attr.st_size = opargs.s.num_ents;
     }
     e.generation = 1;
     e.attr_timeout = e.entry_timeout = CACHE_TIMEOUT;
@@ -2397,7 +2401,6 @@ simplefs_getattr(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
     }
 
     deserialize_stat(&attr, &opargs.s);
-
     if (S_ISDIR(attr.st_mode))
         attr.st_size = opargs.s.num_ents;
 
@@ -2758,7 +2761,10 @@ simplefs_link(fuse_req_t req, fuse_ino_t ino, fuse_ino_t newparent,
     e.ino = opargs.s.st_ino;
     e.generation = 1;
     deserialize_stat(&e.attr, &opargs.s);
+    if (S_ISDIR(e.attr.st_mode))
+        e.attr.st_size = opargs.s.num_ents;
     e.attr_timeout = e.entry_timeout = CACHE_TIMEOUT;
+
     ret = fuse_reply_entry(req, &e);
     if (ret != 0) {
         dec_refcnt(&priv->ref_inodes, 0, 0, -1, opargs.refinop);
