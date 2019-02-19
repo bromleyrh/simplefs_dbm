@@ -48,15 +48,15 @@ AC_SUBST([stack_protector])
 
 AX_FUNC_ERROR
 
-fuse_cflags=`eval $pkgcfg --cflags fuse 2>/dev/null`
-libutil_cflags=`eval $pkgcfg --cflags libutil`
+fuse_cppflags=`eval $pkgcfg --cflags fuse 2>/dev/null`
+libutil_cppflags=`eval $pkgcfg --cflags libutil`
 
 fuse_link_dep=`eval $pkgcfg --libs fuse 2>/dev/null`
 libutil_link_dep=`eval $pkgcfg --libs libutil`
 
-AC_SUBST([fuse_cflags])
-AC_SUBST([libjson_cflags])
-AC_SUBST([libutil_cflags])
+AC_SUBST([fuse_cppflags])
+AC_SUBST([libjson_cppflags])
+AC_SUBST([libutil_cppflags])
 
 AC_SUBST([fuse_link_dep])
 AC_SUBST([libjson_link_dep])
