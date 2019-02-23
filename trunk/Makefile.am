@@ -16,8 +16,13 @@ bin_PROGRAMS = simplefs
 ##AM_CFLAGS = -O2 -pipe -Wall -Wextra
 ##endif
 
+if DEBUG
+AM_CPPFLAGS =
+AM_CFLAGS = -ggdb3 -O0 -pipe -Wall -Wextra
+else
 AM_CPPFLAGS = -DNDEBUG
-AM_CFLAGS = -DNDEBUG -ggdb3 -O0 -pipe -Wall -Wextra
+AM_CFLAGS = -ggdb3 -O0 -pipe -Wall -Wextra
+endif
 
 simplefs_SOURCES = back_end.c ops.c simplefs.c util.c
 simplefs_CPPFLAGS = $(AM_CPPFLAGS) -DFUSE_USE_VERSION=26 @fuse_cppflags@ \
