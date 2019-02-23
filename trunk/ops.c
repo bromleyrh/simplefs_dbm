@@ -1846,7 +1846,7 @@ do_read_entries(void *args)
     if (ret < 0)
         goto err;
 
-    for (opargs->buflen = 0; opargs->buflen < opargs->bufsize;
+    for (opargs->buflen = 0; opargs->buflen <= opargs->bufsize;
          opargs->buflen += entsize) {
         size_t remsize;
         struct stat s;
