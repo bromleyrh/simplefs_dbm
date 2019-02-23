@@ -30,4 +30,11 @@ simplefs_CPPFLAGS = $(AM_CPPFLAGS) -DFUSE_USE_VERSION=26 @fuse_cppflags@ \
 simplefs_CFLAGS = $(AM_CFLAGS)
 simplefs_LDADD = @fuse_link_dep@ @libutil_link_dep@
 
+EXTRA_DIST =
+
+include scripts/Makefile.am
+
+distclean-local:
+	rm -f scan_build
+
 ## vi: set noexpandtab sw=4 ts=4:
