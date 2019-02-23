@@ -920,11 +920,9 @@ new_node(struct back_end *be, struct ref_inodes *ref_inodes, fuse_ino_t parent,
     if (ret != 0)
         goto err1;
 
-    if (ref_inodes != NULL) {
-        ret = inc_refcnt(be, ref_inodes, ino, 0, 0, 1, &refinop[1]);
-        if (ret != 0)
-            goto err2;
-    }
+    ret = inc_refcnt(be, ref_inodes, ino, 0, 0, 1, &refinop[1]);
+    if (ret != 0)
+        goto err2;
 
     k.ino = parent;
 
@@ -948,8 +946,7 @@ new_node(struct back_end *be, struct ref_inodes *ref_inodes, fuse_ino_t parent,
 
     if (attr != NULL)
         deserialize_stat(attr, &s);
-    if (ref_inodes != NULL)
-        *inop = refinop[1];
+    *inop = refinop[1];
 
     return 0;
 
@@ -1063,11 +1060,9 @@ new_dir(struct back_end *be, struct ref_inodes *ref_inodes, fuse_ino_t parent,
             goto err3;
     }
 
-    if (ref_inodes != NULL) {
-        ret = inc_refcnt(be, ref_inodes, ino, 0, 0, 1, &refinop[3]);
-        if (ret != 0)
-            goto err4;
-    }
+    ret = inc_refcnt(be, ref_inodes, ino, 0, 0, 1, &refinop[3]);
+    if (ret != 0)
+        goto err4;
 
     if (!rootdir) {
         struct db_obj_stat ps;
@@ -1095,14 +1090,12 @@ new_dir(struct back_end *be, struct ref_inodes *ref_inodes, fuse_ino_t parent,
 
     if (attr != NULL)
         deserialize_stat(attr, &s);
-    if (ref_inodes != NULL)
-        *inop = refinop[3];
+    *inop = refinop[3];
 
     return 0;
 
 err5:
-    if (ref_inodes != NULL)
-        dec_refcnt(ref_inodes, 0, 0, -1, refinop[3]);
+    dec_refcnt(ref_inodes, 0, 0, -1, refinop[3]);
 err4:
     if (!rootdir)
         dec_refcnt(ref_inodes, -1, 0, 0, refinop[2]);
