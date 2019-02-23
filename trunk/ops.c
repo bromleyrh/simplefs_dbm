@@ -3,6 +3,7 @@
  */
 
 #include "back_end.h"
+#include "common.h"
 #include "ops.h"
 #include "simplefs.h"
 #include "util.h"
@@ -620,7 +621,7 @@ inc_refcnt(struct back_end *be, struct ref_inodes *ref_inodes, fuse_ino_t ino,
 
         refinop = do_malloc(sizeof(*refinop));
         if (refinop == NULL) {
-            ret = -errno;
+            ret = MINUS_ERRNO;
             goto err1;
         }
 
@@ -1420,7 +1421,7 @@ do_read_symlink(void *args)
 
     opargs->link = do_malloc(buflen);
     if (opargs->link == NULL)
-        return -errno;
+        return MINUS_ERRNO;
 
     ret = back_end_look_up(opargs->be, &k, NULL, (void *)(opargs->link), NULL,
                            0);
@@ -1944,7 +1945,7 @@ do_read(void *args)
 
     iov = do_calloc(count, sizeof(*iov));
     if (iov == NULL)
-        return -errno;
+        return MINUS_ERRNO;
 
     k.type = TYPE_PAGE;
 
@@ -1966,7 +1967,7 @@ do_read(void *args)
 
         iov[i].iov_base = do_malloc(sz);
         if (iov[i].iov_base == NULL) {
-            ret = -errno;
+            ret = MINUS_ERRNO;
             goto err;
         }
         ++iovsz;
@@ -2182,7 +2183,7 @@ simplefs_init(void *userdata, struct fuse_conn_info *conn)
 
     priv = do_malloc(sizeof(*priv));
     if (priv == NULL) {
-        err = -errno;
+        err = MINUS_ERRNO;
         goto err1;
     }
 
@@ -2801,7 +2802,7 @@ simplefs_open(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
 
     ofile = do_malloc(sizeof(*ofile));
     if (ofile == NULL) {
-        ret = -errno;
+        ret = MINUS_ERRNO;
         goto err2;
     }
 
@@ -2934,7 +2935,7 @@ simplefs_opendir(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
 
     odir = do_malloc(sizeof(*odir));
     if (odir == NULL) {
-        ret = -errno;
+        ret = MINUS_ERRNO;
         goto err2;
     }
 
@@ -3205,7 +3206,7 @@ simplefs_create(fuse_req_t req, fuse_ino_t parent, const char *name,
 
     ofile = do_malloc(sizeof(*ofile));
     if (ofile == NULL) {
-        ret = -errno;
+        ret = MINUS_ERRNO;
         goto err2;
     }
 
