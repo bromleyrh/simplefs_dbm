@@ -24,9 +24,14 @@ AM_CPPFLAGS = -DNDEBUG
 AM_CFLAGS = -ggdb3 -O0 -pipe -Wall -Wextra
 endif
 
+if LIBFUSE_3
+defines = -DFUSE_USE_VERSION=32
+else
+defines = -DFUSE_USE_VERSION=26
+endif
+
 simplefs_SOURCES = back_end.c ops.c simplefs.c util.c
-simplefs_CPPFLAGS = $(AM_CPPFLAGS) -DFUSE_USE_VERSION=26 @fuse_cppflags@ \
-	@libutil_cppflags@
+simplefs_CPPFLAGS = $(AM_CPPFLAGS) $(defines) @fuse_cppflags@ @libutil_cppflags@
 simplefs_CFLAGS = $(AM_CFLAGS)
 simplefs_LDADD = @fuse_link_dep@ @libutil_link_dep@
 

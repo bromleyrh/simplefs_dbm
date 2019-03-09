@@ -48,10 +48,29 @@ AC_SUBST([stack_protector])
 
 AX_FUNC_ERROR
 
-fuse_cppflags=`eval $pkgcfg --cflags fuse 2>/dev/null`
+AC_ARG_WITH([libfuse-3],
+            [  --with-libfuse-3        use libfuse 3],
+            [case "$withval" in
+                 yes)
+                     libfuse3=true;;
+                 no)
+                     libfuse3=false;;
+                 *)
+                     AC_MSG_ERROR([invalid "--with-libfuse-3" argument]);;
+             esac],
+            [libfuse3=false])
+AM_CONDITIONAL([LIBFUSE_3], [test x$libfuse3 = xtrue])
+
+if test x$libfuse3 = xtrue; then
+    fusepkg=fuse3
+else
+    fusepkg=fuse
+fi
+
+fuse_cppflags=`eval $pkgcfg --cflags $fusepkg 2>/dev/null`
 libutil_cppflags=`eval $pkgcfg --cflags libutil`
 
-fuse_link_dep=`eval $pkgcfg --libs fuse 2>/dev/null`
+fuse_link_dep=`eval $pkgcfg --libs $fusepkg 2>/dev/null`
 libutil_link_dep=`eval $pkgcfg --libs libutil`
 
 AC_SUBST([fuse_cppflags])

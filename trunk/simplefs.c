@@ -37,9 +37,16 @@ static int set_up_signal_handlers(void);
 
 static int enable_debugging_features(void);
 
+static int do_fuse_parse_cmdline(struct fuse_args *, char **, int *, int *);
 static int parse_cmdline(struct fuse_args *, struct fuse_data *);
 
+static struct fuse_session *do_fuse_mount(const char *, struct fuse_args *,
+                                          const struct fuse_lowlevel_ops *,
+                                          size_t, void *, struct fuse_chan **);
 static int do_fuse_daemonize(void);
+static int do_fuse_session_loop_mt(struct fuse_session *);
+static void do_fuse_unmount(const char *, struct fuse_chan *,
+                            struct fuse_session *);
 
 static int init_fuse(int, char **, struct fuse_data *);
 static int process_fuse_events(struct fuse_data *);
@@ -97,6 +104,35 @@ err:
 }
 
 static int
+do_fuse_parse_cmdline(struct fuse_args *args, char **mountpoint,
+                      int *multithreaded, int *foreground)
+{
+    int ret;
+#if FUSE_USE_VERSION == 32
+    struct fuse_cmdline_opts opts;
+#endif
+
+#if FUSE_USE_VERSION != 32
+    ret = fuse_parse_cmdline(args, mountpoint, multithreaded, foreground);
+#else
+    ret = fuse_parse_cmdline(args, &opts);
+#endif
+    if (ret == -1)
+        return ret;
+
+#if FUSE_USE_VERSION == 32
+    if (mountpoint != NULL)
+        *mountpoint = opts.mountpoint;
+    if (multithreaded != NULL)
+        *multithreaded = !(opts.singlethread);
+    if (foreground != NULL)
+        *foreground = opts.foreground;
+
+#endif
+    return 0;
+}
+
+static int
 parse_cmdline(struct fuse_args *args, struct fuse_data *fusedata)
 {
     static const struct fuse_opt opts[] = {
@@ -111,8 +147,8 @@ parse_cmdline(struct fuse_args *args, struct fuse_data *fusedata)
     if (fuse_opt_parse(args, &fusedata->md, opts, NULL) == -1)
         return -EINVAL;
 
-    if (fuse_parse_cmdline(args, (char **)&fusedata->mountpoint, NULL,
-                           &fusedata->foreground)
+    if (do_fuse_parse_cmdline(args, (char **)&fusedata->mountpoint, NULL,
+                              &fusedata->foreground)
         == -1) {
         if (fusedata->md.db_pathname != NULL)
             free((void *)(fusedata->md.db_pathname));
@@ -124,54 +160,45 @@ parse_cmdline(struct fuse_args *args, struct fuse_data *fusedata)
     return 0;
 }
 
-static int
-init_fuse(int argc, char **argv, struct fuse_data *fusedata)
+static struct fuse_session *
+do_fuse_mount(const char *mountpoint, struct fuse_args *args,
+              const struct fuse_lowlevel_ops *ops, size_t op_size,
+              void *userdata, struct fuse_chan **ch)
 {
-    const char *errmsg;
-    int err;
-    struct fuse_args args = FUSE_ARGS_INIT(argc, argv);
+#if FUSE_USE_VERSION == 32
+    struct fuse_session *ret;
 
-    err = parse_cmdline(&args, fusedata);
-    if (err) {
-        errmsg = "Error parsing command line";
-        goto err1;
+    (void)ch;
+
+    ret = fuse_session_new(args, ops, op_size, userdata);
+    if (ret == NULL)
+        return NULL;
+
+    if (fuse_session_mount(ret, mountpoint) == -1) {
+        fuse_session_destroy(ret);
+        return NULL;
     }
 
-    if ((fuse_opt_add_arg(&args, "-o") == -1)
-        || (fuse_opt_add_arg(&args, "auto_unmount,default_permissions")
-            == -1)) {
-        errmsg = "Out of memory";
-        goto err2;
+    return ret;
+#else
+    struct fuse_chan *chan;
+    struct fuse_session *ret;
+
+    chan = fuse_mount(mountpoint, args);
+    if (chan == NULL)
+        return NULL;
+
+    ret = fuse_lowlevel_new(args, ops, op_size, userdata);
+    if (ret == NULL) {
+        fuse_unmount(mountpoint, chan);
+        return NULL;
     }
 
-    err = -EIO;
-    errmsg = "Error mounting FUSE file system";
+    fuse_session_add_chan(ret, chan);
 
-    fusedata->chan = fuse_mount(fusedata->mountpoint, &args);
-    if (fusedata->chan == NULL)
-        goto err2;
-
-    fusedata->sess = fuse_lowlevel_new(&args, &simplefs_ops,
-                                       sizeof(simplefs_ops), &fusedata->md);
-    if (fusedata->sess == NULL)
-        goto err3;
-
-    fuse_session_add_chan(fusedata->sess, fusedata->chan);
-
-    fuse_opt_free_args(&args);
-
-    return 0;
-
-err3:
-    fuse_unmount(fusedata->mountpoint, fusedata->chan);
-err2:
-    fuse_opt_free_args(&args);
-    free((void *)(fusedata->mountpoint));
-    if (fusedata->md.db_pathname != NULL)
-        free((void *)(fusedata->md.db_pathname));
-err1:
-    error(0, -err, "%s", errmsg);
-    return err;
+    *ch = chan;
+    return ret;
+#endif
 }
 
 static int
@@ -208,12 +235,86 @@ err:
 }
 
 static int
+do_fuse_session_loop_mt(struct fuse_session *se)
+{
+#if FUSE_USE_VERSION == 32
+    struct fuse_loop_config mtconf;
+
+    mtconf.clone_fd = 0;
+    mtconf.max_idle_threads = 10;
+
+    return fuse_session_loop_mt(se, &mtconf);
+#else
+    return fuse_session_loop_mt(se);
+#endif
+}
+
+static void
+do_fuse_unmount(const char *mountpoint, struct fuse_chan *ch,
+                struct fuse_session *se)
+{
+#if FUSE_USE_VERSION == 32
+    (void)mountpoint;
+    (void)ch;
+
+    return fuse_session_unmount(se);
+#else
+    (void)se;
+
+    return fuse_unmount(mountpoint, ch);
+#endif
+}
+
+static int
+init_fuse(int argc, char **argv, struct fuse_data *fusedata)
+{
+    const char *errmsg;
+    int err;
+    struct fuse_args args = FUSE_ARGS_INIT(argc, argv);
+
+    err = parse_cmdline(&args, fusedata);
+    if (err) {
+        errmsg = "Error parsing command line";
+        goto err1;
+    }
+
+    if ((fuse_opt_add_arg(&args, "-o") == -1)
+        || (fuse_opt_add_arg(&args, "auto_unmount,default_permissions")
+            == -1)) {
+        errmsg = "Out of memory";
+        goto err2;
+    }
+
+    err = -EIO;
+    errmsg = "Error mounting FUSE file system";
+
+    fusedata->sess = do_fuse_mount(fusedata->mountpoint, &args, &simplefs_ops,
+                                   sizeof(simplefs_ops), &fusedata->md,
+                                   &fusedata->chan);
+    if (fusedata->sess == NULL)
+        goto err2;
+
+    fuse_opt_free_args(&args);
+
+    return 0;
+
+err2:
+    fuse_opt_free_args(&args);
+    free((void *)(fusedata->mountpoint));
+    if (fusedata->md.db_pathname != NULL)
+        free((void *)(fusedata->md.db_pathname));
+err1:
+    error(0, -err, "%s", errmsg);
+    return err;
+}
+
+static int
 process_fuse_events(struct fuse_data *fusedata)
 {
     if (!(fusedata->foreground) && (do_fuse_daemonize() == -1))
         goto err;
 
-    if (fuse_session_loop_mt(fusedata->sess) == -1)
+    if (do_fuse_session_loop_mt(fusedata->sess) == -1)
         goto err;
 
     return 0;
@@ -226,7 +327,7 @@ err:
 static void
 terminate_fuse(struct fuse_data *fusedata)
 {
-    fuse_unmount(fusedata->mountpoint, fusedata->chan);
+    do_fuse_unmount(fusedata->mountpoint, fusedata->chan, fusedata->sess);
 
     fuse_session_destroy(fusedata->sess);
 

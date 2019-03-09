@@ -128,7 +128,7 @@ struct op_args {
     /* lookup() */
     int                     inc_lookup_cnt;
     /* forget() */
-    unsigned long           nlookup;
+    uint64_t                nlookup;
     /* setattr() */
     int                     to_set;
     /* mknod() */
@@ -265,7 +265,11 @@ static int do_create(void *);
 static void simplefs_init(void *, struct fuse_conn_info *);
 static void simplefs_destroy(void *);
 static void simplefs_lookup(fuse_req_t, fuse_ino_t, const char *);
+#if FUSE_USE_VERSION == 32
+static void simplefs_forget(fuse_req_t, fuse_ino_t, uint64_t);
+#else
 static void simplefs_forget(fuse_req_t, fuse_ino_t, unsigned long);
+#endif
 static void simplefs_getattr(fuse_req_t, fuse_ino_t, struct fuse_file_info *);
 static void simplefs_setattr(fuse_req_t, fuse_ino_t, struct stat *, int,
                              struct fuse_file_info *);
@@ -276,8 +280,13 @@ static void simplefs_unlink(fuse_req_t, fuse_ino_t, const char *);
 static void simplefs_rmdir(fuse_req_t, fuse_ino_t, const char *);
 static void simplefs_symlink(fuse_req_t, const char *, fuse_ino_t,
                              const char *);
+#if FUSE_USE_VERSION == 32
+static void simplefs_rename(fuse_req_t, fuse_ino_t, const char *, fuse_ino_t,
+                            const char *, unsigned int);
+#else
 static void simplefs_rename(fuse_req_t, fuse_ino_t, const char *, fuse_ino_t,
                             const char *);
+#endif
 static void simplefs_link(fuse_req_t, fuse_ino_t, fuse_ino_t, const char *);
 static void simplefs_open(fuse_req_t, fuse_ino_t, struct fuse_file_info *);
 static void simplefs_read(fuse_req_t, fuse_ino_t, size_t, off_t,
@@ -2171,8 +2180,13 @@ simplefs_init(void *userdata, struct fuse_conn_info *conn)
     struct mount_data *md = (struct mount_data *)userdata;
     struct ref_ino *refinop;
 
+#if FUSE_USE_VERSION == 32
+    conn->want = FUSE_CAP_ASYNC_READ | FUSE_CAP_ATOMIC_O_TRUNC
+                 | FUSE_CAP_EXPORT_SUPPORT | FUSE_CAP_WRITEBACK_CACHE;
+#else
     conn->want = FUSE_CAP_ASYNC_READ | FUSE_CAP_ATOMIC_O_TRUNC
                  | FUSE_CAP_BIG_WRITES | FUSE_CAP_EXPORT_SUPPORT;
+#endif
 
     priv = do_malloc(sizeof(*priv));
     if (priv == NULL) {
@@ -2338,7 +2352,11 @@ err:
 }
 
 static void
+#if FUSE_USE_VERSION == 32
+simplefs_forget(fuse_req_t req, fuse_ino_t ino, uint64_t nlookup)
+#else
 simplefs_forget(fuse_req_t req, fuse_ino_t ino, unsigned long nlookup)
+#endif
 {
     int initialized;
     struct fspriv *priv;
@@ -2691,14 +2709,23 @@ err:
 }
 
 static void
+#if FUSE_USE_VERSION == 32
+simplefs_rename(fuse_req_t req, fuse_ino_t parent, const char *name,
+                fuse_ino_t newparent, const char *newname, unsigned int flags)
+#else
 simplefs_rename(fuse_req_t req, fuse_ino_t parent, const char *name,
                 fuse_ino_t newparent, const char *newname)
+#endif
 {
     int ret;
     struct fspriv *priv;
     struct mount_data *md = fuse_req_userdata(req);
     struct op_args opargs;
 
+#if FUSE_USE_VERSION == 32
+    (void)flags;
+
+#endif
     if ((strcmp(name, ".") == 0) || (strcmp(name, "..") == 0)
         || (strcmp(newname, ".") == 0) || (strcmp(newname, "..") == 0)) {
         ret = EINVAL;
