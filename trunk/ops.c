@@ -2905,7 +2905,7 @@ simplefs_write(fuse_req_t req, fuse_ino_t ino, const char *buf, size_t size,
     struct mount_data *md = fuse_req_userdata(req);
     struct op_args opargs;
 
-    (void)fi;
+    (void)fi; /* fi->fh guessed if called by writeback */
 
     if (size == 0) {
         ret = fuse_reply_write(req, 0);
