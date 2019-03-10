@@ -215,7 +215,7 @@ static void deserialize_ts(struct timespec *, struct disk_timespec *);
 
 static void deserialize_stat(struct stat *, struct db_obj_stat *);
 
-static int truncate_file(struct back_end *, fuse_ino_t, size_t, size_t);
+static int truncate_file(struct back_end *, fuse_ino_t, off_t, off_t);
 static int delete_file(struct back_end *, fuse_ino_t);
 
 static void free_iov(struct iovec *, int);
@@ -780,8 +780,7 @@ deserialize_stat(struct stat *s, struct db_obj_stat *ds)
 }
 
 static int
-truncate_file(struct back_end *be, fuse_ino_t ino, size_t oldsize,
-              size_t newsize)
+truncate_file(struct back_end *be, fuse_ino_t ino, off_t oldsize, off_t newsize)
 {
     int ret;
     size_t lastpgsz;
