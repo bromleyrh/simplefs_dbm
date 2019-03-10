@@ -1940,6 +1940,12 @@ do_read(void *args)
     if (ret != 1)
         return (ret == 0) ? -ENOENT : ret;
 
+    if (opargs->off >= s.st_size) {
+        opargs->iov = NULL;
+        opargs->count = 0;
+        return 0;
+    }
+
     firstpgidx = opargs->off / PG_SIZE;
     lastpgidx = (MIN(opargs->off + (off_t)opargs->size, s.st_size) - 1)
                 / PG_SIZE;
