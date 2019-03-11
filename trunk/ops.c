@@ -175,6 +175,8 @@ struct open_file {
 #define CACHE_TIMEOUT 1800.0
 #define KEEP_CACHE_OPEN 1
 
+#define UNREF_MAX INT32_MAX
+
 static pthread_mutex_t mtx = PTHREAD_MUTEX_INITIALIZER;
 static int init;
 
@@ -1440,6 +1442,7 @@ do_forget(void *args)
     int ret;
     struct op_args *opargs = (struct op_args *)args;
     struct ref_ino refino, *refinop;
+    uint64_t to_unref, unref;
 
     ret = back_end_trans_new(opargs->be);
     if (ret != 0)
@@ -1457,10 +1460,15 @@ do_forget(void *args)
         goto err;
     }
 
-    ret = unref_inode(opargs->be, opargs->ref_inodes, refinop, 0, 0,
-                      -(opargs->nlookup));
-    if (ret != 0)
-        goto err;
+    to_unref = opargs->nlookup;
+    for (to_unref = opargs->nlookup; to_unref > 0; to_unref -= unref) {
+        unref = MIN(UNREF_MAX, to_unref);
+
+        ret = unref_inode(opargs->be, opargs->ref_inodes, refinop, 0, 0,
+                          -(int32_t)unref);
+        if (ret != 0)
+            goto err;
+    }
 
     ret = back_end_trans_commit(opargs->be);
     if (ret != 0)
