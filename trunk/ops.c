@@ -2866,6 +2866,13 @@ simplefs_read(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off,
 
     (void)fi;
 
+    if (size == 0) {
+        ret = fuse_reply_iov(req, NULL, 0);
+        if ((ret != 0) && (ret != -ENOENT))
+            goto err;
+        return;
+    }
+
     priv = md->priv;
 
     opargs.be = priv->be;
@@ -2900,6 +2907,13 @@ simplefs_write(fuse_req_t req, fuse_ino_t ino, const char *buf, size_t size,
     struct op_args opargs;
 
     (void)fi;
+
+    if (size == 0) {
+        ret = fuse_reply_write(req, 0);
+        if ((ret != 0) && (ret != -ENOENT))
+            goto err;
+        return;
+    }
 
     priv = md->priv;
 
