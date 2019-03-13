@@ -27,6 +27,7 @@ typedef int (*back_end_walk_cb_t)(const void *key, const void *data,
 struct db_args {
     const char  *db_pathname;
     mode_t      db_mode;
+    int         ro;
 };
 
 int back_end_create(struct back_end **be, size_t key_size,

@@ -166,18 +166,20 @@ back_end_open(struct back_end **be, size_t key_size, back_end_key_cmp_t key_cmp,
     /* test for journal replay by attempting read-only open */
     err = db_open(&dbctx->db, dbargs->db_pathname, key_size,
                   (db_key_cmp_t)key_cmp, dbctx->key_ctx, DB_RDONLY);
-    if (err) {
-        if (err != -EROFS)
-            goto err4;
-        fputs("Replaying file system journal\n", stderr);
-    } else {
-        err = db_close(dbctx->db);
-        if (err)
-            goto err4;
-    }
+    if (!(dbargs->ro)) {
+        if (err) {
+            if (err != -EROFS)
+                goto err4;
+            fputs("Replaying file system journal\n", stderr);
+        } else {
+            err = db_close(dbctx->db);
+            if (err)
+                goto err4;
+        }
 
-    err = db_open(&dbctx->db, dbargs->db_pathname, key_size,
-                  (db_key_cmp_t)key_cmp, dbctx->key_ctx, 0);
+        err = db_open(&dbctx->db, dbargs->db_pathname, key_size,
+                      (db_key_cmp_t)key_cmp, dbctx->key_ctx, 0);
+    }
     if (err)
         goto err4;
 
