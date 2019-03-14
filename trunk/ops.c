@@ -163,9 +163,10 @@ struct open_file {
     fuse_ino_t ino;
 };
 
-#define FMT_VERSION 1
+#define FMT_VERSION 2
 
-#define PG_SIZE (128 * 1024)
+#define DATA_BLOCK_MIN_SIZE 64
+#define PG_SIZE (128 * 1024 - DATA_BLOCK_MIN_SIZE)
 
 #define DB_PATHNAME "fs.db"
 
