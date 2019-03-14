@@ -86,7 +86,8 @@ struct disk_timespec {
 } __attribute__((packed));
 
 struct db_obj_header {
-    uint64_t next_ino;
+    uint64_t    next_ino;
+    uint8_t     reserved[120];
 } __attribute__((packed));
 
 struct db_obj_dirent {
