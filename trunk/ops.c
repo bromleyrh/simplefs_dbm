@@ -2828,6 +2828,11 @@ simplefs_open(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
     struct op_args opargs;
     struct open_file *ofile;
 
+    if (md->ro && ((fi->flags & O_ACCMODE) != O_RDONLY)) {
+        ret = -EROFS;
+        goto err1;
+    }
+
     priv = md->priv;
 
     opargs.be = priv->be;
@@ -3241,6 +3246,11 @@ simplefs_create(fuse_req_t req, fuse_ino_t parent, const char *name,
     struct mount_data *md = fuse_req_userdata(req);
     struct op_args opargs;
     struct open_file *ofile;
+
+    if (md->ro && ((fi->flags & O_ACCMODE) != O_RDONLY)) {
+        ret = -EROFS;
+        goto err1;
+    }
 
     priv = md->priv;
 
