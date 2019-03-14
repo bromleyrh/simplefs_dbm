@@ -86,8 +86,9 @@ struct disk_timespec {
 } __attribute__((packed));
 
 struct db_obj_header {
+    uint64_t    version;
     uint64_t    next_ino;
-    uint8_t     reserved[120];
+    uint8_t     reserved[112];
 } __attribute__((packed));
 
 struct db_obj_dirent {
@@ -161,6 +162,8 @@ struct open_dir {
 struct open_file {
     fuse_ino_t ino;
 };
+
+#define FMT_VERSION 1
 
 #define PG_SIZE (128 * 1024)
 
@@ -2188,8 +2191,10 @@ mount_status()
 static void
 simplefs_init(void *userdata, struct fuse_conn_info *conn)
 {
-    int err;
+    int ret;
     struct db_args args;
+    struct db_key k;
+    struct db_obj_header hdr;
     struct fspriv *priv;
     struct mount_data *md = (struct mount_data *)userdata;
     struct ref_ino *refinop;
@@ -2204,12 +2209,12 @@ simplefs_init(void *userdata, struct fuse_conn_info *conn)
 
     priv = do_malloc(sizeof(*priv));
     if (priv == NULL) {
-        err = MINUS_ERRNO;
+        ret = MINUS_ERRNO;
         goto err1;
     }
 
-    err = fifo_new(&priv->queue, sizeof(struct queue_elem *), 1024);
-    if (err)
+    ret = fifo_new(&priv->queue, sizeof(struct queue_elem *), 1024);
+    if (ret != 0)
         goto err2;
 
     args.db_pathname = (md->db_pathname == NULL)
@@ -2217,20 +2222,17 @@ simplefs_init(void *userdata, struct fuse_conn_info *conn)
     args.db_mode = ACC_MODE_DEFAULT;
     args.ro = md->ro;
 
-    err = avl_tree_new(&priv->ref_inodes.ref_inodes, sizeof(struct ref_ino *),
+    ret = avl_tree_new(&priv->ref_inodes.ref_inodes, sizeof(struct ref_ino *),
                        &ref_inode_cmp, 0, NULL, NULL, NULL);
-    if (err)
+    if (ret != 0)
         goto err3;
-    err = -pthread_mutex_init(&priv->ref_inodes.ref_inodes_mtx, NULL);
-    if (err)
+    ret = -pthread_mutex_init(&priv->ref_inodes.ref_inodes_mtx, NULL);
+    if (ret != 0)
         goto err4;
 
-    err = back_end_open(&priv->be, sizeof(struct db_key), &db_key_cmp, &args);
-    if (err) {
-        struct db_key k;
-        struct db_obj_header hdr;
-
-        if (err != -ENOENT)
+    ret = back_end_open(&priv->be, sizeof(struct db_key), &db_key_cmp, &args);
+    if (ret != 0) {
+        if (ret != -ENOENT)
             goto err5;
 
         if (args.ro) {
@@ -2238,34 +2240,49 @@ simplefs_init(void *userdata, struct fuse_conn_info *conn)
                   "system)\n", stderr);
         }
 
-        err = back_end_create(&priv->be, sizeof(struct db_key), &db_key_cmp,
+        ret = back_end_create(&priv->be, sizeof(struct db_key), &db_key_cmp,
                               &args);
-        if (err)
+        if (ret != 0)
             goto err5;
 
         k.type = TYPE_HEADER;
+        hdr.version = FMT_VERSION;
         hdr.next_ino = FUSE_ROOT_ID + 1;
-        err = back_end_insert(priv->be, &k, &hdr, sizeof(hdr));
-        if (err)
+        ret = back_end_insert(priv->be, &k, &hdr, sizeof(hdr));
+        if (ret != 0)
             goto err6;
 
         /* create root directory */
-        err = new_dir(priv->be, &priv->ref_inodes, 0, NULL, 0, 0, ACCESSPERMS,
+        ret = new_dir(priv->be, &priv->ref_inodes, 0, NULL, 0, 0, ACCESSPERMS,
                       NULL, &refinop);
-        if (err)
+        if (ret != 0)
             goto err6;
+    } else {
+        k.type = TYPE_HEADER;
+
+        ret = back_end_look_up(priv->be, &k, NULL, &hdr, NULL, 0);
+        if (ret != 1) {
+            if (ret == 0)
+                ret = -EILSEQ;
+            goto err6;
+        }
+
+        if (hdr.version != FMT_VERSION) {
+            ret = -EPROTONOSUPPORT;
+            goto err6;
+        }
     }
 
     md->priv = priv;
 
-    err = -pthread_create(&priv->worker_td, NULL, &worker_td, md);
-    if (err)
+    ret = -pthread_create(&priv->worker_td, NULL, &worker_td, md);
+    if (ret != 0)
         goto err6;
 
     /* root I-node implicitly looked up on completion of init request */
-    err = inc_refcnt(priv->be, &priv->ref_inodes, FUSE_ROOT_ID, 0, 0, 1,
+    ret = inc_refcnt(priv->be, &priv->ref_inodes, FUSE_ROOT_ID, 0, 0, 1,
                      &refinop);
-    if (err)
+    if (ret != 0)
         goto err7;
 
     pthread_mutex_lock(&mtx);
@@ -2288,9 +2305,9 @@ err2:
     free(priv);
 err1:
     pthread_mutex_lock(&mtx);
-    init = err;
+    init = ret;
     pthread_mutex_unlock(&mtx);
-    abort_init(-err, "Error mounting FUSE file system");
+    abort_init(-ret, "Error mounting FUSE file system");
 }
 
 static void
