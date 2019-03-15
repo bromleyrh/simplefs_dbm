@@ -1099,8 +1099,10 @@ new_dir(struct back_end *be, struct ref_inodes *ref_inodes, fuse_ino_t parent,
     if (ret != 0)
         goto err5;
 
-    if (attr != NULL)
+    if (attr != NULL) {
         deserialize_stat(attr, &s);
+        attr->st_nlink = 2;
+    }
     *inop = refinop[3];
 
     return 0;
