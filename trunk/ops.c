@@ -2469,6 +2469,7 @@ simplefs_setattr(fuse_req_t req, fuse_ino_t ino, struct stat *attr, int to_set,
     struct mount_data *md = fuse_req_userdata(req);
     struct op_args opargs;
 
+    /* VFS handles file descriptor access mode check for ftruncate() on Linux */
     (void)fi;
 
     priv = md->priv;
@@ -2897,7 +2898,7 @@ simplefs_read(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off,
     struct mount_data *md = fuse_req_userdata(req);
     struct op_args opargs;
 
-    (void)fi;
+    (void)fi; /* VFS handles file descriptor access mode check on Linux */
 
     if (size == 0) {
         ret = fuse_reply_iov(req, NULL, 0);
@@ -2939,7 +2940,9 @@ simplefs_write(fuse_req_t req, fuse_ino_t ino, const char *buf, size_t size,
     struct mount_data *md = fuse_req_userdata(req);
     struct op_args opargs;
 
-    (void)fi; /* fi->fh guessed if called by writeback */
+    /* VFS handles file descriptor access mode check on Linux */
+    /* fi->fh guessed if called by writeback */
+    (void)fi;
 
     if (size == 0) {
         ret = fuse_reply_write(req, 0);
