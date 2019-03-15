@@ -898,8 +898,6 @@ new_node(struct back_end *be, struct ref_inodes *ref_inodes, fuse_ino_t parent,
     struct db_obj_stat ps, s;
     struct ref_ino *refinop[2];
 
-    (void)rdev;
-
     if ((mode & S_IFMT) == S_IFDIR)
         return -EINVAL;
 
@@ -920,7 +918,7 @@ new_node(struct back_end *be, struct ref_inodes *ref_inodes, fuse_ino_t parent,
     s.st_nlink = 0;
     s.st_uid = uid;
     s.st_gid = gid;
-    s.st_rdev = 0;
+    s.st_rdev = rdev;
     s.st_size = 0;
     s.st_blksize = PG_SIZE;
     s.st_blocks = 0;
