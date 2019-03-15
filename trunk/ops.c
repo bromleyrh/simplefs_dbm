@@ -554,10 +554,8 @@ get_next_ino(struct back_end *be, fuse_ino_t *ino)
     if (res != 1)
         return (res == 0) ? -EILSEQ : res;
 
-    if (hdr.next_ino == ULONG_MAX) {
-        fputs("All I-node numbers consumed\n", stderr);
-        abort();
-    }
+    if (hdr.next_ino == ULONG_MAX)
+        return -ENOSPC;
     ret = (hdr.next_ino)++;
 
     res = back_end_replace(be, &k, &hdr, sizeof(hdr));
