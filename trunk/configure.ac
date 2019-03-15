@@ -2,6 +2,8 @@
 # configure.ac
 #
 
+env_cflags="$CFLAGS"
+
 AC_INIT([simplefs], m4_esyscmd_s([cat .version]))
 AC_PREREQ([2.69])
 
@@ -27,8 +29,6 @@ case $target_os in
 esac
 AM_CONDITIONAL([APPLE], [test "x$platform" = "xdarwin"])
 AM_CONDITIONAL([LINUX], [test "x$platform" = "xlinux"])
-
-CFLAGS=""
 
 AC_PROG_CC
 AC_PROG_INSTALL
@@ -115,6 +115,9 @@ AC_ARG_WITH([pkgconfigdir],
             [pkgconfigdir="$withval"],
             [pkgconfigdir="$libdir/pkgconfig"])
 AC_SUBST([pkgconfigdir])
+
+dnl FIXME: Later, only prevent Autoconf from adding "-g -O2" to CFLAGS
+CFLAGS="$env_cflags"
 
 AC_CONFIG_FILES([Makefile])
 AC_CONFIG_HEADERS([config.h])
