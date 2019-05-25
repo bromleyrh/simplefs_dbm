@@ -29,5 +29,7 @@ stamp-h1
 
 /simplefs
 
+/mount.simplefs
+
 fs.db
 fs.db_journal

@@ -163,6 +163,8 @@ struct open_file {
     fuse_ino_t ino;
 };
 
+#define SIMPLEFS_MOUNT_PIPE_FD 4
+
 #define FMT_VERSION 2
 
 #define DATA_BLOCK_MIN_SIZE 64
@@ -2285,6 +2287,8 @@ simplefs_init(void *userdata, struct fuse_conn_info *conn)
                      &refinop);
     if (ret != 0)
         goto err7;
+
+    write(SIMPLEFS_MOUNT_PIPE_FD, "1", sizeof("1"));
 
     pthread_mutex_lock(&mtx);
     init = 1;
