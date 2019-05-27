@@ -29,7 +29,7 @@ static int do_mount(char **);
 static int open_simplefs_pipe(int);
 static int read_simplefs_pipe(int);
 
-static int do_start_simplefs(void);
+static int do_start_simplefs(const char *);
 
 static int
 parse_cmdline(int argc, char **argv, int *mount_argc, char ***mount_argv)
@@ -106,7 +106,7 @@ read_simplefs_pipe(int pipefd)
 }
 
 static int
-do_start_simplefs()
+do_start_simplefs(const char *mountpoint)
 {
     int err;
     int pipefd;
@@ -121,8 +121,10 @@ do_start_simplefs()
     if (pid == -1)
         return MINUS_ERRNO;
     if (pid == 0) {
-        execlp(SIMPLEFS_PATH, SIMPLEFS_PATH, "-f", "-o", SIMPLEFS_MOUNT_OPTS,
-               ".", NULL);
+        if (chdir(mountpoint) == 0) {
+            execlp(SIMPLEFS_PATH, SIMPLEFS_PATH, "-f", "-o",
+                   SIMPLEFS_MOUNT_OPTS, ".", NULL);
+        }
         exit(EXIT_FAILURE);
     }
 
@@ -141,7 +143,6 @@ int
 main(int argc, char **argv)
 {
     char **mount_argv;
-    const char *errmsg;
     int err;
     int mount_argc;
 
@@ -149,28 +150,14 @@ main(int argc, char **argv)
         return EXIT_FAILURE;
 
     err = do_mount(mount_argv);
-    if (err) {
-        errmsg = "Mounting failed";
-        goto err;
-    }
+    if (err)
+        error(EXIT_FAILURE, -err, "Mounting failed");
 
-    if (chdir(mount_argv[MOUNT_MOUNTPOINT_ARGV_IDX]) == -1) {
-        err = MINUS_ERRNO;
-        errmsg = "Error changing directory";
-        goto err;
-    }
-
-    err = do_start_simplefs();
-    if (err) {
-        errmsg = "Error executing simplefs";
-        goto err;
-    }
+    err = do_start_simplefs(mount_argv[MOUNT_MOUNTPOINT_ARGV_IDX]);
+    if (err)
+        error(EXIT_FAILURE, -err, "Error executing simplefs");
 
     return EXIT_SUCCESS;
-
-err:
-    error(EXIT_FAILURE, -err, "%s", errmsg);
-    return EXIT_FAILURE;
 }
 
 /* vi: set expandtab sw=4 ts=4: */
