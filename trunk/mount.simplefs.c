@@ -5,12 +5,14 @@
 #include "common.h"
 
 #include <errno.h>
+#include <fcntl.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
 
+#include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 
@@ -28,6 +30,8 @@ static int do_mount(char **);
 
 static int open_simplefs_pipe(int);
 static int read_simplefs_pipe(int);
+
+static int redirect_std_fds(const char *);
 
 static int do_start_simplefs(const char *);
 
@@ -106,6 +110,27 @@ read_simplefs_pipe(int pipefd)
 }
 
 static int
+redirect_std_fds(const char *path)
+{
+    int err;
+    int fd;
+
+    fd = open(path, O_RDWR);
+    if (fd == -1)
+        return MINUS_ERRNO;
+
+    if ((dup2(fd, STDIN_FILENO) == -1) || (dup2(fd, STDOUT_FILENO) == -1)
+        || (dup2(fd, STDERR_FILENO) == -1))
+        err = MINUS_ERRNO;
+    else
+        err = 0;
+
+    close(fd);
+
+    return err;
+}
+
+static int
 do_start_simplefs(const char *mountpoint)
 {
     int err;
@@ -121,7 +146,8 @@ do_start_simplefs(const char *mountpoint)
     if (pid == -1)
         return MINUS_ERRNO;
     if (pid == 0) {
-        if (chdir(mountpoint) == 0) {
+        if ((chdir(mountpoint) == 0) && (redirect_std_fds("/dev/null") == 0)
+            && (setsid() != -1)) {
             execlp(SIMPLEFS_PATH, SIMPLEFS_PATH, "-f", "-o",
                    SIMPLEFS_MOUNT_OPTS, ".", NULL);
         }
