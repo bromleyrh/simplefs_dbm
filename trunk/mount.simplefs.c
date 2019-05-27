@@ -129,8 +129,7 @@ do_start_simplefs()
 
     err = read_simplefs_pipe(pipefd);
     if (err > 0) {
-        if (err == 2)
-            waitpid(pid, &status, 0);
+        waitpid(pid, &status, 0);
         return 1;
     }
 
