@@ -172,6 +172,7 @@ struct open_file {
 };
 
 #define SIMPLEFS_MOUNT_PIPE_FD 4
+#define SIMPLEFS_MOUNT_PIPE_MSG_OK "1"
 
 #ifdef HAVE_STRUCT_STAT_ST_MTIMESPEC
 #define st_atim st_atimespec
@@ -2302,7 +2303,8 @@ simplefs_init(void *userdata, struct fuse_conn_info *conn)
     if (ret != 0)
         goto err7;
 
-    write(SIMPLEFS_MOUNT_PIPE_FD, "1", sizeof("1"));
+    write(SIMPLEFS_MOUNT_PIPE_FD, SIMPLEFS_MOUNT_PIPE_MSG_OK,
+          sizeof(SIMPLEFS_MOUNT_PIPE_MSG_OK));
 
     pthread_mutex_lock(&mtx);
     init = 1;

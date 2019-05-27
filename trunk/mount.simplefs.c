@@ -2,9 +2,7 @@
  * mount.simplefs.c
  */
 
-#define NO_ASSERT
 #include "common.h"
-#undef NO_ASSERT
 
 #include <errno.h>
 #include <stddef.h>
@@ -16,12 +14,22 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 
+#define MOUNT_MOUNTPOINT_ARGV_IDX 2
+
 #define SIMPLEFS_PATH "simplefs"
 #define SIMPLEFS_MOUNT_OPTS "allow_other,nonempty"
 
 #define SIMPLEFS_MOUNT_PIPE_FD 4
+#define SIMPLEFS_MOUNT_PIPE_MSG_OK "1"
 
 static int parse_cmdline(int, char **, int *, char ***);
+
+static int do_mount(char **);
+
+static int open_simplefs_pipe(int);
+static int read_simplefs_pipe(int);
+
+static int do_start_simplefs(void);
 
 static int
 parse_cmdline(int argc, char **argv, int *mount_argc, char ***mount_argv)
@@ -39,84 +47,131 @@ parse_cmdline(int argc, char **argv, int *mount_argc, char ***mount_argv)
     return 0;
 }
 
-int
-main(int argc, char **argv)
+static int
+do_mount(char **argv)
 {
-    char buf[2];
-    char **mount_argv;
-    int mount_argc;
-    int mountpoint;
-    int pipefd[2];
     int status;
     pid_t pid;
-    size_t numread, toread;
-    ssize_t ret;
-
-    if (parse_cmdline(argc, argv, &mount_argc, &mount_argv) == -1)
-        return EXIT_FAILURE;
-
-    mount_argv[0] = "mount";
-    mountpoint = 2;
 
     pid = fork();
     if (pid == -1)
-        goto mnt_err;
+        return MINUS_ERRNO;
     if (pid == 0) {
-        if (execvp("mount", mount_argv) == -1)
-            goto mnt_err;
+        execvp("mount", argv);
         exit(EXIT_FAILURE);
     }
 
     if (waitpid(pid, &status, 0) == -1)
-        goto mnt_err;
-    if (!WIFEXITED(status) || (WEXITSTATUS(status) != 0))
-        error(EXIT_FAILURE, 0, "Mounting failed");
+        return MINUS_ERRNO;
 
-    if (chdir(mount_argv[mountpoint]) == -1)
-        error(EXIT_FAILURE, errno, "Error changing directory");
+    return WIFEXITED(status) ? WEXITSTATUS(status) : -EIO;
+}
+
+static int
+open_simplefs_pipe(int fd)
+{
+    int pipefd[2];
 
     if (pipe(pipefd) == -1)
-        goto fs_err;
-    if (pipefd[1] != SIMPLEFS_MOUNT_PIPE_FD) {
-        if (dup2(pipefd[1], SIMPLEFS_MOUNT_PIPE_FD) == -1)
-            goto fs_err;
+        return MINUS_ERRNO;
+
+    if (pipefd[1] != fd) {
+        if (dup2(pipefd[1], fd) == -1)
+            return MINUS_ERRNO;
         close(pipefd[1]);
     }
 
+    return pipefd[0];
+}
+
+static int
+read_simplefs_pipe(int pipefd)
+{
+    char buf[2];
+    size_t numread, toread;
+    ssize_t ret;
+
+    toread = sizeof(buf);
+    for (numread = 0; numread < toread; numread += ret) {
+        ret = read(pipefd, buf + numread, toread);
+        if (ret == -1)
+            return MINUS_ERRNO;
+        if (ret == 0)
+            return 2;
+        toread -= ret;
+    }
+
+    return (strcmp(buf, SIMPLEFS_MOUNT_PIPE_MSG_OK) != 0);
+}
+
+static int
+do_start_simplefs()
+{
+    int err;
+    int pipefd;
+    int status;
+    pid_t pid;
+
+    pipefd = open_simplefs_pipe(SIMPLEFS_MOUNT_PIPE_FD);
+    if (pipefd < 0)
+        return pipefd;
+
     pid = fork();
     if (pid == -1)
-        goto fs_err;
+        return MINUS_ERRNO;
     if (pid == 0) {
-        if (execlp(SIMPLEFS_PATH, SIMPLEFS_PATH, "-f", "-o",
-                   SIMPLEFS_MOUNT_OPTS, ".", NULL) == -1)
-            goto fs_err;
+        execlp(SIMPLEFS_PATH, SIMPLEFS_PATH, "-f", "-o", SIMPLEFS_MOUNT_OPTS,
+               ".", NULL);
         exit(EXIT_FAILURE);
     }
 
     close(SIMPLEFS_MOUNT_PIPE_FD);
 
-    toread = sizeof(buf);
-    for (numread = 0; numread < toread; numread += ret) {
-        ret = read(pipefd[0], buf + numread, toread);
-        if (ret == -1)
-            goto fs_err;
-        if (ret == 0) {
+    err = read_simplefs_pipe(pipefd);
+    if (err > 0) {
+        if (err == 2)
             waitpid(pid, &status, 0);
-            error(EXIT_FAILURE, 0, "Mounting failed");
-        }
-        toread -= ret;
+        return 1;
     }
-    if (strcmp(buf, "1") != 0)
-        error(EXIT_FAILURE, 0, "Mounting failed");
+
+    return err;
+}
+
+int
+main(int argc, char **argv)
+{
+    char **mount_argv;
+    const char *errmsg;
+    int err;
+    int mount_argc;
+
+    if (parse_cmdline(argc, argv, &mount_argc, &mount_argv) == -1)
+        return EXIT_FAILURE;
+
+    mount_argv[0] = "mount";
+
+    err = do_mount(mount_argv);
+    if (err) {
+        errmsg = "Mounting failed";
+        goto err;
+    }
+
+    if (chdir(mount_argv[MOUNT_MOUNTPOINT_ARGV_IDX]) == -1) {
+        err = MINUS_ERRNO;
+        errmsg = "Error changing directory";
+        goto err;
+    }
+
+    err = do_start_simplefs();
+    if (err) {
+        errmsg = "Error executing simplefs";
+        goto err;
+    }
 
     return EXIT_SUCCESS;
 
-fs_err:
-    error(EXIT_FAILURE, errno, "Error executing simplefs");
-    return EXIT_FAILURE;
-
-mnt_err:
-    error(EXIT_FAILURE, errno, "Error executing mount");
+err:
+    error(EXIT_FAILURE, -err, "%s", errmsg);
     return EXIT_FAILURE;
 }
 
