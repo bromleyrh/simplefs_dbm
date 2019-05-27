@@ -57,6 +57,7 @@ do_mount(char **argv)
     if (pid == -1)
         return MINUS_ERRNO;
     if (pid == 0) {
+        argv[0] = "mount";
         execvp("mount", argv);
         exit(EXIT_FAILURE);
     }
@@ -146,8 +147,6 @@ main(int argc, char **argv)
 
     if (parse_cmdline(argc, argv, &mount_argc, &mount_argv) == -1)
         return EXIT_FAILURE;
-
-    mount_argv[0] = "mount";
 
     err = do_mount(mount_argv);
     if (err) {
