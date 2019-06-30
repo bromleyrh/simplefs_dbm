@@ -6,6 +6,8 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <libgen.h>
+#include <limits.h>
 #include <signal.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -180,6 +182,7 @@ do_start_simplefs(sigset_t *set)
 int
 main(int argc, char **argv)
 {
+    char buf[PATH_MAX];
     char **mount_argv;
     const char *errmsg = "Mounting failed";
     const char *mountpoint;
@@ -191,6 +194,14 @@ main(int argc, char **argv)
         return EXIT_FAILURE;
 
     mountpoint = mount_argv[MOUNT_MOUNTPOINT_ARGV_IDX];
+
+    if (snprintf(buf, sizeof(buf), "%s", mountpoint) >= (int)sizeof(buf))
+        error(EXIT_FAILURE, 0, "Path argument too long");
+    if (chdir(dirname(buf)) == -1)
+        error(EXIT_FAILURE, errno, "Error changing directory");
+
+    snprintf(buf, sizeof(buf), "%s", mountpoint);
+    mountpoint = mount_argv[MOUNT_MOUNTPOINT_ARGV_IDX] = basename(buf);
 
     if ((sigfillset(&set) != 0) || (sigprocmask(SIG_BLOCK, &set, &oset) == -1))
         return EXIT_FAILURE;
