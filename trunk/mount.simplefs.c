@@ -169,6 +169,7 @@ int
 main(int argc, char **argv)
 {
     char **mount_argv;
+    const char *errmsg;
     int err;
     int mount_argc;
 
@@ -176,14 +177,21 @@ main(int argc, char **argv)
         return EXIT_FAILURE;
 
     err = do_mount(mount_argv);
-    if (err)
-        error(EXIT_FAILURE, -err, "Mounting failed");
+    if (err) {
+        errmsg = "Mounting failed";
+        goto err;
+    }
 
     err = do_start_simplefs(mount_argv[MOUNT_MOUNTPOINT_ARGV_IDX]);
-    if (err)
-        error(EXIT_FAILURE, -err, "Error executing simplefs");
+    if (err) {
+        errmsg = "Error executing simplefs";
+        goto err;
+    }
 
     return EXIT_SUCCESS;
+
+err:
+    error(EXIT_FAILURE, (err > 0) ? EIO : -err, "%s", errmsg);
 }
 
 /* vi: set expandtab sw=4 ts=4: */
