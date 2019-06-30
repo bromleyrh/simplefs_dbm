@@ -6,6 +6,7 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <signal.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -26,14 +27,14 @@
 
 static int parse_cmdline(int, char **, int *, char ***);
 
-static int do_mount(char **);
+static int do_mount(char **, int);
 
 static int open_simplefs_pipe(int);
 static int read_simplefs_pipe(int);
 
 static int redirect_std_fds(const char *);
 
-static int do_start_simplefs(const char *);
+static int do_start_simplefs(sigset_t *);
 
 static int
 parse_cmdline(int argc, char **argv, int *mount_argc, char ***mount_argv)
@@ -52,7 +53,7 @@ parse_cmdline(int argc, char **argv, int *mount_argc, char ***mount_argv)
 }
 
 static int
-do_mount(char **argv)
+do_mount(char **argv, int unmount)
 {
     int status;
     pid_t pid;
@@ -61,8 +62,19 @@ do_mount(char **argv)
     if (pid == -1)
         return MINUS_ERRNO;
     if (pid == 0) {
-        argv[0] = "mount";
-        execvp("mount", argv);
+        char **argvp, *umount_argv[4];
+
+        if (unmount) {
+            umount_argv[0] = "umount";
+            umount_argv[1] = "-l";
+            umount_argv[2] = ".";
+            umount_argv[3] = NULL;
+            argvp = umount_argv;
+        } else {
+            argv[0] = "mount";
+            argvp = argv;
+        }
+        execvp(argvp[0], argvp);
         exit(EXIT_FAILURE);
     }
 
@@ -131,7 +143,7 @@ redirect_std_fds(const char *path)
 }
 
 static int
-do_start_simplefs(const char *mountpoint)
+do_start_simplefs(sigset_t *set)
 {
     int err;
     int pipefd;
@@ -146,8 +158,8 @@ do_start_simplefs(const char *mountpoint)
     if (pid == -1)
         return MINUS_ERRNO;
     if (pid == 0) {
-        if ((chdir(mountpoint) == 0) && (redirect_std_fds("/dev/null") == 0)
-            && (setsid() != -1)) {
+        if ((sigprocmask(SIG_SETMASK, set, NULL) == 0)
+            && (redirect_std_fds("/dev/null") == 0) && (setsid() != -1)) {
             execlp(SIMPLEFS_PATH, SIMPLEFS_PATH, "-f", "-o",
                    SIMPLEFS_MOUNT_OPTS, ".", NULL);
         }
@@ -169,28 +181,40 @@ int
 main(int argc, char **argv)
 {
     char **mount_argv;
-    const char *errmsg;
+    const char *errmsg = "Mounting failed";
+    const char *mountpoint;
     int err;
     int mount_argc;
+    sigset_t oset, set;
 
     if (parse_cmdline(argc, argv, &mount_argc, &mount_argv) == -1)
         return EXIT_FAILURE;
 
-    err = do_mount(mount_argv);
-    if (err) {
-        errmsg = "Mounting failed";
-        goto err;
+    mountpoint = mount_argv[MOUNT_MOUNTPOINT_ARGV_IDX];
+
+    if ((sigfillset(&set) != 0) || (sigprocmask(SIG_BLOCK, &set, &oset) == -1))
+        return EXIT_FAILURE;
+
+    err = do_mount(mount_argv, 0);
+    if (err)
+        goto err1;
+
+    if (chdir(mountpoint) == -1) {
+        err = MINUS_ERRNO;
+        goto err2;
     }
 
-    err = do_start_simplefs(mount_argv[MOUNT_MOUNTPOINT_ARGV_IDX]);
+    err = do_start_simplefs(&oset);
     if (err) {
         errmsg = "Error executing simplefs";
-        goto err;
+        goto err2;
     }
 
     return EXIT_SUCCESS;
 
-err:
+err2:
+    do_mount(mount_argv, 1);
+err1:
     error(EXIT_FAILURE, (err > 0) ? EIO : -err, "%s", errmsg);
 }
 
