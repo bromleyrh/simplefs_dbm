@@ -43,7 +43,7 @@ parse_cmdline(int argc, char **argv, int *mount_argc, char ***mount_argv)
 {
     char **mnt_argv;
 
-    mnt_argv = calloc(argc, sizeof(*mnt_argv));
+    mnt_argv = calloc(argc + 1, sizeof(*mnt_argv));
     if (mnt_argv == NULL)
         return -1;
 
