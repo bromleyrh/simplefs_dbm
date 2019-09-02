@@ -352,7 +352,7 @@ open_log(const char *mountpoint)
         >= (int)sizeof(buf))
         return -ENAMETOOLONG;
 
-    openlog(buf, LOG_PID, LOG_USER);
+    openlog(buf, LOG_PERROR | LOG_PID, LOG_USER);
 
     return 0;
 }
