@@ -29,6 +29,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <syslog.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -2310,6 +2311,8 @@ simplefs_init(void *userdata, struct fuse_conn_info *conn)
     init = 1;
     pthread_mutex_unlock(&mtx);
 
+    syslog(LOG_INFO, "FUSE file system initialized successfully");
+
     return;
 
 err7:
@@ -2336,6 +2339,7 @@ simplefs_destroy(void *userdata)
 {
     avl_tree_walk_ctx_t wctx = NULL;
     int initialized;
+    int ret;
     struct fspriv *priv;
     struct mount_data *md = (struct mount_data *)userdata;
 
@@ -2354,11 +2358,16 @@ simplefs_destroy(void *userdata)
     avl_tree_free(priv->ref_inodes.ref_inodes);
     pthread_mutex_destroy(&priv->ref_inodes.ref_inodes_mtx);
 
-    back_end_close(priv->be);
+    ret = back_end_close(priv->be);
 
     fifo_free(priv->queue);
 
     free(priv);
+
+    if (ret == 0)
+        syslog(LOG_INFO, "FUSE file system terminated successfully");
+    else
+        syslog(LOG_ERR, "FUSE file system terminated with error");
 }
 
 static void

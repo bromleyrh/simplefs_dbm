@@ -17,6 +17,7 @@
 #include <signal.h>
 #include <stddef.h>
 #include <stdlib.h>
+#include <syslog.h>
 #include <unistd.h>
 
 #include <sys/resource.h>
@@ -51,6 +52,8 @@ static void do_fuse_unmount(const char *, struct fuse_chan *,
 static int init_fuse(int, char **, struct fuse_data *);
 static int process_fuse_events(struct fuse_data *);
 static void terminate_fuse(struct fuse_data *);
+
+static int open_log(const char *);
 
 #ifdef __APPLE__
 #define DEFAULT_FUSE_OPTIONS "default_permissions"
@@ -340,6 +343,20 @@ terminate_fuse(struct fuse_data *fusedata)
     free((void *)(fusedata->mountpoint));
 }
 
+static int
+open_log(const char *mountpoint)
+{
+    char buf[32+PATH_MAX];
+
+    if (snprintf(buf, sizeof(buf), "simplefs:%s", mountpoint)
+        >= (int)sizeof(buf))
+        return -ENAMETOOLONG;
+
+    openlog(buf, LOG_PID, LOG_USER);
+
+    return 0;
+}
+
 void
 simplefs_exit()
 {
@@ -361,6 +378,9 @@ main(int argc, char **argv)
     if (init_fuse(argc, argv, &fusedata) != 0)
         return EXIT_FAILURE;
 
+    if (open_log(fusedata.mountpoint) != 0)
+        return EXIT_FAILURE;
+
     status = EXIT_FAILURE;
 
     sess = fusedata.sess;
@@ -372,6 +392,13 @@ main(int argc, char **argv)
 
     if (fusedata.md.db_pathname != NULL)
         free((void *)(fusedata.md.db_pathname));
+
+    if (status == EXIT_SUCCESS)
+        syslog(LOG_INFO, "Returned success status");
+    else
+        syslog(LOG_ERR, "Returned failure status");
+
+    closelog();
 
     return status;
 }
