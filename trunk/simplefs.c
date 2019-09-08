@@ -346,7 +346,7 @@ terminate_fuse(struct fuse_data *fusedata)
 static int
 open_log(const char *mountpoint)
 {
-    char buf[32+PATH_MAX];
+    static char buf[32+PATH_MAX];
 
     if (snprintf(buf, sizeof(buf), "simplefs:%s", mountpoint)
         >= (int)sizeof(buf))
