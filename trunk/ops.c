@@ -1483,7 +1483,6 @@ do_forget(void *args)
         goto err;
     }
 
-    to_unref = opargs->nlookup;
     for (to_unref = opargs->nlookup; to_unref > 0; to_unref -= unref) {
         unref = MIN(UNREF_MAX, to_unref);
 
