@@ -13,6 +13,11 @@ AC_CONFIG_MACRO_DIR([m4])
 
 AC_CANONICAL_TARGET
 
+dnl ensure installed files are accessible by non-root users when parent
+dnl directories are created
+dnl FIXME: Honor file mode creation mask for non-installation directories
+MKDIR_P="mkdir -m 0755 -p"
+
 AM_INIT_AUTOMAKE([foreign no-define subdir-objects])
 AM_SILENT_RULES([yes])
 LT_INIT([disable-static])
