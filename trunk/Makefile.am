@@ -44,6 +44,6 @@ EXTRA_DIST =
 include scripts/Makefile.am
 
 distclean-local:
-	rm -f scan_build
+	-rm -f scan_build
 
 ## vi: set noexpandtab sw=4 ts=4:
