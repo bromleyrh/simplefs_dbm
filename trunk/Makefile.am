@@ -39,7 +39,7 @@ mount_simplefs_SOURCES = mount.simplefs.c
 mount_simplefs_CPPFLAGS = $(AM_CPPFLAGS)
 mount_simplefs_CFLAGS = $(AM_CFLAGS)
 
-EXTRA_DIST =
+EXTRA_DIST = build-aux
 
 include scripts/Makefile.am
 
