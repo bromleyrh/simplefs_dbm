@@ -9,6 +9,8 @@
 #include "common.h"
 #undef NO_ASSERT
 
+#include <forensics.h>
+
 #include <fuse.h>
 #include <fuse_lowlevel.h>
 
@@ -17,6 +19,7 @@
 #include <signal.h>
 #include <stddef.h>
 #include <stdlib.h>
+#include <string.h>
 #include <syslog.h>
 #include <unistd.h>
 
@@ -88,11 +91,20 @@ enable_debugging_features()
 {
     const char *errmsg;
     int err;
+    struct sigaction sa;
 
     static const struct rlimit rlim = {
         .rlim_cur = RLIM_INFINITY,
         .rlim_max = RLIM_INFINITY
     };
+
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_sigaction = sigaction_segv_diag;
+    sa.sa_flags = SA_SIGINFO;
+    if (sigaction(SIGSEGV, &sa, NULL) == -1) {
+        errmsg = "Error setting signal handler";
+        goto err;
+    }
 
     if (setrlimit(RLIMIT_CORE, &rlim) == -1) {
         errmsg = "Couldn't set resource limit";
