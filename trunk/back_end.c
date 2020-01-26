@@ -2,10 +2,14 @@
  * back_end.c
  */
 
+#define _GNU_SOURCE
+
 #include "back_end.h"
 #include "util.h"
 
 #include <dbm.h>
+
+#include <files/util.h>
 
 #include <fuse.h>
 #include <fuse_lowlevel.h>
@@ -18,6 +22,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 struct back_end {
     void *ctx;
@@ -132,19 +137,32 @@ int
 back_end_open(struct back_end **be, size_t key_size, back_end_key_cmp_t key_cmp,
               void *args)
 {
+    char buf[PATH_MAX];
+    const char *relpath;
+    int dfd;
     int err;
     struct back_end *ret;
     struct db_args *dbargs = (struct db_args *)args;
     struct db_ctx *dbctx;
 
-    ret = do_malloc(sizeof(*ret));
-    if (ret == NULL)
+    if (dirname_safe(dbargs->db_pathname, buf, sizeof(buf))
+        == NULL)
+        return -ENAMETOOLONG;
+    dfd = open(buf, O_CLOEXEC | O_DIRECTORY | O_RDONLY);
+    if (dfd == -1)
         return -errno;
+    relpath = basename_safe(dbargs->db_pathname);
+
+    ret = do_malloc(sizeof(*ret));
+    if (ret == NULL) {
+        err = -errno;
+        goto err1;
+    }
 
     dbctx = do_malloc(sizeof(*dbctx));
     if (dbctx == NULL) {
         err = -errno;
-        goto err1;
+        goto err2;
     }
     dbctx->key_size = key_size;
     dbctx->key_cmp = key_cmp;
@@ -153,47 +171,51 @@ back_end_open(struct back_end **be, size_t key_size, back_end_key_cmp_t key_cmp,
     dbctx->key_ctx = do_malloc(sizeof(*(dbctx->key_ctx)));
     if (dbctx->key_ctx == NULL) {
         err = -errno;
-        goto err2;
+        goto err3;
     }
 
     dbctx->key_ctx->last_key = do_malloc(key_size);
     if (dbctx->key_ctx->last_key == NULL) {
         err = -errno;
-        goto err3;
+        goto err4;
     }
     dbctx->key_ctx->last_key_valid = 0;
 
     /* test for journal replay by attempting read-only open */
-    err = db_open(&dbctx->db, dbargs->db_pathname, key_size,
-                  (db_key_cmp_t)key_cmp, dbctx->key_ctx, DB_RDONLY);
+    err = db_open(&dbctx->db, relpath, key_size, (db_key_cmp_t)key_cmp,
+                  dbctx->key_ctx, DB_RDONLY | DB_RELPATH, dfd);
     if (!(dbargs->ro)) {
         if (err) {
             if (err != -EROFS)
-                goto err4;
+                goto err5;
             fputs("Replaying file system journal\n", stderr);
         } else {
             err = db_close(dbctx->db);
             if (err)
-                goto err4;
+                goto err5;
         }
 
-        err = db_open(&dbctx->db, dbargs->db_pathname, key_size,
-                      (db_key_cmp_t)key_cmp, dbctx->key_ctx, 0);
+        err = db_open(&dbctx->db, relpath, key_size, (db_key_cmp_t)key_cmp,
+                      dbctx->key_ctx, DB_RELPATH, dfd);
     }
     if (err)
-        goto err4;
+        goto err5;
+
+    close(dfd);
 
     *be = ret;
     return 0;
 
-err4:
+err5:
     free(dbctx->key_ctx->last_key);
-err3:
+err4:
     free(dbctx->key_ctx);
-err2:
+err3:
     free(dbctx);
-err1:
+err2:
     free(ret);
+err1:
+    close(dfd);
     return err;
 }
 
