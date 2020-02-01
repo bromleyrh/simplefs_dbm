@@ -38,7 +38,6 @@ struct back_end_iter {
 
 struct db_ctx {
     struct db               *db;
-    int                     fd;
     size_t                  key_size;
     back_end_key_cmp_t      key_cmp;
     struct back_end_key_ctx *key_ctx;
@@ -115,8 +114,6 @@ back_end_create(struct back_end **be, size_t key_size,
     }
     dbctx->key_ctx->last_key_valid = 0;
 
-    dbctx->fd = -1;
-
     err = db_create(&dbctx->db, dbargs->db_pathname, dbargs->db_mode, key_size,
                     (db_key_cmp_t)key_cmp, dbctx->key_ctx, 0);
     if (err)
@@ -184,43 +181,31 @@ back_end_open(struct back_end **be, size_t key_size, back_end_key_cmp_t key_cmp,
     }
     dbctx->key_ctx->last_key_valid = 0;
 
-    dbctx->fd = openat(dfd, relpath, O_CLOEXEC | O_RDWR);
-    if (dbctx->fd == -1) {
-        err = -errno;
-        goto err5;
-    }
-    if (lockf(dbctx->fd, F_TLOCK, 0) == -1) {
-        err = -errno;
-        goto err6;
-    }
-
     /* test for journal replay by attempting read-only open */
     err = db_open(&dbctx->db, relpath, key_size, (db_key_cmp_t)key_cmp,
                   dbctx->key_ctx, DB_RDONLY | DB_RELPATH, dfd);
     if (!(dbargs->ro)) {
         if (err) {
             if (err != -EROFS)
-                goto err6;
+                goto err5;
             fputs("Replaying file system journal\n", stderr);
         } else {
             err = db_close(dbctx->db);
             if (err)
-                goto err6;
+                goto err5;
         }
 
         err = db_open(&dbctx->db, relpath, key_size, (db_key_cmp_t)key_cmp,
                       dbctx->key_ctx, DB_RELPATH, dfd);
     }
     if (err)
-        goto err6;
+        goto err5;
 
     close(dfd);
 
     *be = ret;
     return 0;
 
-err6:
-    close(dbctx->fd);
 err5:
     free(dbctx->key_ctx->last_key);
 err4:
@@ -241,9 +226,6 @@ back_end_close(struct back_end *be)
     struct db_ctx *dbctx = (struct db_ctx *)(be->ctx);
 
     err = db_close(dbctx->db);
-
-    if (dbctx->fd != -1)
-        close(dbctx->fd);
 
     free(dbctx->key_ctx->last_key);
 
