@@ -7,7 +7,7 @@
 #include "back_end.h"
 #include "util.h"
 
-#include <dbm.h>
+#include <dbm_high_level.h>
 
 #include <files/util.h>
 
@@ -37,7 +37,7 @@ struct back_end_iter {
 };
 
 struct db_ctx {
-    struct db               *db;
+    struct dbh              *dbh;
     size_t                  key_size;
     back_end_key_cmp_t      key_cmp;
     struct back_end_key_ctx *key_ctx;
@@ -50,32 +50,32 @@ static int
 get_next_elem(void *retkey, void *retdata, size_t *retdatasize, const void *key,
               struct db_ctx *dbctx)
 {
-    db_iter_t iter;
+    db_hl_iter_t iter;
     int res;
     size_t datalen;
 
     if (retdatasize == NULL)
         retdatasize = &datalen;
 
-    res = db_iter_new(&iter, dbctx->db);
+    res = db_hl_iter_new(&iter, dbctx->dbh);
     if (res != 0)
         return res;
 
-    res = db_iter_search(iter, key);
+    res = db_hl_iter_search(iter, key);
     if (res != 1) {
         if (res == 0)
             res = -ENOENT;
         goto end;
     }
 
-    res = db_iter_next(iter);
+    res = db_hl_iter_next(iter);
     if (res != 0)
         goto end;
 
-    res = db_iter_get(iter, retkey, retdata, retdatasize);
+    res = db_hl_iter_get(iter, retkey, retdata, retdatasize);
 
 end:
-    db_iter_free(iter);
+    db_hl_iter_free(iter);
     return res;
 }
 
@@ -114,8 +114,8 @@ back_end_create(struct back_end **be, size_t key_size,
     }
     dbctx->key_ctx->last_key_valid = 0;
 
-    err = db_create(&dbctx->db, dbargs->db_pathname, dbargs->db_mode, key_size,
-                    (db_key_cmp_t)key_cmp, dbctx->key_ctx, 0);
+    err = db_hl_create(&dbctx->dbh, dbargs->db_pathname, dbargs->db_mode,
+                       key_size, (db_hl_key_cmp_t)key_cmp, dbctx->key_ctx, 0);
     if (err)
         goto err4;
 
@@ -182,21 +182,22 @@ back_end_open(struct back_end **be, size_t key_size, back_end_key_cmp_t key_cmp,
     dbctx->key_ctx->last_key_valid = 0;
 
     /* test for journal replay by attempting read-only open */
-    err = db_open(&dbctx->db, relpath, key_size, (db_key_cmp_t)key_cmp,
-                  dbctx->key_ctx, DB_RDONLY | DB_RELPATH, dfd);
+    err = db_hl_open(&dbctx->dbh, relpath, key_size, (db_hl_key_cmp_t)key_cmp,
+                     dbctx->key_ctx, DB_HL_RDONLY | DB_HL_RELPATH, dfd);
     if (!(dbargs->ro)) {
         if (err) {
             if (err != -EROFS)
                 goto err5;
             fputs("Replaying file system journal\n", stderr);
         } else {
-            err = db_close(dbctx->db);
+            err = db_hl_close(dbctx->dbh);
             if (err)
                 goto err5;
         }
 
-        err = db_open(&dbctx->db, relpath, key_size, (db_key_cmp_t)key_cmp,
-                      dbctx->key_ctx, DB_RELPATH, dfd);
+        err = db_hl_open(&dbctx->dbh, relpath, key_size,
+                         (db_hl_key_cmp_t)key_cmp, dbctx->key_ctx,
+                         DB_HL_RELPATH, dfd);
     }
     if (err)
         goto err5;
@@ -225,7 +226,7 @@ back_end_close(struct back_end *be)
     int err;
     struct db_ctx *dbctx = (struct db_ctx *)(be->ctx);
 
-    err = db_close(dbctx->db);
+    err = db_hl_close(dbctx->dbh);
 
     free(dbctx->key_ctx->last_key);
 
@@ -244,7 +245,7 @@ back_end_insert(struct back_end *be, const void *key, const void *data,
 {
     struct db_ctx *dbctx = (struct db_ctx *)(be->ctx);
 
-    return db_insert(dbctx->db, key, data, datasize);
+    return db_hl_insert(dbctx->dbh, key, data, datasize);
 }
 
 int
@@ -253,7 +254,7 @@ back_end_replace(struct back_end *be, const void *key, const void *data,
 {
     struct db_ctx *dbctx = (struct db_ctx *)(be->ctx);
 
-    return db_replace(dbctx->db, key, NULL, data, datasize, 0);
+    return db_hl_replace(dbctx->dbh, key, data, datasize);
 }
 
 int
@@ -269,15 +270,15 @@ back_end_look_up(struct back_end *be, const void *key, void *retkey,
 
     dbctx->key_ctx->last_key_valid = 0;
 
-    res = db_search(dbctx->db, key, retkey, retdata, retdatasize);
+    res = db_hl_search(dbctx->dbh, key, retkey, retdata, retdatasize);
 
     if (look_up_nearest && (res == 0) && dbctx->key_ctx->last_key_valid) {
         int cmp;
 
         cmp = (*(dbctx->key_cmp))(dbctx->key_ctx->last_key, key, NULL);
         if (cmp > 0) {
-            res = db_search(dbctx->db, dbctx->key_ctx->last_key, retkey,
-                            retdata, retdatasize);
+            res = db_hl_search(dbctx->dbh, dbctx->key_ctx->last_key, retkey,
+                               retdata, retdatasize);
             assert(res != 0);
             return (res == 1) ? 0 : res;
         }
@@ -294,7 +295,7 @@ back_end_delete(struct back_end *be, const void *key)
 {
     struct db_ctx *dbctx = (struct db_ctx *)(be->ctx);
 
-    return db_delete(dbctx->db, key);
+    return db_hl_delete(dbctx->dbh, key);
 }
 
 int
@@ -302,7 +303,7 @@ back_end_walk(struct back_end *be, back_end_walk_cb_t fn, void *ctx)
 {
     struct db_ctx *dbctx = (struct db_ctx *)(be->ctx);
 
-    return db_walk(dbctx->db, (db_walk_cb_t)fn, ctx);
+    return db_hl_walk(dbctx->dbh, (db_hl_walk_cb_t)fn, ctx);
 }
 
 int
@@ -316,7 +317,7 @@ back_end_iter_new(struct back_end_iter **iter, struct back_end *be)
     if (ret == NULL)
         return -errno;
 
-    err = db_iter_new((struct db_iter **)&ret->ctx, dbctx->db);
+    err = db_hl_iter_new((db_hl_iter_t *)&ret->ctx, dbctx->dbh);
     if (err)
         goto err1;
 
@@ -330,7 +331,7 @@ back_end_iter_new(struct back_end_iter **iter, struct back_end *be)
     return 0;
 
 err2:
-    db_iter_free((db_iter_t)(ret->ctx));
+    db_hl_iter_free((db_hl_iter_t)(ret->ctx));
 err1:
     free(ret);
     return err;
@@ -343,7 +344,7 @@ back_end_iter_free(struct back_end_iter *iter)
 
     free(iter->srch_key);
 
-    err = db_iter_free((db_iter_t)(iter->ctx));
+    err = db_hl_iter_free((db_hl_iter_t)(iter->ctx));
 
     free(iter);
 
@@ -354,7 +355,7 @@ int
 back_end_iter_get(struct back_end_iter *iter, void *retkey, void *retdata,
                   size_t *retdatasize)
 {
-    db_iter_t dbiter = (db_iter_t)(iter->ctx);
+    db_hl_iter_t dbiter = (db_hl_iter_t)(iter->ctx);
     int res;
     size_t datalen;
     struct db_ctx *dbctx = (struct db_ctx *)(iter->be->ctx);
@@ -365,20 +366,21 @@ back_end_iter_get(struct back_end_iter *iter, void *retkey, void *retdata,
     if (iter->srch_status == 0) {
         assert(dbctx->key_ctx->last_key_valid);
 
-        res = db_iter_search(dbiter, dbctx->key_ctx->last_key);
+        res = db_hl_iter_search(dbiter, dbctx->key_ctx->last_key);
         assert(res != 0);
         if (res < 0)
             return res;
 
         if ((*(dbctx->key_cmp))(dbctx->key_ctx->last_key, iter->srch_key, NULL)
             < 0) {
-            res = db_iter_next(dbiter);
+            res = db_hl_iter_next(dbiter);
             if (res != 0)
                 return res;
         }
     }
 
-    return db_iter_get((db_iter_t)(iter->ctx), retkey, retdata, retdatasize);
+    return db_hl_iter_get((db_hl_iter_t)(iter->ctx), retkey, retdata,
+                          retdatasize);
 }
 
 int
@@ -386,7 +388,7 @@ back_end_iter_next(struct back_end_iter *iter)
 {
     int err;
 
-    err = db_iter_next((db_iter_t)(iter->ctx));
+    err = db_hl_iter_next((db_hl_iter_t)(iter->ctx));
 
     iter->srch_status = err ? err : 1;
 
@@ -400,7 +402,7 @@ back_end_iter_search(struct back_end_iter *iter, const void *key)
 
     dbctx->key_ctx->last_key_valid = 0;
 
-    iter->srch_status = db_iter_search((db_iter_t)(iter->ctx), key);
+    iter->srch_status = db_hl_iter_search((db_hl_iter_t)(iter->ctx), key);
 
     if (iter->srch_status == 0)
         memcpy(iter->srch_key, key, dbctx->key_size);
@@ -413,7 +415,7 @@ back_end_trans_new(struct back_end *be)
 {
     struct db_ctx *dbctx = (struct db_ctx *)(be->ctx);
 
-    return db_trans_new(dbctx->db);
+    return db_hl_trans_new(dbctx->dbh);
 }
 
 int
@@ -421,7 +423,7 @@ back_end_trans_abort(struct back_end *be)
 {
     struct db_ctx *dbctx = (struct db_ctx *)(be->ctx);
 
-    return db_trans_abort(dbctx->db);
+    return db_hl_trans_abort(dbctx->dbh);
 }
 
 int
@@ -429,7 +431,7 @@ back_end_trans_commit(struct back_end *be)
 {
     struct db_ctx *dbctx = (struct db_ctx *)(be->ctx);
 
-    return db_trans_commit(dbctx->db);
+    return db_hl_trans_commit(dbctx->dbh);
 }
 
 /* vi: set expandtab sw=4 ts=4: */
