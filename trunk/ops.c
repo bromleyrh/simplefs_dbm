@@ -1409,6 +1409,11 @@ do_setattr(void *args)
     if (opargs->to_set & FUSE_SET_ATTR_MODE)
         s.st_mode = (s.st_mode & ~ALLPERMS) | (opargs->attr.st_mode & ALLPERMS);
 
+    if (opargs->to_set & FUSE_SET_ATTR_UID)
+        s.st_uid = opargs->attr.st_uid;
+    if (opargs->to_set & FUSE_SET_ATTR_GID)
+        s.st_gid = opargs->attr.st_gid;
+
     if (opargs->to_set & FUSE_SET_ATTR_ATIME_NOW)
         do_set_ts(&s.st_atim, NULL);
     if (opargs->to_set & FUSE_SET_ATTR_MTIME_NOW)
