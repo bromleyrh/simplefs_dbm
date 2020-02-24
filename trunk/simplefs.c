@@ -300,7 +300,7 @@ init_fuse(int argc, char **argv, struct fuse_data *fusedata)
     }
 
     if ((fuse_opt_add_arg(&args, "-o") == -1)
-        || (fuse_opt_add_arg(&args, "auto_unmount,default_permissions")
+        || (fuse_opt_add_arg(&args, DEFAULT_FUSE_OPTIONS)
             == -1)) {
         errmsg = "Out of memory";
         goto err2;
