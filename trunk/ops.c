@@ -1626,8 +1626,8 @@ do_create_symlink(void *args)
     ctx = opargs->ctx;
 
     ret = new_node(opargs->be, opargs->ref_inodes, opargs->parent, opargs->name,
-                   ctx->uid, ctx->gid, S_IFLNK | ALLPERMS, 0, &opargs->attr,
-                   &opargs->refinop);
+                   ctx->uid, ctx->gid, S_IFLNK | S_IRWXU | S_IRWXG | S_IRWXO, 0,
+                   &opargs->attr, &opargs->refinop);
     if (ret != 0)
         return ret;
 
