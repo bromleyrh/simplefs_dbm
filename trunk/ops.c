@@ -198,6 +198,8 @@ struct open_file {
 #define CACHE_TIMEOUT 1800.0
 #define KEEP_CACHE_OPEN 1
 
+#define OFF_MAX INT64_MAX
+
 #define UNREF_MAX INT32_MAX
 
 static pthread_mutex_t mtx = PTHREAD_MUTEX_INITIALIZER;
@@ -248,8 +250,8 @@ static void free_iov(struct iovec *, int);
 static void abort_init(int, const char *, ...);
 
 static int new_node(struct back_end *, struct ref_inodes *, fuse_ino_t,
-                    const char *, uid_t, gid_t, mode_t, dev_t, struct stat *,
-                    struct ref_ino **);
+                    const char *, uid_t, gid_t, mode_t, dev_t, off_t,
+                    struct stat *, struct ref_ino **);
 
 static int new_node_link(struct back_end *, struct ref_inodes *, fuse_ino_t,
                          fuse_ino_t, const char *, struct ref_ino **);
@@ -906,7 +908,7 @@ abort_init(int err, const char *fmt, ...)
 static int
 new_node(struct back_end *be, struct ref_inodes *ref_inodes, fuse_ino_t parent,
          const char *name, uid_t uid, gid_t gid, mode_t mode, dev_t rdev,
-         struct stat *attr, struct ref_ino **inop)
+         off_t size, struct stat *attr, struct ref_ino **inop)
 {
     fuse_ino_t ino;
     int ret;
@@ -935,7 +937,7 @@ new_node(struct back_end *be, struct ref_inodes *ref_inodes, fuse_ino_t parent,
     s.st_uid = uid;
     s.st_gid = gid;
     s.st_rdev = rdev;
-    s.st_size = 0;
+    s.st_size = size;
     s.st_blksize = PG_SIZE;
     s.st_blocks = 0;
     set_ts(&s.st_atim, &s.st_mtim, &s.st_ctim);
@@ -1523,7 +1525,7 @@ do_create_node(void *args)
 
     err = new_node(opargs->be, opargs->ref_inodes, opargs->ino, opargs->name,
                    ctx->uid, ctx->gid, opargs->mode & ~(ctx->umask),
-                   opargs->rdev, &opargs->attr, &opargs->refinop);
+                   opargs->rdev, 0, &opargs->attr, &opargs->refinop);
     if (err)
         return err;
 
@@ -1620,14 +1622,21 @@ do_create_symlink(void *args)
 {
     const struct fuse_ctx *ctx;
     int ret;
+    size_t len;
     struct db_key k;
     struct op_args *opargs = (struct op_args *)args;
 
     ctx = opargs->ctx;
 
+    len = strlen(opargs->link);
+#if SIZE_MAX > OFF_MAX
+    if (len > (size_t)OFF_MAX)
+        len = OFF_MAX;
+#endif
+
     ret = new_node(opargs->be, opargs->ref_inodes, opargs->parent, opargs->name,
                    ctx->uid, ctx->gid, S_IFLNK | S_IRWXU | S_IRWXG | S_IRWXO, 0,
-                   &opargs->attr, &opargs->refinop);
+                   (off_t)len, &opargs->attr, &opargs->refinop);
     if (ret != 0)
         return ret;
 
@@ -1635,8 +1644,7 @@ do_create_symlink(void *args)
     k.ino = opargs->attr.st_ino;
     k.pgno = 0;
 
-    ret = back_end_insert(opargs->be, &k, opargs->link,
-                          strlen(opargs->link) + 1);
+    ret = back_end_insert(opargs->be, &k, opargs->link, len + 1);
     if (ret != 0) {
         dec_refcnt(opargs->ref_inodes, 0, 0, -1, opargs->refinop);
         return ret;
@@ -2183,7 +2191,7 @@ do_create(void *args)
     ctx = opargs->ctx;
 
     err = new_node(opargs->be, opargs->ref_inodes, opargs->parent, opargs->name,
-                   ctx->uid, ctx->gid, opargs->mode & ~(ctx->umask), 0,
+                   ctx->uid, ctx->gid, opargs->mode & ~(ctx->umask), 0, 0,
                    &opargs->attr, &opargs->refinop);
     if (err)
         return err;
