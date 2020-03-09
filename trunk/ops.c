@@ -199,7 +199,9 @@ struct open_file {
 #define CACHE_TIMEOUT 1800.0
 #define KEEP_CACHE_OPEN 1
 
+#ifndef OFF_MAX
 #define OFF_MAX INT64_MAX
+#endif
 
 #define UNREF_MAX INT32_MAX
 
