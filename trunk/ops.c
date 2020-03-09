@@ -51,6 +51,7 @@ struct fspriv {
     struct fifo         *queue;
     pthread_t           worker_td;
     struct ref_inodes   ref_inodes;
+    int                 wb_err;
 };
 
 struct queue_elem {
@@ -215,6 +216,8 @@ static void *worker_td(void *);
 static int do_queue_op(struct fspriv *, int (*)(void *), void *);
 static int join_worker(struct fspriv *);
 
+static void sync_cb(int, void *);
+
 #ifndef NDEBUG
 static int dump_cb(const void *, const void *, size_t, void *);
 #endif
@@ -285,6 +288,7 @@ static int do_open(void *);
 static int do_read(void *);
 static int do_write(void *);
 static int do_close(void *);
+static int do_sync(void *);
 static int do_read_header(void *);
 static int do_access(void *);
 static int do_create(void *);
@@ -480,6 +484,15 @@ join_worker(struct fspriv *priv)
     err = -pthread_join(priv->worker_td, &retval);
 
     return err ? err : (intptr_t)retval;
+}
+
+static void
+sync_cb(int status, void *ctx)
+{
+    struct fspriv *priv = (struct fspriv *)ctx;
+
+    if (status != 0)
+        priv->wb_err = status;
 }
 
 #ifndef NDEBUG
@@ -2147,6 +2160,14 @@ do_close(void *args)
 }
 
 static int
+do_sync(void *args)
+{
+    struct op_args *opargs = (struct op_args *)args;
+
+    return back_end_sync(opargs->be);
+}
+
+static int
 do_read_header(void *args)
 {
     int ret;
@@ -2244,6 +2265,8 @@ simplefs_init(void *userdata, struct fuse_conn_info *conn)
         goto err1;
     }
 
+    priv->wb_err = 0;
+
     ret = fifo_new(&priv->queue, sizeof(struct queue_elem *), 1024);
     if (ret != 0)
         goto err2;
@@ -2252,6 +2275,8 @@ simplefs_init(void *userdata, struct fuse_conn_info *conn)
                        ? DB_PATHNAME : md->db_pathname;
     args.db_mode = ACC_MODE_DEFAULT;
     args.ro = md->ro;
+    args.sync_cb = &sync_cb;
+    args.sync_ctx = priv;
 
     ret = avl_tree_new(&priv->ref_inodes.ref_inodes, sizeof(struct ref_ino *),
                        &ref_inode_cmp, 0, NULL, NULL, NULL);
@@ -3168,12 +3193,27 @@ simplefs_fsync(fuse_req_t req, fuse_ino_t ino, int datasync,
                struct fuse_file_info *fi)
 {
     int ret;
+    struct fspriv *priv;
+    struct mount_data *md = fuse_req_userdata(req);
+    struct op_args opargs;
 
     (void)ino;
     (void)datasync;
     (void)fi;
 
-    ret = fuse_reply_err(req, 0);
+    priv = md->priv;
+
+    if (priv->wb_err)
+        ret = priv->wb_err;
+    else {
+        opargs.be = priv->be;
+
+        ret = do_queue_op(priv, &do_sync, &opargs);
+        if (ret == 0)
+            ret = priv->wb_err;
+    }
+
+    ret = fuse_reply_err(req, -ret);
     if ((ret != 0) && (ret != -ENOENT))
         fuse_reply_err(req, -ret);
 }
@@ -3208,12 +3248,27 @@ simplefs_fsyncdir(fuse_req_t req, fuse_ino_t ino, int datasync,
                   struct fuse_file_info *fi)
 {
     int ret;
+    struct fspriv *priv;
+    struct mount_data *md = fuse_req_userdata(req);
+    struct op_args opargs;
 
     (void)ino;
     (void)datasync;
     (void)fi;
 
-    ret = fuse_reply_err(req, 0);
+    priv = md->priv;
+
+    if (priv->wb_err)
+        ret = priv->wb_err;
+    else {
+        opargs.be = priv->be;
+
+        ret = do_queue_op(priv, &do_sync, &opargs);
+        if (ret == 0)
+            ret = priv->wb_err;
+    }
+
+    ret = fuse_reply_err(req, -ret);
     if ((ret != 0) && (ret != -ENOENT))
         fuse_reply_err(req, -ret);
 }

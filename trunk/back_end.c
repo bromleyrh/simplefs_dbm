@@ -41,10 +41,24 @@ struct db_ctx {
     size_t                  key_size;
     back_end_key_cmp_t      key_cmp;
     struct back_end_key_ctx *key_ctx;
+    void                    (*sync_cb)(int, void *);
+    void                    *sync_ctx;
 };
+
+static void sync_cb(struct dbh *, int, void *);
 
 static int get_next_elem(void *, void *, size_t *, const void *,
                          struct db_ctx *);
+
+static void
+sync_cb(struct dbh *dbh, int status, void *ctx)
+{
+    struct db_ctx *dbctx = (struct db_ctx *)ctx;
+
+    (void)dbh;
+
+    (*(dbctx->sync_cb))(status, dbctx->sync_ctx);
+}
 
 static int
 get_next_elem(void *retkey, void *retdata, size_t *retdatasize, const void *key,
@@ -119,9 +133,19 @@ back_end_create(struct back_end **be, size_t key_size,
     if (err)
         goto err4;
 
+    if (dbargs->sync_cb) {
+        err = db_hl_sync_set_cb(dbctx->dbh, &sync_cb, dbctx, NULL);
+        if (err)
+            goto err5;
+        dbctx->sync_cb = dbargs->sync_cb;
+        dbctx->sync_ctx = dbargs->sync_ctx;
+    }
+
     *be = ret;
     return 0;
 
+err5:
+    db_hl_close(dbctx->dbh);
 err4:
     free(dbctx->key_ctx->last_key);
 err3:
@@ -202,11 +226,21 @@ back_end_open(struct back_end **be, size_t key_size, back_end_key_cmp_t key_cmp,
     if (err)
         goto err5;
 
+    if (dbargs->sync_cb) {
+        err = db_hl_sync_set_cb(dbctx->dbh, &sync_cb, dbctx, NULL);
+        if (err)
+            goto err6;
+        dbctx->sync_cb = dbargs->sync_cb;
+        dbctx->sync_ctx = dbargs->sync_ctx;
+    }
+
     close(dfd);
 
     *be = ret;
     return 0;
 
+err6:
+    db_hl_close(dbctx->dbh);
 err5:
     free(dbctx->key_ctx->last_key);
 err4:
@@ -432,6 +466,14 @@ back_end_trans_commit(struct back_end *be)
     struct db_ctx *dbctx = (struct db_ctx *)(be->ctx);
 
     return db_hl_trans_commit(dbctx->dbh);
+}
+
+int
+back_end_sync(struct back_end *be)
+{
+    struct db_ctx *dbctx = (struct db_ctx *)(be->ctx);
+
+    return db_hl_sync(dbctx->dbh);
 }
 
 /* vi: set expandtab sw=4 ts=4: */

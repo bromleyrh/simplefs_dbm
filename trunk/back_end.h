@@ -28,6 +28,8 @@ struct db_args {
     const char  *db_pathname;
     mode_t      db_mode;
     int         ro;
+    void        (*sync_cb)(int status, void *ctx);
+    void        *sync_ctx;
 };
 
 int back_end_create(struct back_end **be, size_t key_size,
@@ -67,6 +69,8 @@ int back_end_trans_new(struct back_end *be);
 int back_end_trans_abort(struct back_end *be);
 
 int back_end_trans_commit(struct back_end *be);
+
+int back_end_sync(struct back_end *be);
 
 #endif
 
