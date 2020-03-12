@@ -773,13 +773,16 @@ do_set_ts(struct disk_timespec *ts, struct timespec *srcts)
 {
     struct timespec timespec;
 
-    (void)srcts;
+    if (srcts == NULL) {
+        srcts = &timespec;
+        if (clock_gettime(CLOCK_REALTIME, srcts) != 0) {
+            memset(ts, 0, sizeof(*ts));
+            return;
+        }
+    }
 
-    if (clock_gettime(CLOCK_REALTIME, &timespec) == 0) {
-        ts->tv_sec = timespec.tv_sec;
-        ts->tv_nsec = timespec.tv_nsec;
-    } else
-        memset(ts, 0, sizeof(*ts));
+    ts->tv_sec = srcts->tv_sec;
+    ts->tv_nsec = srcts->tv_nsec;
 }
 
 static void
