@@ -40,6 +40,9 @@
 #include <sys/types.h>
 #include <sys/uio.h>
 #include <sys/wait.h>
+#ifdef HAVE_SYS_XATTR_H
+#include <sys/xattr.h>
+#endif
 
 struct ref_inodes {
     struct avl_tree *ref_inodes;
@@ -74,14 +77,17 @@ enum db_obj_type {
     TYPE_HEADER = 1,
     TYPE_DIRENT,        /* look up by ino, name */
     TYPE_STAT,          /* look up by ino */
-    TYPE_PAGE           /* look up by ino, pgno */
+    TYPE_PAGE,          /* look up by ino, pgno */
+    TYPE_XATTR          /* look up by ino, name */
 };
+
+#define MAX_NAME (NAME_MAX+1)
 
 struct db_key {
     enum db_obj_type    type;
     uint64_t            ino;
     uint64_t            pgno;
-    char                name[NAME_MAX+1];
+    char                name[MAX_NAME];
 } __attribute__((packed));
 
 struct disk_timespec {
@@ -122,6 +128,7 @@ struct db_obj_stat {
     uint32_t                num_ents;
 } __attribute__((packed));
 
+/* TODO: use union in below structure to save space */
 struct op_args {
     fuse_req_t              req;
     const struct fuse_ctx   *ctx;
@@ -160,6 +167,9 @@ struct op_args {
     struct open_dir         *odir;
     size_t                  bufsize;
     size_t                  buflen;
+    /* setxattr() */
+    char                    *value;
+    int                     flags;
     /* access() */
     int                     mask;
 };
@@ -172,6 +182,15 @@ struct open_dir {
 struct open_file {
     fuse_ino_t ino;
 };
+
+#ifndef ENOATTR
+#define ENOATTR ENODATA
+#endif
+
+#ifndef HAVE_SYS_XATTR_H
+#define XATTR_CREATE 1
+#define XATTR_REPLACE 2
+#endif
 
 #define SIMPLEFS_MOUNT_PIPE_FD 4
 #define SIMPLEFS_MOUNT_PIPE_MSG_OK "1"
@@ -247,6 +266,8 @@ static void deserialize_ts(struct timespec *, struct disk_timespec *);
 
 static void deserialize_stat(struct stat *, struct db_obj_stat *);
 
+static int add_xattr_name(char **, size_t *, size_t *, const char *);
+
 static int truncate_file(struct back_end *, fuse_ino_t, off_t, off_t);
 static int delete_file(struct back_end *, fuse_ino_t);
 
@@ -292,6 +313,10 @@ static int do_write(void *);
 static int do_close(void *);
 static int do_sync(void *);
 static int do_read_header(void *);
+static int do_setxattr(void *);
+static int do_getxattr(void *);
+static int do_listxattr(void *);
+static int do_removexattr(void *);
 static int do_access(void *);
 static int do_create(void *);
 
@@ -338,6 +363,18 @@ static void simplefs_releasedir(fuse_req_t, fuse_ino_t,
 static void simplefs_fsyncdir(fuse_req_t, fuse_ino_t, int,
                               struct fuse_file_info *);
 static void simplefs_statfs(fuse_req_t, fuse_ino_t);
+#ifdef __APPLE__
+static void simplefs_setxattr(fuse_req_t, fuse_ino_t, const char *,
+                              const char *, size_t, int, uint32_t);
+static void simplefs_getxattr(fuse_req_t, fuse_ino_t, const char *, size_t,
+                              uint32_t);
+#else
+static void simplefs_setxattr(fuse_req_t, fuse_ino_t, const char *,
+                              const char *, size_t, int);
+static void simplefs_getxattr(fuse_req_t, fuse_ino_t, const char *, size_t);
+#endif
+static void simplefs_listxattr(fuse_req_t, fuse_ino_t, size_t);
+static void simplefs_removexattr(fuse_req_t, fuse_ino_t, const char *);
 static void simplefs_access(fuse_req_t, fuse_ino_t, int);
 static void simplefs_create(fuse_req_t, fuse_ino_t, const char *, mode_t,
                             struct fuse_file_info *);
@@ -389,11 +426,12 @@ db_key_cmp(const void *k1, const void *k2, struct back_end_key_ctx *key_ctx)
 
     switch (key1->type) {
     case TYPE_DIRENT:
+    case TYPE_XATTR:
         cmp = strcmp(key1->name, key2->name);
-    case TYPE_STAT:
         break;
     case TYPE_PAGE:
         cmp = uint64_cmp(key1->pgno, key2->pgno);
+    case TYPE_STAT:
         break;
     default:
         abort();
@@ -534,6 +572,11 @@ dump_cb(const void *key, const void *data, size_t datasize, void *ctx)
     case TYPE_PAGE:
         fprintf(stderr, "Page: node %" PRIu64 ", page %" PRIu64 ", size %zu\n",
                 (uint64_t)(k->ino), (uint64_t)(k->pgno), datasize);
+        break;
+    case TYPE_XATTR:
+        fprintf(stderr, "Extended attribute entry: node %" PRIu64 ", name %s, "
+                        "size %zu\n",
+                (uint64_t)(k->ino), k->name, datasize);
         break;
     default:
         abort();
@@ -820,6 +863,28 @@ deserialize_stat(struct stat *s, struct db_obj_stat *ds)
     deserialize_ts(&s->st_atim, &ds->st_atim);
     deserialize_ts(&s->st_mtim, &ds->st_mtim);
     deserialize_ts(&s->st_ctim, &ds->st_ctim);
+}
+
+static int
+add_xattr_name(char **names, size_t *len, size_t *size, const char *name)
+{
+    size_t namelen = strlen(name) + 1;
+
+    if (*len + namelen > *size) {
+        char *tmp;
+        size_t newsize = (*len + namelen) * 2;
+
+        tmp = do_realloc(*names, newsize);
+        if (tmp == NULL)
+            return MINUS_ERRNO;
+        *names = tmp;
+        *size = newsize;
+    }
+
+    memcpy(*names + *len, name, namelen);
+    *len += namelen;
+
+    return 0;
 }
 
 static int
@@ -2188,6 +2253,151 @@ do_read_header(void *args)
 }
 
 static int
+do_setxattr(void *args)
+{
+    int flags;
+    int ret;
+    struct db_key k;
+    struct op_args *opargs = (struct op_args *)args;
+
+    flags = opargs->flags;
+
+    k.type = TYPE_XATTR;
+    k.ino = opargs->ino;
+    strlcpy(k.name, opargs->name, sizeof(k.name));
+
+    if ((flags == 0) || (flags == XATTR_CREATE)) {
+        ret = back_end_insert(opargs->be, &k, opargs->value, opargs->size);
+        if ((ret != -EADDRINUSE) || (flags == XATTR_CREATE))
+            return ret;
+    } else if (flags != XATTR_REPLACE)
+        return -EINVAL;
+
+    return back_end_replace(opargs->be, &k, opargs->value, opargs->size);
+}
+
+static int
+do_getxattr(void *args)
+{
+    int ret;
+    size_t size;
+    struct db_key k;
+    struct op_args *opargs = (struct op_args *)args;
+
+    size = opargs->size;
+
+    k.type = TYPE_XATTR;
+    k.ino = opargs->ino;
+    strlcpy(k.name, opargs->name, sizeof(k.name));
+
+    ret = back_end_look_up(opargs->be, &k, NULL, NULL, &opargs->size, 0);
+    if (ret != 1)
+        return (ret == 0) ? -EADDRNOTAVAIL : ret;
+    if (size == 0)
+        return 0;
+    if (size < opargs->size)
+        return -ERANGE;
+
+    if (opargs->size == 0) {
+        opargs->value = NULL;
+        return 0;
+    }
+
+    opargs->value = do_malloc(opargs->size);
+    if (opargs->value == NULL)
+        return MINUS_ERRNO;
+
+    ret = back_end_look_up(opargs->be, &k, NULL, opargs->value, NULL, 0);
+    if (ret != 1) {
+        free(opargs->value);
+        return (ret == 0) ? -EIO : ret;
+    }
+
+    return 0;
+}
+
+static int
+do_listxattr(void *args)
+{
+    int ret;
+    size_t len, size;
+    struct back_end_iter *iter;
+    struct db_key k;
+    struct op_args *opargs = (struct op_args *)args;
+
+    ret = back_end_iter_new(&iter, opargs->be);
+    if (ret != 0)
+        return ret;
+
+    k.type = TYPE_XATTR;
+    k.ino = opargs->ino;
+    k.name[0] = '\0';
+
+    ret = back_end_iter_search(iter, &k);
+    if (ret < 0)
+        goto err1;
+
+    opargs->value = NULL;
+    len = size = 0;
+    for (;;) {
+        ret = back_end_iter_get(iter, &k, NULL, NULL);
+        if (ret != 0) {
+            if (ret != -EADDRNOTAVAIL)
+                goto err2;
+            break;
+        }
+
+        if ((k.ino != opargs->ino) || (k.type != TYPE_XATTR))
+            break;
+
+        ret = add_xattr_name(&opargs->value, &len, &size, k.name);
+        if (ret != 0)
+            goto err2;
+
+        ret = back_end_iter_next(iter);
+        if (ret != 0) {
+            if (ret != -EADDRNOTAVAIL)
+                goto err2;
+            break;
+        }
+    }
+
+    if (opargs->size == 0) {
+        if (opargs->value != NULL)
+            free(opargs->value);
+    } else if (opargs->size < len) {
+        ret = -ERANGE;
+        goto err2;
+    }
+
+    back_end_iter_free(iter);
+
+    opargs->size = len;
+
+    return 0;
+
+err2:
+    if (opargs->value != NULL)
+        free(opargs->value);
+err1:
+    back_end_iter_free(iter);
+    return ret;
+}
+
+static int
+do_removexattr(void *args)
+{
+    struct db_key k;
+    struct op_args *opargs = (struct op_args *)args;
+
+    k.type = TYPE_XATTR;
+    k.ino = opargs->ino;
+    strlcpy(k.name, opargs->name, sizeof(k.name));
+
+    return back_end_delete(opargs->be, &k);
+}
+
+static int
 do_access(void *args)
 {
     int ret;
@@ -3329,6 +3539,181 @@ err:
     fuse_reply_err(req, -ret);
 }
 
+#ifdef __APPLE__
+static void
+simplefs_setxattr(fuse_req_t req, fuse_ino_t ino, const char *name,
+                  const char *value, size_t size, int flags, uint32_t position)
+#else
+static void
+simplefs_setxattr(fuse_req_t req, fuse_ino_t ino, const char *name,
+                  const char *value, size_t size, int flags)
+#endif
+{
+    int ret;
+    struct fspriv *priv;
+    struct mount_data *md = fuse_req_userdata(req);
+    struct op_args opargs;
+
+#ifdef __APPLE__
+    if (position > 0) {
+        ret = -ENOTSUP;
+        goto err;
+    }
+
+#endif
+    priv = md->priv;
+
+    opargs.be = priv->be;
+
+    opargs.ino = ino;
+    opargs.name = name;
+    opargs.value = (char *)value;
+    opargs.size = size;
+    opargs.flags = flags;
+
+    ret = do_queue_op(priv, &do_setxattr, &opargs);
+    if (ret != 0)
+        goto err;
+
+    ret = fuse_reply_err(req, -ret);
+    if ((ret != 0) && (ret != -ENOENT))
+        goto err;
+
+    return;
+
+err:
+    fuse_reply_err(req, -ret);
+}
+
+#ifdef __APPLE__
+static void
+simplefs_getxattr(fuse_req_t req, fuse_ino_t ino, const char *name, size_t size,
+                  uint32_t position)
+#else
+static void
+simplefs_getxattr(fuse_req_t req, fuse_ino_t ino, const char *name, size_t size)
+#endif
+{
+    int ret;
+    struct fspriv *priv;
+    struct mount_data *md = fuse_req_userdata(req);
+    struct op_args opargs;
+
+#ifdef __APPLE__
+    if (position > 0) {
+        ret = -ENOTSUP;
+        goto err;
+    }
+
+#endif
+    priv = md->priv;
+
+    opargs.be = priv->be;
+
+    opargs.ino = ino;
+    opargs.name = name;
+    opargs.size = size;
+
+    ret = do_queue_op(priv, &do_getxattr, &opargs);
+    if (ret != 0) {
+        if (ret == -EADDRNOTAVAIL)
+            ret = -ENOATTR;
+        goto err;
+    }
+
+    if (size == 0) {
+        ret = fuse_reply_xattr(req, opargs.size);
+        if ((ret != 0) && (ret != -ENOENT))
+            goto err;
+        return;
+    }
+
+    ret = fuse_reply_buf(req, opargs.value, opargs.size);
+
+    if (opargs.value != NULL)
+        free(opargs.value);
+
+    if ((ret != 0) && (ret != -ENOENT))
+        goto err;
+
+    return;
+
+err:
+    fuse_reply_err(req, -ret);
+}
+
+static void
+simplefs_listxattr(fuse_req_t req, fuse_ino_t ino, size_t size)
+{
+    int ret;
+    struct fspriv *priv;
+    struct mount_data *md = fuse_req_userdata(req);
+    struct op_args opargs;
+
+    priv = md->priv;
+
+    opargs.be = priv->be;
+
+    opargs.ino = ino;
+    opargs.size = size;
+
+    ret = do_queue_op(priv, &do_listxattr, &opargs);
+    if (ret != 0)
+        goto err;
+
+    if (size == 0) {
+        ret = fuse_reply_xattr(req, opargs.size);
+        if ((ret != 0) && (ret != -ENOENT))
+            goto err;
+        return;
+    }
+
+    ret = fuse_reply_buf(req, opargs.value, opargs.size);
+
+    if (opargs.value != NULL)
+        free(opargs.value);
+
+    if ((ret != 0) && (ret != -ENOENT))
+        goto err;
+
+    return;
+
+err:
+    fuse_reply_err(req, -ret);
+}
+
+static void
+simplefs_removexattr(fuse_req_t req, fuse_ino_t ino, const char *name)
+{
+    int ret;
+    struct fspriv *priv;
+    struct mount_data *md = fuse_req_userdata(req);
+    struct op_args opargs;
+
+    priv = md->priv;
+
+    opargs.be = priv->be;
+
+    opargs.ino = ino;
+    opargs.name = name;
+
+    ret = do_queue_op(priv, &do_removexattr, &opargs);
+    if (ret != 0) {
+        if (ret == -EADDRNOTAVAIL)
+            ret = -ENOATTR;
+        goto err;
+    }
+
+    ret = fuse_reply_err(req, -ret);
+    if ((ret != 0) && (ret != -ENOENT))
+        goto err;
+
+    return;
+
+err:
+    fuse_reply_err(req, -ret);
+}
+
 static void
 simplefs_access(fuse_req_t req, fuse_ino_t ino, int mask)
 {
@@ -3425,33 +3810,37 @@ err1:
 }
 
 struct fuse_lowlevel_ops simplefs_ops = {
-    .init       = &simplefs_init,
-    .destroy    = &simplefs_destroy,
-    .lookup     = &simplefs_lookup,
-    .forget     = &simplefs_forget,
-    .getattr    = &simplefs_getattr,
-    .setattr    = &simplefs_setattr,
-    .readlink   = &simplefs_readlink,
-    .mknod      = &simplefs_mknod,
-    .mkdir      = &simplefs_mkdir,
-    .unlink     = &simplefs_unlink,
-    .rmdir      = &simplefs_rmdir,
-    .symlink    = &simplefs_symlink,
-    .rename     = &simplefs_rename,
-    .link       = &simplefs_link,
-    .open       = &simplefs_open,
-    .read       = &simplefs_read,
-    .write      = &simplefs_write,
-    .flush      = &simplefs_flush,
-    .release    = &simplefs_release,
-    .fsync      = &simplefs_fsync,
-    .opendir    = &simplefs_opendir,
-    .readdir    = &simplefs_readdir,
-    .releasedir = &simplefs_releasedir,
-    .fsyncdir   = &simplefs_fsyncdir,
-    .statfs     = &simplefs_statfs,
-    .access     = &simplefs_access,
-    .create     = &simplefs_create
+    .init           = &simplefs_init,
+    .destroy        = &simplefs_destroy,
+    .lookup         = &simplefs_lookup,
+    .forget         = &simplefs_forget,
+    .getattr        = &simplefs_getattr,
+    .setattr        = &simplefs_setattr,
+    .readlink       = &simplefs_readlink,
+    .mknod          = &simplefs_mknod,
+    .mkdir          = &simplefs_mkdir,
+    .unlink         = &simplefs_unlink,
+    .rmdir          = &simplefs_rmdir,
+    .symlink        = &simplefs_symlink,
+    .rename         = &simplefs_rename,
+    .link           = &simplefs_link,
+    .open           = &simplefs_open,
+    .read           = &simplefs_read,
+    .write          = &simplefs_write,
+    .flush          = &simplefs_flush,
+    .release        = &simplefs_release,
+    .fsync          = &simplefs_fsync,
+    .opendir        = &simplefs_opendir,
+    .readdir        = &simplefs_readdir,
+    .releasedir     = &simplefs_releasedir,
+    .fsyncdir       = &simplefs_fsyncdir,
+    .statfs         = &simplefs_statfs,
+    .setxattr       = &simplefs_setxattr,
+    .getxattr       = &simplefs_getxattr,
+    .listxattr      = &simplefs_listxattr,
+    .removexattr    = &simplefs_removexattr,
+    .access         = &simplefs_access,
+    .create         = &simplefs_create
 };
 
 /* vi: set expandtab sw=4 ts=4: */
