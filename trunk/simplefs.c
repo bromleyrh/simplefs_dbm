@@ -136,6 +136,7 @@ do_fuse_parse_cmdline(struct fuse_args *args, char **mountpoint,
 #if FUSE_USE_VERSION != 32
     ret = fuse_parse_cmdline(args, mountpoint, multithreaded, foreground);
 #else
+    memset(&opts, 0, sizeof(opts));
     ret = fuse_parse_cmdline(args, &opts);
 #endif
     if (ret == -1)
@@ -166,19 +167,27 @@ parse_cmdline(struct fuse_args *args, struct fuse_data *fusedata)
     fusedata->md.ro = 0;
 
     if (fuse_opt_parse(args, &fusedata->md, opts, NULL) == -1)
-        return -EINVAL;
+        goto err1;
 
     if (do_fuse_parse_cmdline(args, (char **)&fusedata->mountpoint, NULL,
                               &fusedata->foreground)
-        == -1) {
-        if (fusedata->md.db_pathname != NULL)
-            free((void *)(fusedata->md.db_pathname));
-        return -EINVAL;
+        == -1)
+        goto err2;
+
+    if (fusedata->mountpoint == NULL) {
+        error(0, 0, "missing mountpoint parameter");
+        goto err2;
     }
 
     fusedata->md.mountpoint = fusedata->mountpoint;
 
     return 0;
+
+err2:
+    if (fusedata->md.db_pathname != NULL)
+        free((void *)(fusedata->md.db_pathname));
+err1:
+    return -EINVAL;
 }
 
 static struct fuse_session *
