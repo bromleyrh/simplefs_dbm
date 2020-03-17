@@ -2528,6 +2528,10 @@ simplefs_init(void *userdata, struct fuse_conn_info *conn)
                       NULL, &refinop);
         if (ret != 0)
             goto err6;
+
+        ret = back_end_sync(priv->be);
+        if (ret != 0)
+            goto err6;
     } else {
         k.type = TYPE_HEADER;
 
