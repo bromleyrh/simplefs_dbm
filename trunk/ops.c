@@ -224,6 +224,8 @@ struct open_file {
 
 #define UNREF_MAX INT32_MAX
 
+#define ROOT_DIR_INIT_PERMS (S_IRWXU)
+
 static pthread_mutex_t mtx = PTHREAD_MUTEX_INITIALIZER;
 static int init;
 
@@ -2524,8 +2526,8 @@ simplefs_init(void *userdata, struct fuse_conn_info *conn)
             goto err6;
 
         /* create root directory */
-        ret = new_dir(priv->be, &priv->ref_inodes, 0, NULL, 0, 0, ACCESSPERMS,
-                      NULL, &refinop);
+        ret = new_dir(priv->be, &priv->ref_inodes, 0, NULL, getuid(), getgid(),
+                      ROOT_DIR_INIT_PERMS, NULL, &refinop);
         if (ret != 0)
             goto err6;
 
