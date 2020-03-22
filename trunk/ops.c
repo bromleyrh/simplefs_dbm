@@ -1472,6 +1472,7 @@ static int
 do_setattr(void *args)
 {
     int ret;
+    int trunc;
     struct db_key k;
     struct db_obj_stat s;
     struct op_args *opargs = (struct op_args *)args;
@@ -1483,13 +1484,20 @@ do_setattr(void *args)
     if (ret != 1)
         return (ret == 0) ? -ENOENT : ret;
 
-    if (opargs->to_set & FUSE_SET_ATTR_SIZE) {
+    trunc = !!(opargs->to_set & FUSE_SET_ATTR_SIZE);
+
+    if (trunc) {
         if (!S_ISREG(s.st_mode))
             return -EINVAL;
+
+        ret = back_end_trans_new(opargs->be);
+        if (ret != 0)
+            return ret;
+
         ret = truncate_file(opargs->be, opargs->ino, s.st_size,
                             opargs->attr.st_size);
         if (ret != 0)
-            return ret;
+            goto err;
         s.st_size = opargs->attr.st_size;
     }
 
@@ -1511,14 +1519,27 @@ do_setattr(void *args)
         do_set_ts(&s.st_mtim, &opargs->attr.st_mtim);
 
     ret = back_end_replace(opargs->be, &k, &s, sizeof(s));
-    if (ret != 0)
+    if (ret != 0) {
+        if (trunc)
+            goto err;
         return ret;
+    }
+
+    if (trunc) {
+        ret = back_end_trans_commit(opargs->be);
+        if (ret != 0)
+            goto err;
+    }
 
     deserialize_stat(&opargs->attr, &s);
     if (S_ISDIR(opargs->attr.st_mode))
         opargs->attr.st_size = s.num_ents;
 
     return 0;
+
+err:
+    back_end_trans_abort(opargs->be);
+    return ret;
 }
 
 static int
