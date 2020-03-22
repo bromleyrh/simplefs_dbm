@@ -2469,11 +2469,11 @@ simplefs_init(void *userdata, struct fuse_conn_info *conn)
     struct ref_ino *refinop;
 
 #if FUSE_USE_VERSION == 32
-    conn->want = FUSE_CAP_ASYNC_READ | FUSE_CAP_ATOMIC_O_TRUNC
-                 | FUSE_CAP_EXPORT_SUPPORT | FUSE_CAP_WRITEBACK_CACHE;
+    conn->want = FUSE_CAP_ASYNC_READ | FUSE_CAP_EXPORT_SUPPORT
+                 | FUSE_CAP_WRITEBACK_CACHE;
 #else
-    conn->want = FUSE_CAP_ASYNC_READ | FUSE_CAP_ATOMIC_O_TRUNC
-                 | FUSE_CAP_BIG_WRITES | FUSE_CAP_EXPORT_SUPPORT;
+    conn->want = FUSE_CAP_ASYNC_READ | FUSE_CAP_BIG_WRITES
+                 | FUSE_CAP_EXPORT_SUPPORT;
 #endif
 
     priv = do_malloc(sizeof(*priv));
