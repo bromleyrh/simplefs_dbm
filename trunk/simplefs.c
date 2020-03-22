@@ -58,10 +58,10 @@ static void terminate_fuse(struct fuse_data *);
 
 static int open_log(const char *);
 
-#ifdef __APPLE__
-#define DEFAULT_FUSE_OPTIONS "default_permissions"
-#else
+#ifdef __linux__
 #define DEFAULT_FUSE_OPTIONS "auto_unmount,default_permissions"
+#else
+#define DEFAULT_FUSE_OPTIONS "default_permissions"
 #endif
 
 static void
