@@ -226,6 +226,10 @@ struct open_file {
 
 #define ROOT_DIR_INIT_PERMS (S_IRWXU)
 
+#if 0 && !defined(NDEBUG)
+#define DEBUG_DUMP
+#endif
+
 static pthread_mutex_t mtx = PTHREAD_MUTEX_INITIALIZER;
 static int init;
 
@@ -241,7 +245,7 @@ static int join_worker(struct fspriv *);
 
 static void sync_cb(int, void *);
 
-#ifndef NDEBUG
+#ifdef DEBUG_DUMP
 static int dump_cb(const void *, const void *, size_t, void *);
 #endif
 static int dump_db(struct back_end *);
@@ -537,7 +541,7 @@ sync_cb(int status, void *ctx)
         priv->wb_err = status;
 }
 
-#ifndef NDEBUG
+#ifdef DEBUG_DUMP
 static int
 dump_cb(const void *key, const void *data, size_t datasize, void *ctx)
 {
@@ -592,7 +596,7 @@ dump_cb(const void *key, const void *data, size_t datasize, void *ctx)
 static int
 dump_db(struct back_end *be)
 {
-#ifndef NDEBUG
+#ifdef DEBUG_DUMP
     return back_end_walk(be, &dump_cb, NULL);
 #else
     (void)be;
