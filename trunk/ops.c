@@ -1943,7 +1943,7 @@ do_create_node_link(void *args)
     assert(ps.st_ino == k.ino);
     ret = back_end_replace(opargs->be, &k, &ps, sizeof(ps));
     if (ret != 0)
-        goto err3;
+        goto err2;
 
     ret = inc_refcnt(opargs->be, opargs->ref_inodes, opargs->ino, 0, 0, 1,
                      &opargs->refinop);
