@@ -1855,28 +1855,28 @@ do_rename(void *args)
         if (ret != 0)
             goto err1;
 
-        if (!existing) {
-            k.ino = opargs->newparent;
-
-            ret = back_end_look_up(opargs->be, &k, NULL, &ps, NULL, 0);
-            if (ret != 1) {
-                if (ret == 0)
-                    ret = -ENOENT;
-                goto err2;
-            }
-
-            ++(ps.num_ents);
-
-            assert(ps.st_ino == k.ino);
-            ret = back_end_replace(opargs->be, &k, &ps, sizeof(ps));
-            if (ret != 0)
-                goto err2;
-        }
-
         ret = rem_node_link(opargs->be, opargs->ref_inodes, ss.st_ino,
                             opargs->parent, opargs->name, &refinop[2]);
         if (ret != 0)
             goto err2;
+    }
+
+    if (!existing) {
+        k.ino = opargs->newparent;
+
+        ret = back_end_look_up(opargs->be, &k, NULL, &ps, NULL, 0);
+        if (ret != 1) {
+            if (ret == 0)
+                ret = -ENOENT;
+            goto err3;
+        }
+
+        ++(ps.num_ents);
+
+        assert(ps.st_ino == k.ino);
+        ret = back_end_replace(opargs->be, &k, &ps, sizeof(ps));
+        if (ret != 0)
+            goto err3;
     }
 
     k.ino = opargs->parent;
