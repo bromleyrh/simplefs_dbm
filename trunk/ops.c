@@ -1885,7 +1885,7 @@ do_rename(void *args)
     if (ret != 1) {
         if (ret == 0)
             ret = -ENOENT;
-        goto err2;
+        goto err3;
     }
 
     --(ps.num_ents);
@@ -1893,7 +1893,7 @@ do_rename(void *args)
     assert(ps.st_ino == k.ino);
     ret = back_end_replace(opargs->be, &k, &ps, sizeof(ps));
     if (ret != 0)
-        goto err2;
+        goto err3;
 
     ret = back_end_trans_commit(opargs->be);
     if (ret != 0)
