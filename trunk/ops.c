@@ -1513,14 +1513,49 @@ do_setattr(void *args)
     if (opargs->to_set & FUSE_SET_ATTR_GID)
         s.st_gid = opargs->attr.st_gid;
 
+    if ((opargs->to_set & (FUSE_SET_ATTR_MTIME_NOW | FUSE_SET_ATTR_MTIME))
+        == 0) {
+        /* POSIX-1.2008, ftruncate, para. 3:
+         * Upon successful completion, if fildes refers to a regular file,
+         * ftruncate() shall mark for update the last data modification and last
+         * file status change timestamps of the file.
+         *
+         * ", open, para. 8:
+         * If O_TRUNC is set and the file did previously exist, upon successful
+         * completion, open() shall mark for update the last data modification
+         * and last file status change timestamps of the file. */
+        if (trunc)
+            do_set_ts(&s.st_mtim, NULL);
+    } else {
+        if (opargs->to_set & FUSE_SET_ATTR_MTIME_NOW)
+            do_set_ts(&s.st_mtim, NULL);
+        if (opargs->to_set & FUSE_SET_ATTR_MTIME)
+            do_set_ts(&s.st_mtim, &opargs->attr.st_mtim);
+    }
+
     if (opargs->to_set & FUSE_SET_ATTR_ATIME_NOW)
         do_set_ts(&s.st_atim, NULL);
-    if (opargs->to_set & FUSE_SET_ATTR_MTIME_NOW)
-        do_set_ts(&s.st_mtim, NULL);
     if (opargs->to_set & FUSE_SET_ATTR_ATIME)
         do_set_ts(&s.st_atim, &opargs->attr.st_atim);
-    if (opargs->to_set & FUSE_SET_ATTR_MTIME)
-        do_set_ts(&s.st_mtim, &opargs->attr.st_mtim);
+
+    /* ", ftruncate, para. 3:
+     * "
+     *
+     * ", open, para. 8:
+     * "
+     *
+     * ", chmod, para. 5:
+     * Upon successful completion, chmod() shall mark for update the last file
+     * status change timestamp of the file.
+     *
+     * ", chown, para. 6:
+     * Upon successful completion, chown() shall mark for update the last file
+     * status change timestamp of the file.
+     *
+     * ", futimens, para. 8:
+     * Upon completion, futimens() and utimensat() shall mark the last file
+     * status change timestamp for update. */
+    do_set_ts(&s.st_ctim, NULL);
 
     ret = back_end_replace(opargs->be, &k, &s, sizeof(s));
     if (ret != 0) {
@@ -2216,15 +2251,19 @@ do_write(void *args)
         size -= sz;
     }
 
-    if (off > s.st_size) {
+    if (off > s.st_size)
         s.st_size = off;
+    /* POSIX-1.2008, write, para. 14:
+     * Upon successful completion, where nbyte is greater than 0, write() shall
+     * mark for update the last data modification and last file status change
+     * timestamps of the file... */
+    set_ts(NULL, &s.st_mtim, &s.st_ctim);
 
-        k.type = TYPE_STAT;
+    k.type = TYPE_STAT;
 
-        ret = back_end_replace(opargs->be, &k, &s, sizeof(s));
-        if (ret != 0)
-            return ret;
-    }
+    ret = back_end_replace(opargs->be, &k, &s, sizeof(s));
+    if (ret != 0)
+        return ret;
 
     ret = back_end_trans_commit(opargs->be);
     if (ret != 0)
