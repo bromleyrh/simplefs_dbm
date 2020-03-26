@@ -1024,6 +1024,11 @@ abort_init(int err, const char *fmt, ...)
     simplefs_exit();
 }
 
+/*
+ * Side effects:
+ * - Sets link count of new node to 1
+ * - Sets lookup count of new node to 1
+ */
 static int
 new_node(struct back_end *be, struct ref_inodes *ref_inodes, fuse_ino_t parent,
          const char *name, uid_t uid, gid_t gid, mode_t mode, dev_t rdev,
@@ -1112,8 +1117,11 @@ err1:
 }
 
 /*
- * This function must be called under a transaction to allow cancelling changes
- * in case of an error.
+ * Side effects:
+ * - Increments link count of target node
+ *
+ * This function should be called under a transaction to allow cancelling
+ * changes in case of an error.
  */
 static int
 new_node_link(struct back_end *be, struct ref_inodes *ref_inodes,
@@ -1160,6 +1168,12 @@ new_node_link(struct back_end *be, struct ref_inodes *ref_inodes,
     return 0;
 }
 
+/*
+ * Side effects:
+ * - Sets link count of new directory to 2
+ * - Increments link count of parent directory
+ * - Sets lookup count of new directory to 1
+ */
 static int
 new_dir(struct back_end *be, struct ref_inodes *ref_inodes, fuse_ino_t parent,
         const char *name, uid_t uid, gid_t gid, mode_t mode, struct stat *attr,
@@ -1268,6 +1282,11 @@ err1:
     return ret;
 }
 
+/*
+ * Side effects:
+ * - Decreases link count of target directory by 2 (to 0)
+ * - Decrements link count of parent directory
+ */
 static int
 rem_dir(struct back_end *be, struct ref_inodes *ref_inodes, fuse_ino_t ino,
         fuse_ino_t parent, const char *name, int notrans)
@@ -1344,6 +1363,9 @@ err1:
 }
 
 /*
+ * Side effects:
+ * - Increments link count of target directory
+ *
  * This function must be called under a transaction to allow cancelling changes
  * in case of an error.
  */
@@ -1392,6 +1414,9 @@ new_dir_link(struct back_end *be, struct ref_inodes *ref_inodes, fuse_ino_t ino,
 }
 
 /*
+ * Side effects:
+ * - Decrements link count of target node and deletes if unreferenced
+ *
  * This function must be called under a transaction to allow cancelling changes
  * in case of an error.
  */
@@ -1440,6 +1465,9 @@ rem_node_link(struct back_end *be, struct ref_inodes *ref_inodes,
 }
 
 /*
+ * Side effects:
+ * - Decrements link count of target directory and deletes if unreferenced
+ *
  * This function must be called under a transaction to allow cancelling changes
  * in case of an error.
  */
