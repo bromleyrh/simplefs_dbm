@@ -464,8 +464,13 @@ worker_td(void *args)
 
     for (;;) {
         ret = fifo_get(priv->queue, &op);
-        if (ret != 0)
+        if (ret != 0) {
+            /* FIXME: In this unlikely case, worker_td() will return without
+             * preventing further calls to do_queue_op() or waking up threads
+             * currently blocked in do_queue_op(). This will result in a stalled
+             * file system. */
             break;
+        }
         if (op->op == NULL)
             break;
 
@@ -2763,6 +2768,8 @@ simplefs_destroy(void *userdata)
 
     join_worker(priv);
 
+    /* Note: A resource leak in the file system will occur in the unlikely case
+     * that free_ref_inodes_cb() fails. */
     avl_tree_walk(priv->ref_inodes.ref_inodes, NULL, &free_ref_inodes_cb, priv,
                   &wctx);
     avl_tree_free(priv->ref_inodes.ref_inodes);
@@ -2816,8 +2823,14 @@ simplefs_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
 
     ret = fuse_reply_entry(req, &e);
     if (ret != 0) {
-        if (e.ino != 0)
+        if (e.ino != 0) {
+            /* In the unlikely event that fuse_reply_entry() returns an error,
+               this code will revert the changes made to the reference-counting
+               structures in memory by do_look_up() without performing any
+               necessary file deletion if all reference counts become 0. This
+               will result in a resource leak in the file system. */
             dec_refcnt(&priv->ref_inodes, 0, 0, -1, opargs.refinop);
+        }
         if (ret != -ENOENT)
             goto err;
     }
@@ -2858,6 +2871,8 @@ simplefs_forget(fuse_req_t req, fuse_ino_t ino, unsigned long nlookup)
     opargs.nlookup = nlookup;
 
     do_queue_op(priv, &do_forget, &opargs);
+    /* Note: A resource leak in the file system will occur in the unlikely case
+     * that do_forget() fails. */
 
     fuse_reply_none(req);
 }
