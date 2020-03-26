@@ -233,6 +233,8 @@ struct open_file {
 static pthread_mutex_t mtx = PTHREAD_MUTEX_INITIALIZER;
 static int init;
 
+#define ASSERT_UNDER_TRANS(be) (assert(back_end_trans_new(be) == -EBUSY))
+
 static void verror(int, const char *, va_list);
 
 static int uint64_cmp(uint64_t, uint64_t);
@@ -650,6 +652,10 @@ get_next_ino(struct back_end *be, fuse_ino_t *ino)
     return 0;
 }
 
+/*
+ * This function must be called under a transaction to allow cancelling changes
+ * in case of an error, unless nlink is 0.
+ */
 static int
 unref_inode(struct back_end *be, struct ref_inodes *ref_inodes,
             struct ref_ino *ino, int32_t nlink, int32_t nref, int32_t nlookup)
@@ -675,6 +681,8 @@ unref_inode(struct back_end *be, struct ref_inodes *ref_inodes,
         return delete_file(be, ino->ino);
 
     if (nlink != 0) {
+        ASSERT_UNDER_TRANS(be);
+
         s.st_nlink = (uint32_t)nlinkp;
         assert(s.st_ino == k.ino);
         return back_end_replace(be, &k, &s, sizeof(s));
@@ -893,6 +901,10 @@ add_xattr_name(char **names, size_t *len, size_t *size, const char *name)
     return 0;
 }
 
+/*
+ * This function must be called under a transaction to allow cancelling changes
+ * in case of an error.
+ */
 static int
 truncate_file(struct back_end *be, fuse_ino_t ino, off_t oldsize, off_t newsize)
 {
@@ -901,6 +913,8 @@ truncate_file(struct back_end *be, fuse_ino_t ino, off_t oldsize, off_t newsize)
     struct db_key k;
     uint64_t i;
     uint64_t newnumpg, oldnumpg;
+
+    ASSERT_UNDER_TRANS(be);
 
     if (newsize >= oldsize)
         return 0;
@@ -937,12 +951,18 @@ truncate_file(struct back_end *be, fuse_ino_t ino, off_t oldsize, off_t newsize)
     return 0;
 }
 
+/*
+ * This function must be called under a transaction to allow cancelling changes
+ * in case of an error.
+ */
 static int
 delete_file(struct back_end *be, fuse_ino_t ino)
 {
     int ret;
     struct db_key k;
     struct db_obj_stat s;
+
+    ASSERT_UNDER_TRANS(be);
 
     k.type = TYPE_STAT;
     k.ino = ino;
@@ -1081,6 +1101,10 @@ err1:
     return ret;
 }
 
+/*
+ * This function must be called under a transaction to allow cancelling changes
+ * in case of an error.
+ */
 static int
 new_node_link(struct back_end *be, struct ref_inodes *ref_inodes,
               fuse_ino_t ino, fuse_ino_t newparent, const char *newname,
@@ -1091,6 +1115,8 @@ new_node_link(struct back_end *be, struct ref_inodes *ref_inodes,
     struct db_obj_dirent de;
     struct db_obj_stat s;
     struct ref_ino *refinop;
+
+    ASSERT_UNDER_TRANS(be);
 
     k.type = TYPE_DIRENT;
     k.ino = newparent;
@@ -1258,7 +1284,9 @@ rem_dir(struct back_end *be, struct ref_inodes *ref_inodes, fuse_ino_t ino,
     if (ret != 0)
         return ret;
 
-    if (!notrans) {
+    if (notrans)
+        ASSERT_UNDER_TRANS(be);
+    else {
         ret = back_end_trans_new(be);
         if (ret != 0)
             goto err1;
@@ -1305,6 +1333,10 @@ err1:
     return ret;
 }
 
+/*
+ * This function must be called under a transaction to allow cancelling changes
+ * in case of an error.
+ */
 static int
 new_dir_link(struct back_end *be, struct ref_inodes *ref_inodes, fuse_ino_t ino,
              fuse_ino_t newparent, const char *newname, struct ref_ino **inop)
@@ -1314,6 +1346,8 @@ new_dir_link(struct back_end *be, struct ref_inodes *ref_inodes, fuse_ino_t ino,
     struct db_obj_dirent de;
     struct db_obj_stat s;
     struct ref_ino *refinop;
+
+    ASSERT_UNDER_TRANS(be);
 
     k.type = TYPE_DIRENT;
     k.ino = newparent;
@@ -1347,6 +1381,10 @@ new_dir_link(struct back_end *be, struct ref_inodes *ref_inodes, fuse_ino_t ino,
     return 0;
 }
 
+/*
+ * This function must be called under a transaction to allow cancelling changes
+ * in case of an error.
+ */
 static int
 rem_node_link(struct back_end *be, struct ref_inodes *ref_inodes,
               fuse_ino_t ino, fuse_ino_t parent, const char *name,
@@ -1356,6 +1394,8 @@ rem_node_link(struct back_end *be, struct ref_inodes *ref_inodes,
     struct db_key k;
     struct db_obj_stat s;
     struct ref_ino refino, *refinop;
+
+    ASSERT_UNDER_TRANS(be);
 
     k.type = TYPE_DIRENT;
     k.ino = parent;
@@ -1389,6 +1429,10 @@ rem_node_link(struct back_end *be, struct ref_inodes *ref_inodes,
     return ret;
 }
 
+/*
+ * This function must be called under a transaction to allow cancelling changes
+ * in case of an error.
+ */
 static int
 rem_dir_link(struct back_end *be, struct ref_inodes *ref_inodes, fuse_ino_t ino,
              fuse_ino_t parent, const char *name, struct ref_ino **inop)
@@ -1397,6 +1441,8 @@ rem_dir_link(struct back_end *be, struct ref_inodes *ref_inodes, fuse_ino_t ino,
     struct db_key k;
     struct db_obj_stat s;
     struct ref_ino refino, *refinop;
+
+    ASSERT_UNDER_TRANS(be);
 
     k.type = TYPE_DIRENT;
     k.ino = parent;
