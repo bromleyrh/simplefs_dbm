@@ -708,6 +708,12 @@ free_ref_inodes_cb(const void *keyval, void *ctx)
     return 0;
 }
 
+/*
+ * FIXME: It must be possible to call this function to revert changes previously
+ * made by invoking dec_refcnt(), and it must therefore be possible to guarantee
+ * inc_refcnt() will not return an error. This must be done by reserving space
+ * in advance using a memory pool.
+ */
 static int
 inc_refcnt(struct back_end *be, struct ref_inodes *ref_inodes, fuse_ino_t ino,
            int32_t nlink, int32_t nref, int32_t nlookup, struct ref_ino **inop)
