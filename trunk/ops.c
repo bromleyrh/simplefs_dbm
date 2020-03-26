@@ -627,6 +627,10 @@ adj_refcnt(uint64_t *refcnt, int32_t delta)
     return *refcnt;
 }
 
+/*
+ * FIXME: Revise this function to use disk addresses as I-node numbers once
+ * reaching ULONG_MAX, instead of returning -ENOSPC
+ */
 static int
 get_next_ino(struct back_end *be, fuse_ino_t *ino)
 {
