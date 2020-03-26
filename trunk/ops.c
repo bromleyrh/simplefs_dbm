@@ -1,5 +1,9 @@
 /*
  * ops.c
+ *
+ * Note: All of the requests handled by simplefs are uninterruptible to simplify
+ * error handling. Checks for the -ENOENT error return from fuse_reply_*() are
+ * added for robustness, but this condition should never occur.
  */
 
 #include "config.h"
