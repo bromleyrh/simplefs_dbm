@@ -289,7 +289,7 @@ static void abort_init(int, const char *, ...);
 
 static int new_node(struct back_end *, struct ref_inodes *, fuse_ino_t,
                     const char *, uid_t, gid_t, mode_t, dev_t, off_t,
-                    struct stat *, struct ref_ino **);
+                    struct stat *, struct ref_ino **, int);
 
 static int new_node_link(struct back_end *, struct ref_inodes *, fuse_ino_t,
                          fuse_ino_t, const char *, struct ref_ino **);
@@ -1043,7 +1043,7 @@ abort_init(int err, const char *fmt, ...)
 static int
 new_node(struct back_end *be, struct ref_inodes *ref_inodes, fuse_ino_t parent,
          const char *name, uid_t uid, gid_t gid, mode_t mode, dev_t rdev,
-         off_t size, struct stat *attr, struct ref_ino **inop)
+         off_t size, struct stat *attr, struct ref_ino **inop, int notrans)
 {
     fuse_ino_t ino;
     int ret;
@@ -1054,9 +1054,11 @@ new_node(struct back_end *be, struct ref_inodes *ref_inodes, fuse_ino_t parent,
     if ((mode & S_IFMT) == S_IFDIR)
         return -EINVAL;
 
-    ret = back_end_trans_new(be);
-    if (ret != 0)
-        return ret;
+    if (!notrans) {
+        ret = back_end_trans_new(be);
+        if (ret != 0)
+            return ret;
+    }
 
     ret = get_next_ino(be, &ino);
     if (ret != 0)
@@ -1106,9 +1108,11 @@ new_node(struct back_end *be, struct ref_inodes *ref_inodes, fuse_ino_t parent,
     if (ret != 0)
         goto err3;
 
-    ret = back_end_trans_commit(be);
-    if (ret != 0)
-        goto err3;
+    if (!notrans) {
+        ret = back_end_trans_commit(be);
+        if (ret != 0)
+            goto err3;
+    }
 
     if (attr != NULL) {
         deserialize_stat(attr, &s);
@@ -1123,7 +1127,8 @@ err3:
 err2:
     dec_refcnt(ref_inodes, -1, 0, 0, refinop[0]);
 err1:
-    back_end_trans_abort(be);
+    if (!notrans)
+        back_end_trans_abort(be);
     return ret;
 }
 
@@ -1745,7 +1750,9 @@ static int
 do_create_node(void *args)
 {
     const struct fuse_ctx *ctx;
-    int err;
+    int ret;
+    struct db_key k;
+    struct db_obj_stat ps;
     struct op_args *opargs = (struct op_args *)args;
 
     ctx = opargs->ctx;
@@ -1754,15 +1761,64 @@ do_create_node(void *args)
         || ((opargs->mode & S_IFMT) == S_IFLNK))
         return -EINVAL;
 
-    err = new_node(opargs->be, opargs->ref_inodes, opargs->ino, opargs->name,
+    ret = back_end_trans_new(opargs->be);
+    if (ret != 0)
+        return ret;
+
+    /* POSIX-1.2008, mknod, para. 7:
+     * Upon successful completion, mknod() shall mark for update the last data
+     * access, last data modification, and last file status change timestamps of
+     * the file.
+     *
+     * ", mkfifo, para. 5:
+     * Upon successful completion, mkfifo() shall mark for update the last data
+     * access, last data modification, and last file status change timestamps of
+     * the file. */
+    ret = new_node(opargs->be, opargs->ref_inodes, opargs->ino, opargs->name,
                    ctx->uid, ctx->gid, opargs->mode & ~(ctx->umask),
-                   opargs->rdev, 0, &opargs->attr, opargs->refinop);
-    if (err)
-        return err;
+                   opargs->rdev, 0, &opargs->attr, opargs->refinop, 1);
+    if (ret != 0)
+        goto err1;
+
+    k.type = TYPE_STAT;
+    k.ino = opargs->ino;
+
+    ret = back_end_look_up(opargs->be, &k, NULL, &ps, NULL, 0);
+    if (ret != 1) {
+        if (ret == 0)
+            ret = -ENOENT;
+        goto err2;
+    }
+
+    /* ", mknod, para. 7:
+     * Also, the last data modification and last file status change timestamps
+     * of the directory that contains the new entry shall be marked for
+     * update.
+     *
+     * ", mkfifo, para. 5:
+     * Also, the last data modification and last file status change timestamps
+     * of the directory that contains the new entry shall be marked for
+     * update. */
+    set_ts(NULL, &ps.st_mtim, &ps.st_ctim);
+
+    ret = back_end_replace(opargs->be, &k, &ps, sizeof(ps));
+    if (ret != 0)
+        goto err2;
+
+    ret = back_end_trans_commit(opargs->be);
+    if (ret != 0)
+        goto err2;
 
     dump_db(opargs->be);
 
     return 0;
+
+err2:
+    dec_refcnt(opargs->ref_inodes, 0, 0, -1, opargs->refinop[1]);
+    dec_refcnt(opargs->ref_inodes, -1, 0, 0, opargs->refinop[0]);
+err1:
+    back_end_trans_abort(opargs->be);
+    return ret;
 }
 
 static int
@@ -1869,7 +1925,7 @@ do_create_symlink(void *args)
 
     ret = new_node(opargs->be, opargs->ref_inodes, opargs->parent, opargs->name,
                    ctx->uid, ctx->gid, S_IFLNK | S_IRWXU | S_IRWXG | S_IRWXO, 0,
-                   (off_t)len, &opargs->attr, opargs->refinop);
+                   (off_t)len, &opargs->attr, opargs->refinop, 0);
     if (ret != 0)
         return ret;
 
