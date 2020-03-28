@@ -3485,15 +3485,15 @@ simplefs_opendir(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
 
     opargs.ino = ino;
 
-    ret = do_queue_op(priv, &do_open, &opargs);
-    if (ret != 0)
-        goto err1;
-
     odir = do_malloc(sizeof(*odir));
     if (odir == NULL) {
         ret = MINUS_ERRNO;
-        goto err2;
+        goto err1;
     }
+
+    ret = do_queue_op(priv, &do_open, &opargs);
+    if (ret != 0)
+        goto err2;
 
     odir->ino = ino;
     odir->cur_name[0] = '\0';
@@ -3511,9 +3511,9 @@ simplefs_opendir(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
     return;
 
 err3:
-    free(odir);
-err2:
     do_queue_op(priv, &do_close, &opargs);
+err2:
+    free(odir);
 err1:
     if (!interrupted)
         fuse_reply_err(req, -ret);
