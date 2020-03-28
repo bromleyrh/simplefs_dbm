@@ -138,7 +138,7 @@ struct op_args {
     const struct fuse_ctx   *ctx;
     struct back_end         *be;
     struct ref_inodes       *ref_inodes;
-    struct ref_ino          *refinop;
+    struct ref_ino          *refinop[2];
     fuse_ino_t              ino;
     fuse_ino_t              parent;
     const char              *name;
@@ -1112,7 +1112,7 @@ new_node(struct back_end *be, struct ref_inodes *ref_inodes, fuse_ino_t parent,
         deserialize_stat(attr, &s);
         attr->st_nlink = 1;
     }
-    *inop = refinop[1];
+    memcpy(inop, refinop, 2 * sizeof(struct ref_ino *));
 
     return 0;
 
@@ -1557,7 +1557,7 @@ do_look_up(void *args)
 
     if (opargs->inc_lookup_cnt) {
         ret = inc_refcnt(opargs->be, opargs->ref_inodes, opargs->s.st_ino, 0,
-                         0, 1, &opargs->refinop);
+                         0, 1, opargs->refinop);
         if (ret != 0)
             return ret;
     }
@@ -1763,7 +1763,7 @@ do_create_node(void *args)
 
     err = new_node(opargs->be, opargs->ref_inodes, opargs->ino, opargs->name,
                    ctx->uid, ctx->gid, opargs->mode & ~(ctx->umask),
-                   opargs->rdev, 0, &opargs->attr, &opargs->refinop);
+                   opargs->rdev, 0, &opargs->attr, opargs->refinop);
     if (err)
         return err;
 
@@ -1783,7 +1783,7 @@ do_create_dir(void *args)
 
     err = new_dir(opargs->be, opargs->ref_inodes, opargs->ino, opargs->name,
                   ctx->uid, ctx->gid, opargs->mode & ~(ctx->umask),
-                  &opargs->attr, &opargs->refinop);
+                  &opargs->attr, opargs->refinop);
     if (err)
         return err;
 
@@ -1874,7 +1874,7 @@ do_create_symlink(void *args)
 
     ret = new_node(opargs->be, opargs->ref_inodes, opargs->parent, opargs->name,
                    ctx->uid, ctx->gid, S_IFLNK | S_IRWXU | S_IRWXG | S_IRWXO, 0,
-                   (off_t)len, &opargs->attr, &opargs->refinop);
+                   (off_t)len, &opargs->attr, opargs->refinop);
     if (ret != 0)
         return ret;
 
@@ -1884,7 +1884,7 @@ do_create_symlink(void *args)
 
     ret = back_end_insert(opargs->be, &k, opargs->link, len + 1);
     if (ret != 0) {
-        dec_refcnt(opargs->ref_inodes, 0, 0, -1, opargs->refinop);
+        dec_refcnt(opargs->ref_inodes, 0, 0, -1, opargs->refinop[1]);
         return ret;
     }
 
@@ -2078,7 +2078,7 @@ do_create_node_link(void *args)
         goto err2;
 
     ret = inc_refcnt(opargs->be, opargs->ref_inodes, opargs->ino, 0, 0, 1,
-                     &opargs->refinop);
+                     opargs->refinop);
     if (ret != 0)
         goto err2;
 
@@ -2098,7 +2098,7 @@ do_create_node_link(void *args)
     return 0;
 
 err3:
-    dec_refcnt(opargs->ref_inodes, 0, 0, -1, opargs->refinop);
+    dec_refcnt(opargs->ref_inodes, 0, 0, -1, opargs->refinop[0]);
 err2:
     dec_refcnt(opargs->ref_inodes, -1, 0, 0, refinop);
 err1:
@@ -2196,7 +2196,7 @@ do_open(void *args)
         return (ret == 0) ? -ENOENT : ret;
 
     return inc_refcnt(opargs->be, opargs->ref_inodes, opargs->ino, 0, 1, 0,
-                      &opargs->refinop);
+                      opargs->refinop);
 }
 
 static int
@@ -2580,21 +2580,28 @@ static int
 do_create(void *args)
 {
     const struct fuse_ctx *ctx;
-    int err;
+    int ret;
     struct op_args *opargs = (struct op_args *)args;
 
     ctx = opargs->ctx;
 
-    err = new_node(opargs->be, opargs->ref_inodes, opargs->parent, opargs->name,
+    ret = new_node(opargs->be, opargs->ref_inodes, opargs->parent, opargs->name,
                    ctx->uid, ctx->gid, opargs->mode & ~(ctx->umask), 0, 0,
-                   &opargs->attr, &opargs->refinop);
-    if (err)
-        return err;
+                   &opargs->attr, opargs->refinop, 0);
+    if (ret != 0)
+        return ret;
+
+    ret = inc_refcnt(opargs->be, opargs->ref_inodes, opargs->attr.st_ino, 0, 1,
+                     0, &opargs->refinop[2]);
+    if (ret != 0) {
+        dec_refcnt(opargs->ref_inodes, 0, 0, -1, opargs->refinop[1]);
+        dec_refcnt(opargs->ref_inodes, -1, 0, 0, opargs->refinop[0]);
+        return ret;
+    }
 
     dump_db(opargs->be);
 
-    return inc_refcnt(opargs->be, opargs->ref_inodes, opargs->attr.st_ino, 0, 1,
-                      0, &opargs->refinop);
+    return 0;
 }
 
 int
@@ -2829,7 +2836,7 @@ simplefs_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
                structures in memory by do_look_up() without performing any
                necessary file deletion if all reference counts become 0. This
                will result in a resource leak in the file system. */
-            dec_refcnt(&priv->ref_inodes, 0, 0, -1, opargs.refinop);
+            dec_refcnt(&priv->ref_inodes, 0, 0, -1, opargs.refinop[0]);
         }
         if (ret != -ENOENT)
             goto err;
@@ -3013,7 +3020,7 @@ simplefs_mknod(fuse_req_t req, fuse_ino_t parent, const char *name, mode_t mode,
     e.attr_timeout = e.entry_timeout = CACHE_TIMEOUT;
     ret = fuse_reply_entry(req, &e);
     if (ret != 0) {
-        dec_refcnt(&priv->ref_inodes, 0, 0, -1, opargs.refinop);
+        dec_refcnt(&priv->ref_inodes, 0, 0, -1, opargs.refinop[1]);
         if (ret != -ENOENT)
             goto err;
     }
@@ -3054,7 +3061,7 @@ simplefs_mkdir(fuse_req_t req, fuse_ino_t parent, const char *name, mode_t mode)
     e.attr_timeout = e.entry_timeout = CACHE_TIMEOUT;
     ret = fuse_reply_entry(req, &e);
     if (ret != 0) {
-        dec_refcnt(&priv->ref_inodes, 0, 0, -1, opargs.refinop);
+        dec_refcnt(&priv->ref_inodes, 0, 0, -1, opargs.refinop[3]);
         if (ret != -ENOENT)
             goto err;
     }
@@ -3190,7 +3197,7 @@ simplefs_symlink(fuse_req_t req, const char *link, fuse_ino_t parent,
     e.attr_timeout = e.entry_timeout = CACHE_TIMEOUT;
     ret = fuse_reply_entry(req, &e);
     if (ret != 0) {
-        dec_refcnt(&priv->ref_inodes, 0, 0, -1, opargs.refinop);
+        dec_refcnt(&priv->ref_inodes, 0, 0, -1, opargs.refinop[1]);
         if (ret != -ENOENT)
             goto err;
     }
@@ -3281,7 +3288,7 @@ simplefs_link(fuse_req_t req, fuse_ino_t ino, fuse_ino_t newparent,
 
     ret = fuse_reply_entry(req, &e);
     if (ret != 0) {
-        dec_refcnt(&priv->ref_inodes, 0, 0, -1, opargs.refinop);
+        dec_refcnt(&priv->ref_inodes, 0, 0, -1, opargs.refinop[0]);
         if (ret != -ENOENT)
             goto err;
     }
@@ -3976,7 +3983,7 @@ err3:
     free(ofile);
     do_queue_op(priv, &do_close, &opargs);
 err2:
-    dec_refcnt(&priv->ref_inodes, 0, 0, -1, opargs.refinop);
+    dec_refcnt(&priv->ref_inodes, 0, 0, -1, opargs.refinop[1]);
 err1:
     if (!interrupted)
         fuse_reply_err(req, -ret);
