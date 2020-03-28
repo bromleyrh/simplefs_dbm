@@ -1812,29 +1812,31 @@ do_remove_node_link(void *args)
     if (ret != 1) {
         if (ret == 0)
             ret = -ENOENT;
-        goto err;
+        goto err1;
     }
 
     ret = rem_node_link(opargs->be, opargs->ref_inodes, opargs->ino,
                         opargs->parent, opargs->name, &refinop);
     if (ret != 0)
-        goto err;
+        goto err1;
 
     --(s.num_ents);
 
     ret = back_end_replace(opargs->be, &k, &s, sizeof(s));
     if (ret != 0)
-        goto err;
+        goto err2;
 
     ret = back_end_trans_commit(opargs->be);
     if (ret != 0)
-        goto err;
+        goto err2;
 
     dump_db(opargs->be);
 
     return 0;
 
-err:
+err2:
+    inc_refcnt(opargs->be, opargs->ref_inodes, opargs->ino, 1, 0, 0, &refinop);
+err1:
     back_end_trans_abort(opargs->be);
     return ret;
 }
