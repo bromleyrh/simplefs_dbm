@@ -261,7 +261,7 @@ static int ref_inode_cmp(const void *, const void *, void *);
 static uint64_t adj_refcnt(uint64_t *, int32_t);
 static int get_next_ino(struct back_end *, fuse_ino_t *);
 static int unref_inode(struct back_end *, struct ref_inodes *, struct ref_ino *,
-                       int32_t, int32_t, int32_t);
+                       int32_t, int32_t, int32_t, int *);
 static int free_ref_inodes_cb(const void *, void *);
 
 static int inc_refcnt(struct back_end *, struct ref_inodes *, fuse_ino_t,
@@ -294,7 +294,7 @@ static int new_node(struct back_end *, struct ref_inodes *, fuse_ino_t,
 static int new_node_link(struct back_end *, struct ref_inodes *, fuse_ino_t,
                          fuse_ino_t, const char *, struct ref_ino **);
 static int rem_node_link(struct back_end *, struct ref_inodes *, fuse_ino_t,
-                         fuse_ino_t, const char *, struct ref_ino **);
+                         fuse_ino_t, const char *, int *, struct ref_ino **);
 
 static int new_dir(struct back_end *, struct ref_inodes *, fuse_ino_t,
                    const char *, uid_t, gid_t, mode_t, struct stat *,
@@ -671,7 +671,8 @@ get_next_ino(struct back_end *be, fuse_ino_t *ino)
  */
 static int
 unref_inode(struct back_end *be, struct ref_inodes *ref_inodes,
-            struct ref_ino *ino, int32_t nlink, int32_t nref, int32_t nlookup)
+            struct ref_ino *ino, int32_t nlink, int32_t nref, int32_t nlookup,
+            int *deleted)
 {
     int ret;
     struct db_key k;
@@ -692,17 +693,25 @@ unref_inode(struct back_end *be, struct ref_inodes *ref_inodes,
     nlookupp = adj_refcnt(&ino->nlookup, nlookup);
     pthread_mutex_unlock(&ref_inodes->ref_inodes_mtx);
 
-    if ((nlinkp == 0) && (refcntp == 0) && (nlookupp == 0))
-        return delete_file(be, ino->ino);
+    if ((nlinkp == 0) && (refcntp == 0) && (nlookupp == 0)) {
+        ret = delete_file(be, ino->ino);
+        if ((ret == 0) && (deleted != NULL))
+            *deleted = 1;
+        return ret;
+    }
 
     if (nlink != 0) {
         ASSERT_UNDER_TRANS(be);
 
         s.st_nlink = (uint32_t)nlinkp;
         assert(s.st_ino == k.ino);
-        return back_end_replace(be, &k, &s, sizeof(s));
+        ret = back_end_replace(be, &k, &s, sizeof(s));
+        if (ret != 0)
+            return ret;
     }
 
+    if (deleted != NULL)
+        *deleted = 0;
     return 0;
 }
 
@@ -712,7 +721,7 @@ free_ref_inodes_cb(const void *keyval, void *ctx)
     struct fspriv *priv = (struct fspriv *)ctx;
     struct ref_ino *ino = *(struct ref_ino **)keyval;
 
-    unref_inode(priv->be, &priv->ref_inodes, ino, 0, -INT_MAX, -INT_MAX);
+    unref_inode(priv->be, &priv->ref_inodes, ino, 0, -INT_MAX, -INT_MAX, NULL);
 
     free(ino);
 
@@ -1443,7 +1452,7 @@ new_dir_link(struct back_end *be, struct ref_inodes *ref_inodes, fuse_ino_t ino,
  */
 static int
 rem_node_link(struct back_end *be, struct ref_inodes *ref_inodes,
-              fuse_ino_t ino, fuse_ino_t parent, const char *name,
+              fuse_ino_t ino, fuse_ino_t parent, const char *name, int *deleted,
               struct ref_ino **inop)
 {
     int ret;
@@ -1469,7 +1478,7 @@ rem_node_link(struct back_end *be, struct ref_inodes *ref_inodes,
     if (ret != 1)
         return (ret == 0) ? -ENOENT : ret;
 
-    ret = unref_inode(be, ref_inodes, refinop, -1, 0, 0);
+    ret = unref_inode(be, ref_inodes, refinop, -1, 0, 0, deleted);
     if (ret == 0)
         *inop = refinop;
 
@@ -1519,7 +1528,7 @@ rem_dir_link(struct back_end *be, struct ref_inodes *ref_inodes, fuse_ino_t ino,
         return (ret == 0) ? -ENOENT : ret;
 
     --(s.st_nlink);
-    ret = unref_inode(be, ref_inodes, refinop, -1, 0, 0);
+    ret = unref_inode(be, ref_inodes, refinop, -1, 0, 0, NULL);
     if (ret == 0)
         *inop = refinop;
 
@@ -1735,7 +1744,7 @@ do_forget(void *args)
         unref = MIN(UNREF_MAX, to_unref);
 
         ret = unref_inode(opargs->be, opargs->ref_inodes, refinop, 0, 0,
-                          -(int32_t)unref);
+                          -(int32_t)unref, NULL);
         if (ret != 0)
             goto err;
     }
@@ -1896,6 +1905,7 @@ err1:
 static int
 do_remove_node_link(void *args)
 {
+    int deleted;
     int ret;
     struct db_key k;
     struct db_obj_stat s;
@@ -1917,15 +1927,40 @@ do_remove_node_link(void *args)
     }
 
     ret = rem_node_link(opargs->be, opargs->ref_inodes, opargs->ino,
-                        opargs->parent, opargs->name, &refinop);
+                        opargs->parent, opargs->name, &deleted, &refinop);
     if (ret != 0)
         goto err1;
 
+    /* POSIX-1.2008, unlink, para. 4:
+     * Upon successful completion, unlink() shall mark for update the last data
+     * modification and last file status change timestamps of the parent
+     * directory. */
+    set_ts(NULL, &s.st_mtim, &s.st_ctim);
     --(s.num_ents);
 
     ret = back_end_replace(opargs->be, &k, &s, sizeof(s));
     if (ret != 0)
         goto err2;
+
+    if (!deleted) {
+        k.ino = opargs->ino;
+
+        ret = back_end_look_up(opargs->be, &k, NULL, &s, NULL, 0);
+        if (ret != 1) {
+            if (ret == 0)
+                ret = -ENOENT;
+            goto err2;
+        }
+
+        /* ", unlink, para. 4:
+         * Also, if the file's link count is not 0, the last file status change
+         * timestamp of the file shall be marked for update. */
+        do_set_ts(&s.st_ctim, NULL);
+
+        ret = back_end_replace(opargs->be, &k, &s, sizeof(s));
+        if (ret != 0)
+            goto err2;
+    }
 
     ret = back_end_trans_commit(opargs->be);
     if (ret != 0)
@@ -2100,7 +2135,7 @@ do_rename(void *args)
                 goto err1;
         } else {
             ret = rem_node_link(opargs->be, opargs->ref_inodes, ds.st_ino,
-                                opargs->newparent, opargs->newname,
+                                opargs->newparent, opargs->newname, NULL,
                                 &refinop[0]);
             if (ret != 0)
                 goto err1;
@@ -2129,7 +2164,7 @@ do_rename(void *args)
             goto err2;
 
         ret = rem_node_link(opargs->be, opargs->ref_inodes, ss.st_ino,
-                            opargs->parent, opargs->name, &refinop[2]);
+                            opargs->parent, opargs->name, NULL, &refinop[2]);
         if (ret != 0)
             goto err3;
     }
@@ -2552,7 +2587,7 @@ do_close(void *args)
     if (ret != 1)
         return (ret == 0) ? -ENOENT : ret;
 
-    return unref_inode(opargs->be, opargs->ref_inodes, refinop, 0, -1, 0);
+    return unref_inode(opargs->be, opargs->ref_inodes, refinop, 0, -1, 0, NULL);
 }
 
 static int
