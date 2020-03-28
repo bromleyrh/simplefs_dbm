@@ -1885,6 +1885,7 @@ do_create_symlink(void *args)
     ret = back_end_insert(opargs->be, &k, opargs->link, len + 1);
     if (ret != 0) {
         dec_refcnt(opargs->ref_inodes, 0, 0, -1, opargs->refinop[1]);
+        dec_refcnt(opargs->ref_inodes, -1, 0, 0, opargs->refinop[0]);
         return ret;
     }
 
