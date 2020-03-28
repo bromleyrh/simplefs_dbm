@@ -15,20 +15,20 @@ SYNOPSIS
        int openat(int fd, const char *path, int oflag, ...);
 
 DESCRIPTION
-       The open() function shall establish the connection between a file and a file  descriptor.  It  shall  create  an  open  file
+par.1  The open() function shall establish the connection between a file and a file  descriptor.  It  shall  create  an  open  file
        description  that  refers to a file and a file descriptor that refers to that open file description.  The file descriptor is
        used by other I/O functions to refer to that file. The path argument points to a pathname naming the file.
 
-       The open() function shall return a file descriptor for the named file that is the lowest file descriptor not currently  open
+    2  The open() function shall return a file descriptor for the named file that is the lowest file descriptor not currently  open
        for  that  process.  The  open  file description is new, and therefore the file descriptor shall not share it with any other
        process in the system. The FD_CLOEXEC file descriptor flag associated with the new file descriptor shall be  cleared  unless
        the O_CLOEXEC flag is set in oflag.
 
-       The file offset used to mark the current position within the file shall be set to the beginning of the file.
+    3  The file offset used to mark the current position within the file shall be set to the beginning of the file.
 
-       The file status flags and file access modes of the open file description shall be set according to the value of oflag.
+    4  The file status flags and file access modes of the open file description shall be set according to the value of oflag.
 
-       Values for oflag are constructed by a bitwise-inclusive OR of flags from the following list, defined in <fcntl.h>.  Applica‐
+    5  Values for oflag are constructed by a bitwise-inclusive OR of flags from the following list, defined in <fcntl.h>.  Applica‐
        tions shall specify exactly one of the first five values (file access modes) below in the value of oflag:
 
        O_EXEC        Open for execute only (non-directory files). The result is unspecified if this flag is applied to a directory.
@@ -41,7 +41,7 @@ DESCRIPTION
 
        O_WRONLY      Open for writing only.
 
-       Any combination of the following may be used:
+    6  Any combination of the following may be used:
 
        O_APPEND      If set, the file offset shall be set to the end of the file prior to each write.
 
@@ -122,38 +122,38 @@ DESCRIPTION
                      terminal parameters to a state that provides conforming behavior, regardless of whether O_TTY_INIT is set.  If
                      path does not identify a terminal device, O_TTY_INIT shall be ignored.
 
-       If  O_CREAT  is set and the file did not previously exist, upon successful completion, open() shall mark for update the last
+    7  If  O_CREAT  is set and the file did not previously exist, upon successful completion, open() shall mark for update the last
        data access, last data modification, and last file status change timestamps of the file and the last data  modification  and
        last file status change timestamps of the parent directory.
 
-       If  O_TRUNC is set and the file did previously exist, upon successful completion, open() shall mark for update the last data
+    8  If  O_TRUNC is set and the file did previously exist, upon successful completion, open() shall mark for update the last data
        modification and last file status change timestamps of the file.
 
-       If both the O_SYNC and O_DSYNC flags are set, the effect is as if only the O_SYNC flag was set.
+    9  If both the O_SYNC and O_DSYNC flags are set, the effect is as if only the O_SYNC flag was set.
 
-       If path refers to a STREAMS file, oflag may be constructed from O_NONBLOCK OR'ed with either O_RDONLY, O_WRONLY, or  O_RDWR.
+    10 If path refers to a STREAMS file, oflag may be constructed from O_NONBLOCK OR'ed with either O_RDONLY, O_WRONLY, or  O_RDWR.
        Other  flag  values are not applicable to STREAMS devices and shall have no effect on them. The value O_NONBLOCK affects the
        operation of STREAMS drivers and certain functions applied to file descriptors associated with STREAMS  files.  For  STREAMS
        drivers, the implementation of O_NONBLOCK is device-specific.
 
-       The  application shall ensure that it specifies the O_TTY_INIT flag on the first open of a terminal device since system boot
+    11 The  application shall ensure that it specifies the O_TTY_INIT flag on the first open of a terminal device since system boot
        or since the device was closed by the process that last had it open. The application need not specify  the  O_TTY_INIT  flag
        when  opening  pseudo-terminals.   If path names the master side of a pseudo-terminal device, then it is unspecified whether
        open() locks the slave side so that it cannot be opened. Conforming applications shall call unlockpt()  before  opening  the
        slave side.
 
-       The largest value that can be represented correctly in an object of type off_t shall be established as the offset maximum in
+    12 The largest value that can be represented correctly in an object of type off_t shall be established as the offset maximum in
        the open file description.
 
-       The openat() function shall be equivalent to the open() function except in the case where path specifies a relative path. In
+    13 The openat() function shall be equivalent to the open() function except in the case where path specifies a relative path. In
        this  case  the  file to be opened is determined relative to the directory associated with the file descriptor fd instead of
        the current working directory. If the file descriptor was opened without O_SEARCH, the function shall check  whether  direc‐
        tory  searches  are  permitted  using  the  current permissions of the directory underlying the file descriptor. If the file
        descriptor was opened with O_SEARCH, the function shall not perform the check.
 
-       The oflag parameter and the optional fourth parameter correspond exactly to the parameters of open().
+    14 The oflag parameter and the optional fourth parameter correspond exactly to the parameters of open().
 
-       If openat() is passed the special value AT_FDCWD in the fd parameter, the current working directory shall be  used  and  the
+    15 If openat() is passed the special value AT_FDCWD in the fd parameter, the current working directory shall be  used  and  the
        behavior shall be identical to a call to open().
 
 RETURN VALUE

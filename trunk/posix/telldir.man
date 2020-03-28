@@ -13,9 +13,9 @@ SYNOPSIS
        long telldir(DIR *dirp);
 
 DESCRIPTION
-       The telldir() function shall obtain the current location associated with the directory stream specified by dirp.
+par.1  The telldir() function shall obtain the current location associated with the directory stream specified by dirp.
 
-       If the most recent operation on the directory stream was a seekdir(), the directory position  returned  from  the  telldir()
+    2  If the most recent operation on the directory stream was a seekdir(), the directory position  returned  from  the  telldir()
        shall be the same as that supplied as a loc argument for seekdir().
 
 RETURN VALUE

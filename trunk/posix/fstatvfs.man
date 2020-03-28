@@ -14,20 +14,20 @@ SYNOPSIS
        int statvfs(const char *restrict path, struct statvfs *restrict buf);
 
 DESCRIPTION
-       The fstatvfs() function shall obtain information about the file system containing the file referenced by fildes.
+par.1  The fstatvfs() function shall obtain information about the file system containing the file referenced by fildes.
 
-       The statvfs() function shall obtain information about the file system containing the file named by path.
+    2  The statvfs() function shall obtain information about the file system containing the file named by path.
 
-       For both functions, the buf argument is a pointer to a statvfs structure that shall be filled. Read, write, or execute  per‐
+    3  For both functions, the buf argument is a pointer to a statvfs structure that shall be filled. Read, write, or execute  per‐
        mission of the named file is not required.
 
-       The following flags can be returned in the f_flag member:
+    4  The following flags can be returned in the f_flag member:
 
        ST_RDONLY   Read-only file system.
 
        ST_NOSUID   Setuid/setgid bits ignored by exec.
 
-       It is unspecified whether all members of the statvfs structure have meaningful values on all file systems.
+    5  It is unspecified whether all members of the statvfs structure have meaningful values on all file systems.
 
 RETURN VALUE
        Upon successful completion, statvfs() shall return 0. Otherwise, it shall return −1 and set errno to indicate the error.

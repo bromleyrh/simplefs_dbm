@@ -13,7 +13,7 @@ SYNOPSIS
        ssize_t aio_return(struct aiocb *aiocbp);
 
 DESCRIPTION
-       The aio_return() function shall return the return status associated with the aiocb structure referenced by the aiocbp  argu‐
+par.1  The aio_return() function shall return the return status associated with the aiocb structure referenced by the aiocbp  argu‐
        ment.  The  return status for an asynchronous I/O operation is the value that would be returned by the corresponding read(),
        write(), or fsync() function call. If the error status for the operation is equal to [EINPROGRESS], then the  return  status
        for  the  operation  is  undefined.  The aio_return() function may be called exactly once to retrieve the return status of a

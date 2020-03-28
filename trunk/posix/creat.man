@@ -14,7 +14,7 @@ SYNOPSIS
        int creat(const char *path, mode_t mode);
 
 DESCRIPTION
-       The creat() function shall behave as if it is implemented as follows:
+par.1  The creat() function shall behave as if it is implemented as follows:
 
            int creat(const char *path, mode_t mode)
            {
