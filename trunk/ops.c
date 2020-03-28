@@ -1965,6 +1965,7 @@ do_create_symlink(void *args)
     int ret;
     size_t len;
     struct db_key k;
+    struct db_obj_stat ps;
     struct op_args *opargs = (struct op_args *)args;
 
     ctx = opargs->ctx;
@@ -1975,26 +1976,62 @@ do_create_symlink(void *args)
         len = OFF_MAX;
 #endif
 
-    ret = new_node(opargs->be, opargs->ref_inodes, opargs->parent, opargs->name,
-                   ctx->uid, ctx->gid, S_IFLNK | S_IRWXU | S_IRWXG | S_IRWXO, 0,
-                   (off_t)len, &opargs->attr, opargs->refinop, 0);
+    ret = back_end_trans_new(opargs->be);
     if (ret != 0)
         return ret;
+
+    /* POSIX-1.2008, symlink, para. 7:
+     * Upon successful completion, symlink() shall mark for update the last data
+     * access, last data modification, and last file status change timestamps of
+     * the symbolic link. */
+    ret = new_node(opargs->be, opargs->ref_inodes, opargs->parent, opargs->name,
+                   ctx->uid, ctx->gid, S_IFLNK | S_IRWXU | S_IRWXG | S_IRWXO, 0,
+                   (off_t)len, &opargs->attr, opargs->refinop, 1);
+    if (ret != 0)
+        goto err1;
 
     k.type = TYPE_PAGE;
     k.ino = opargs->attr.st_ino;
     k.pgno = 0;
 
     ret = back_end_insert(opargs->be, &k, opargs->link, len + 1);
-    if (ret != 0) {
-        dec_refcnt(opargs->ref_inodes, 0, 0, -1, opargs->refinop[1]);
-        dec_refcnt(opargs->ref_inodes, -1, 0, 0, opargs->refinop[0]);
-        return ret;
+    if (ret != 0)
+        goto err2;
+
+    k.type = TYPE_STAT;
+    k.ino = opargs->parent;
+
+    ret = back_end_look_up(opargs->be, &k, NULL, &ps, NULL, 0);
+    if (ret != 1) {
+        if (ret == 0)
+            ret = -ENOENT;
+        goto err2;
     }
+
+    /* ", symlink, para. 7:
+     * Also, the last data modification and last file status change timestamps
+     * of the directory that contains the new entry shall be marked for
+     * update. */
+    set_ts(NULL, &ps.st_mtim, &ps.st_ctim);
+
+    ret = back_end_replace(opargs->be, &k, &ps, sizeof(ps));
+    if (ret != 0)
+        goto err2;
+
+    ret = back_end_trans_commit(opargs->be);
+    if (ret != 0)
+        goto err2;
 
     dump_db(opargs->be);
 
     return 0;
+
+err2:
+    dec_refcnt(opargs->ref_inodes, 0, 0, -1, opargs->refinop[1]);
+    dec_refcnt(opargs->ref_inodes, -1, 0, 0, opargs->refinop[0]);
+err1:
+    back_end_trans_abort(opargs->be);
+    return ret;
 }
 
 static int
