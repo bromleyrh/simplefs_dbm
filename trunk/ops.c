@@ -678,11 +678,13 @@ unref_inode(struct back_end *be, struct ref_inodes *ref_inodes,
     struct db_obj_stat s;
     uint64_t nlinkp, refcntp, nlookupp;
 
-    k.type = TYPE_STAT;
-    k.ino = ino->ino;
-    ret = back_end_look_up(be, &k, NULL, &s, NULL, 0);
-    if (ret != 1)
-        return (ret == 0) ? -ENOENT : ret;
+    if (nlink != 0) {
+        k.type = TYPE_STAT;
+        k.ino = ino->ino;
+        ret = back_end_look_up(be, &k, NULL, &s, NULL, 0);
+        if (ret != 1)
+            return (ret == 0) ? -ENOENT : ret;
+    }
 
     pthread_mutex_lock(&ref_inodes->ref_inodes_mtx);
     nlinkp = adj_refcnt(&ino->nlink, nlink);
