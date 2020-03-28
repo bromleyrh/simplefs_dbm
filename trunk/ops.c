@@ -1980,17 +1980,56 @@ err1:
 static int
 do_remove_dir(void *args)
 {
-    int err;
+    int ret;
+    struct db_key k;
+    struct db_obj_stat ps;
     struct op_args *opargs = (struct op_args *)args;
 
-    err = rem_dir(opargs->be, opargs->ref_inodes, opargs->ino, opargs->parent,
-                  opargs->name, 0);
-    if (err)
-        return err;
+    ret = back_end_trans_new(opargs->be);
+    if (ret != 0)
+        return ret;
+
+    ret = rem_dir(opargs->be, opargs->ref_inodes, opargs->ino, opargs->parent,
+                  opargs->name, 1);
+    if (ret != 0)
+        goto err1;
+
+    k.type = TYPE_STAT;
+    k.ino = opargs->parent;
+
+    ret = back_end_look_up(opargs->be, &k, NULL, &ps, NULL, 0);
+    if (ret != 1) {
+        if (ret == 0)
+            ret = -ENOENT;
+        goto err2;
+    }
+
+    /* POSIX-1.2008, rmdir, para. 7:
+     * Upon successful completion, rmdir() shall mark for update the last data
+     * modification and last file status change timestamps of the parent
+     * directory. */
+    set_ts(NULL, &ps.st_mtim, &ps.st_ctim);
+
+    ret = back_end_replace(opargs->be, &k, &ps, sizeof(ps));
+    if (ret != 0)
+        goto err2;
+
+    ret = back_end_trans_commit(opargs->be);
+    if (ret != 0)
+        goto err2;
 
     dump_db(opargs->be);
 
     return 0;
+
+err2:
+    inc_refcnt(opargs->be, opargs->ref_inodes, opargs->ino, 2, 0, 0,
+               opargs->refinop);
+    inc_refcnt(opargs->be, opargs->ref_inodes, opargs->parent, 1, 0, 0,
+               opargs->refinop);
+err1:
+    back_end_trans_abort(opargs->be);
+    return ret;
 }
 
 static int
