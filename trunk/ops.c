@@ -1204,7 +1204,7 @@ new_dir(struct back_end *be, struct ref_inodes *ref_inodes, fuse_ino_t parent,
     else {
         ret = get_next_ino(be, &ino);
         if (ret != 0)
-            return ret;
+            goto err1;
     }
 
     k.type = TYPE_STAT;
