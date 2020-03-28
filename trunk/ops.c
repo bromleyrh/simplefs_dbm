@@ -3966,15 +3966,15 @@ simplefs_create(fuse_req_t req, fuse_ino_t parent, const char *name,
     opargs.name = name;
     opargs.mode = mode;
 
-    ret = do_queue_op(priv, &do_create, &opargs);
-    if (ret != 0)
-        goto err1;
-
     ofile = do_malloc(sizeof(*ofile));
     if (ofile == NULL) {
         ret = MINUS_ERRNO;
-        goto err2;
+        goto err1;
     }
+
+    ret = do_queue_op(priv, &do_create, &opargs);
+    if (ret != 0)
+        goto err2;
 
     ofile->ino = opargs.attr.st_ino;
 
@@ -3995,10 +3995,10 @@ simplefs_create(fuse_req_t req, fuse_ino_t parent, const char *name,
     return;
 
 err3:
-    free(ofile);
     do_queue_op(priv, &do_close, &opargs);
-err2:
     dec_refcnt(&priv->ref_inodes, 0, 0, -1, opargs.refinop[1]);
+err2:
+    free(ofile);
 err1:
     if (!interrupted)
         fuse_reply_err(req, -ret);
