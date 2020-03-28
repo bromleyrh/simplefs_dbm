@@ -1438,7 +1438,6 @@ rem_node_link(struct back_end *be, struct ref_inodes *ref_inodes,
 {
     int ret;
     struct db_key k;
-    struct db_obj_stat s;
     struct ref_ino refino, *refinop;
 
     ASSERT_UNDER_TRANS(be);
@@ -1451,13 +1450,6 @@ rem_node_link(struct back_end *be, struct ref_inodes *ref_inodes,
     if (ret != 0)
         return ret;
 
-    k.type = TYPE_STAT;
-    k.ino = ino;
-
-    ret = back_end_look_up(be, &k, NULL, &s, NULL, 0);
-    if (ret != 1)
-        return (ret == 0) ? -ENOENT : ret;
-
     refino.ino = ino;
     refinop = &refino;
 
@@ -1467,7 +1459,6 @@ rem_node_link(struct back_end *be, struct ref_inodes *ref_inodes,
     if (ret != 1)
         return (ret == 0) ? -ENOENT : ret;
 
-    --(s.st_nlink);
     ret = unref_inode(be, ref_inodes, refinop, -1, 0, 0);
     if (ret == 0)
         *inop = refinop;
