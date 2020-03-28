@@ -3336,15 +3336,15 @@ simplefs_open(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
 
     opargs.ino = ino;
 
-    ret = do_queue_op(priv, &do_open, &opargs);
-    if (ret != 0)
-        goto err1;
-
     ofile = do_malloc(sizeof(*ofile));
     if (ofile == NULL) {
         ret = MINUS_ERRNO;
-        goto err2;
+        goto err1;
     }
+
+    ret = do_queue_op(priv, &do_open, &opargs);
+    if (ret != 0)
+        goto err2;
 
     ofile->ino = ino;
 
@@ -3361,9 +3361,9 @@ simplefs_open(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
     return;
 
 err3:
-    free(ofile);
-err2:
     do_queue_op(priv, &do_close, &opargs);
+err2:
+    free(ofile);
 err1:
     if (!interrupted)
         fuse_reply_err(req, -ret);
