@@ -2659,27 +2659,67 @@ do_create(void *args)
 {
     const struct fuse_ctx *ctx;
     int ret;
+    struct db_key k;
+    struct db_obj_stat ps;
     struct op_args *opargs = (struct op_args *)args;
 
     ctx = opargs->ctx;
 
-    ret = new_node(opargs->be, opargs->ref_inodes, opargs->parent, opargs->name,
-                   ctx->uid, ctx->gid, opargs->mode & ~(ctx->umask), 0, 0,
-                   &opargs->attr, opargs->refinop, 0);
+    ret = back_end_trans_new(opargs->be);
     if (ret != 0)
         return ret;
 
+    /* POSIX-1.2008, open, para. 7:
+     * If O_CREAT is set and the file did not previously exist, upon successful
+     * completion, open() shall mark for update the last data access, last data
+     * modification, and last file status change timestamps of the file... */
+    ret = new_node(opargs->be, opargs->ref_inodes, opargs->parent, opargs->name,
+                   ctx->uid, ctx->gid, opargs->mode & ~(ctx->umask), 0, 0,
+                   &opargs->attr, opargs->refinop, 1);
+    if (ret != 0)
+        goto err1;
+
+    k.type = TYPE_STAT;
+    k.ino = opargs->parent;
+
+    ret = back_end_look_up(opargs->be, &k, NULL, &ps, NULL, 0);
+    if (ret != 1) {
+        if (ret == 0)
+            ret = -ENOENT;
+        goto err2;
+    }
+
+    /* ", open, para. 7:
+     * If O_CREAT is set and the file did not previously exist, upon successful
+     * completion, open() shall mark for update...the last data modification and
+     * last file status change timestamps of the parent directory. */
+    set_ts(NULL, &ps.st_mtim, &ps.st_ctim);
+
+    ret = back_end_replace(opargs->be, &k, &ps, sizeof(ps));
+    if (ret != 0)
+        goto err2;
+
     ret = inc_refcnt(opargs->be, opargs->ref_inodes, opargs->attr.st_ino, 0, 1,
                      0, &opargs->refinop[2]);
-    if (ret != 0) {
-        dec_refcnt(opargs->ref_inodes, 0, 0, -1, opargs->refinop[1]);
-        dec_refcnt(opargs->ref_inodes, -1, 0, 0, opargs->refinop[0]);
-        return ret;
-    }
+    if (ret != 0)
+        goto err2;
+
+    ret = back_end_trans_commit(opargs->be);
+    if (ret != 0)
+        goto err3;
 
     dump_db(opargs->be);
 
     return 0;
+
+err3:
+    dec_refcnt(opargs->ref_inodes, 0, -1, 0, opargs->refinop[2]);
+err2:
+    dec_refcnt(opargs->ref_inodes, 0, 0, -1, opargs->refinop[1]);
+    dec_refcnt(opargs->ref_inodes, -1, 0, 0, opargs->refinop[0]);
+err1:
+    back_end_trans_abort(opargs->be);
+    return ret;
 }
 
 int
