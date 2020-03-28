@@ -2069,6 +2069,24 @@ do_create_node_link(void *args)
         goto err1;
 
     k.type = TYPE_STAT;
+    k.ino = opargs->ino;
+
+    ret = back_end_look_up(opargs->be, &k, NULL, &opargs->s, NULL, 0);
+    if (ret != 1) {
+        if (ret == 0)
+            ret = -ENOENT;
+        goto err2;
+    }
+
+    /* POSIX-1.2008, link, para. 5:
+     * Upon successful completion, link() shall mark for update the last file
+     * status change timestamp of the file. */
+    do_set_ts(&opargs->s.st_ctim, NULL);
+
+    ret = back_end_replace(opargs->be, &k, &opargs->s, sizeof(opargs->s));
+    if (ret != 0)
+        goto err2;
+
     k.ino = opargs->newparent;
 
     ret = back_end_look_up(opargs->be, &k, NULL, &ps, NULL, 0);
@@ -2078,6 +2096,11 @@ do_create_node_link(void *args)
         goto err2;
     }
 
+    /* ", link, para. 5:
+     * Also, the last data modification and last file status change timestamps
+     * of the directory that contains the new entry shall be marked for
+     * update. */
+    set_ts(NULL, &ps.st_mtim, &ps.st_ctim);
     ++(ps.num_ents);
 
     assert(ps.st_ino == k.ino);
@@ -2093,15 +2116,6 @@ do_create_node_link(void *args)
     ret = back_end_trans_commit(opargs->be);
     if (ret != 0)
         goto err3;
-
-    k.type = TYPE_STAT;
-    k.ino = opargs->ino;
-    ret = back_end_look_up(opargs->be, &k, NULL, &opargs->s, NULL, 0);
-    if (ret != 1) {
-        if (ret == 0)
-            ret = -ENOENT;
-        goto err3;
-    }
 
     return 0;
 
