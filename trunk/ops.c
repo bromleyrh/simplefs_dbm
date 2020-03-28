@@ -2208,23 +2208,27 @@ do_rename(void *args)
             goto err3;
     }
 
-    if (!existing) {
-        k.ino = opargs->newparent;
+    k.ino = opargs->newparent;
 
-        ret = back_end_look_up(opargs->be, &k, NULL, &ps, NULL, 0);
-        if (ret != 1) {
-            if (ret == 0)
-                ret = -ENOENT;
-            goto err4;
-        }
+    ret = back_end_look_up(opargs->be, &k, NULL, &ps, NULL, 0);
+    if (ret != 1) {
+        if (ret == 0)
+            ret = -ENOENT;
+        goto err4;
+    }
 
+    /* POSIX-1.2008, rename, para. 10:
+     * Upon successful completion, rename() shall mark for update the last data
+     * modification and last file status change timestamps of the parent
+     * directory of each file. */
+    set_ts(NULL, &ps.st_mtim, &ps.st_ctim);
+    if (!existing)
         ++(ps.num_ents);
 
-        assert(ps.st_ino == k.ino);
-        ret = back_end_replace(opargs->be, &k, &ps, sizeof(ps));
-        if (ret != 0)
-            goto err4;
-    }
+    assert(ps.st_ino == k.ino);
+    ret = back_end_replace(opargs->be, &k, &ps, sizeof(ps));
+    if (ret != 0)
+        goto err4;
 
     k.ino = opargs->parent;
 
@@ -2235,6 +2239,9 @@ do_rename(void *args)
         goto err4;
     }
 
+    /* ", rename, para. 10:
+     * " */
+    set_ts(NULL, &ps.st_mtim, &ps.st_ctim);
     --(ps.num_ents);
 
     assert(ps.st_ino == k.ino);
