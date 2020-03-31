@@ -300,7 +300,7 @@ static int new_dir(struct back_end *, struct ref_inodes *, fuse_ino_t,
                    const char *, uid_t, gid_t, mode_t, struct stat *,
                    struct ref_ino **, int);
 static int rem_dir(struct back_end *, struct ref_inodes *, fuse_ino_t,
-                   fuse_ino_t, const char *, int);
+                   fuse_ino_t, const char *, int, int);
 
 static int new_dir_link(struct back_end *, struct ref_inodes *, fuse_ino_t,
                         fuse_ino_t, const char *, struct ref_ino **);
@@ -1319,7 +1319,7 @@ err1:
  */
 static int
 rem_dir(struct back_end *be, struct ref_inodes *ref_inodes, fuse_ino_t ino,
-        fuse_ino_t parent, const char *name, int notrans)
+        fuse_ino_t parent, const char *name, int notrans, int nodelete)
 {
     int ret;
     struct db_key k;
@@ -1339,9 +1339,11 @@ rem_dir(struct back_end *be, struct ref_inodes *ref_inodes, fuse_ino_t ino,
     if (ret != 1)
         return (ret == 0) ? -ENOENT : ret;
 
-    ret = set_ref_inode_nodelete(be, ref_inodes, ino, 1);
-    if (ret != 0)
-        return ret;
+    if (!nodelete) {
+        ret = set_ref_inode_nodelete(be, ref_inodes, ino, 1);
+        if (ret != 0)
+            return ret;
+    }
 
     if (notrans)
         ASSERT_UNDER_TRANS(be);
@@ -1374,7 +1376,8 @@ rem_dir(struct back_end *be, struct ref_inodes *ref_inodes, fuse_ino_t ino,
             goto err5;
     }
 
-    set_ref_inode_nodelete(be, ref_inodes, ino, 0);
+    if (!nodelete)
+        set_ref_inode_nodelete(be, ref_inodes, ino, 0);
 
     return 0;
 
@@ -1388,7 +1391,8 @@ err2:
     if (!notrans)
         back_end_trans_abort(be);
 err1:
-    set_ref_inode_nodelete(be, ref_inodes, ino, 0);
+    if (!nodelete)
+        set_ref_inode_nodelete(be, ref_inodes, ino, 0);
     return ret;
 }
 
@@ -1998,10 +2002,15 @@ do_remove_dir(void *args)
     if (ret != 0)
         return ret;
 
-    ret = rem_dir(opargs->be, opargs->ref_inodes, opargs->ino, opargs->parent,
-                  opargs->name, 1);
+    ret = set_ref_inode_nodelete(opargs->be, opargs->ref_inodes, opargs->ino,
+                                 1);
     if (ret != 0)
         goto err1;
+
+    ret = rem_dir(opargs->be, opargs->ref_inodes, opargs->ino, opargs->parent,
+                  opargs->name, 1, 1);
+    if (ret != 0)
+        goto err2;
 
     k.type = TYPE_STAT;
     k.ino = opargs->parent;
@@ -2010,7 +2019,7 @@ do_remove_dir(void *args)
     if (ret != 1) {
         if (ret == 0)
             ret = -ENOENT;
-        goto err2;
+        goto err3;
     }
 
     /* POSIX-1.2008, rmdir, para. 7:
@@ -2021,21 +2030,25 @@ do_remove_dir(void *args)
 
     ret = back_end_replace(opargs->be, &k, &ps, sizeof(ps));
     if (ret != 0)
-        goto err2;
+        goto err3;
 
     ret = back_end_trans_commit(opargs->be);
     if (ret != 0)
-        goto err2;
+        goto err3;
+
+    set_ref_inode_nodelete(opargs->be, opargs->ref_inodes, opargs->ino, 0);
 
     dump_db(opargs->be);
 
     return 0;
 
-err2:
+err3:
     inc_refcnt(opargs->be, opargs->ref_inodes, opargs->ino, 2, 0, 0,
                opargs->refinop);
     inc_refcnt(opargs->be, opargs->ref_inodes, opargs->parent, 1, 0, 0,
                opargs->refinop);
+err2:
+    set_ref_inode_nodelete(opargs->be, opargs->ref_inodes, opargs->ino, 0);
 err1:
     back_end_trans_abort(opargs->be);
     return ret;
