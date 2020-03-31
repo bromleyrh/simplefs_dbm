@@ -1926,10 +1926,15 @@ do_remove_node_link(void *args)
         goto err1;
     }
 
+    ret = set_ref_inode_nodelete(opargs->be, opargs->ref_inodes, opargs->ino,
+                                 1);
+    if (ret != 0)
+        goto err1;
+
     ret = rem_node_link(opargs->be, opargs->ref_inodes, opargs->ino,
                         opargs->parent, opargs->name, &deleted, &refinop);
     if (ret != 0)
-        goto err1;
+        goto err2;
 
     /* POSIX-1.2008, unlink, para. 4:
      * Upon successful completion, unlink() shall mark for update the last data
@@ -1940,7 +1945,7 @@ do_remove_node_link(void *args)
 
     ret = back_end_replace(opargs->be, &k, &s, sizeof(s));
     if (ret != 0)
-        goto err2;
+        goto err3;
 
     if (!deleted) {
         k.ino = opargs->ino;
@@ -1949,7 +1954,7 @@ do_remove_node_link(void *args)
         if (ret != 1) {
             if (ret == 0)
                 ret = -ENOENT;
-            goto err2;
+            goto err3;
         }
 
         /* ", unlink, para. 4:
@@ -1959,19 +1964,23 @@ do_remove_node_link(void *args)
 
         ret = back_end_replace(opargs->be, &k, &s, sizeof(s));
         if (ret != 0)
-            goto err2;
+            goto err3;
     }
 
     ret = back_end_trans_commit(opargs->be);
     if (ret != 0)
-        goto err2;
+        goto err3;
+
+    set_ref_inode_nodelete(opargs->be, opargs->ref_inodes, opargs->ino, 0);
 
     dump_db(opargs->be);
 
     return 0;
 
-err2:
+err3:
     inc_refcnt(opargs->be, opargs->ref_inodes, opargs->ino, 1, 0, 0, &refinop);
+err2:
+    set_ref_inode_nodelete(opargs->be, opargs->ref_inodes, opargs->ino, 0);
 err1:
     back_end_trans_abort(opargs->be);
     return ret;
