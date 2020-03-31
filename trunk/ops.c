@@ -3076,6 +3076,10 @@ simplefs_destroy(void *userdata)
 
     free(priv);
 
+    pthread_mutex_lock(&mtx);
+    initialized = ret;
+    pthread_mutex_unlock(&mtx);
+
     if (ret == 0)
         syslog(LOG_INFO, "FUSE file system terminated successfully");
     else
