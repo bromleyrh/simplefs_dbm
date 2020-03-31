@@ -2159,6 +2159,10 @@ do_rename(void *args)
     if (ret != 0)
         return ret;
 
+    ret = set_ref_inode_nodelete(opargs->be, opargs->ref_inodes, ss.st_ino, 1);
+    if (ret != 0)
+        goto err1;
+
     k.type = TYPE_DIRENT;
     k.ino = opargs->newparent;
     strlcpy(k.name, opargs->newname, sizeof(k.name));
@@ -2166,7 +2170,7 @@ do_rename(void *args)
     ret = back_end_look_up(opargs->be, &k, NULL, &dde, NULL, 0);
     if (ret != 0) {
         if (ret != 1)
-            goto err1;
+            goto err2;
 
         k.type = TYPE_STAT;
         k.ino = dde.ino;
@@ -2175,31 +2179,37 @@ do_rename(void *args)
         if (ret != 1) {
             if (ret == 0)
                 ret = -ENOENT;
-            goto err1;
+            goto err2;
         }
 
         /* delete existing link or directory */
 
         if (!S_ISDIR(ss.st_mode) && S_ISDIR(ds.st_mode)) {
             ret = -EISDIR;
-            goto err1;
+            goto err2;
         }
         if (S_ISDIR(ss.st_mode) && !S_ISDIR(ds.st_mode)) {
             ret = -ENOTDIR;
-            goto err1;
+            goto err2;
         }
+
+        ret = set_ref_inode_nodelete(opargs->be, opargs->ref_inodes, ds.st_ino,
+                                     1);
+        if (ret != 0)
+            goto err2;
 
         if (S_ISDIR(ds.st_mode)) {
             ret = rem_dir(opargs->be, opargs->ref_inodes, ds.st_ino,
-                          opargs->newparent, opargs->newname, 1);
-            if (ret != 0)
-                goto err1;
+                          opargs->newparent, opargs->newname, 1, 1);
         } else {
             ret = rem_node_link(opargs->be, opargs->ref_inodes, ds.st_ino,
                                 opargs->newparent, opargs->newname, NULL,
                                 &refinop[0]);
-            if (ret != 0)
-                goto err1;
+        }
+        if (ret != 0) {
+            set_ref_inode_nodelete(opargs->be, opargs->ref_inodes, ds.st_ino,
+                                   0);
+            goto err2;
         }
 
         existing = 1;
@@ -2212,23 +2222,21 @@ do_rename(void *args)
         ret = new_dir_link(opargs->be, opargs->ref_inodes, ss.st_ino,
                            opargs->newparent, opargs->newname, &refinop[1]);
         if (ret != 0)
-            goto err2;
+            goto err3;
 
         ret = rem_dir_link(opargs->be, opargs->ref_inodes, ss.st_ino,
                            opargs->parent, opargs->name, &refinop[2]);
-        if (ret != 0)
-            goto err3;
     } else {
         ret = new_node_link(opargs->be, opargs->ref_inodes, ss.st_ino,
                             opargs->newparent, opargs->newname, &refinop[1]);
         if (ret != 0)
-            goto err2;
+            goto err3;
 
         ret = rem_node_link(opargs->be, opargs->ref_inodes, ss.st_ino,
                             opargs->parent, opargs->name, NULL, &refinop[2]);
-        if (ret != 0)
-            goto err3;
     }
+    if (ret != 0)
+        goto err4;
 
     k.ino = opargs->newparent;
 
@@ -2236,7 +2244,7 @@ do_rename(void *args)
     if (ret != 1) {
         if (ret == 0)
             ret = -ENOENT;
-        goto err4;
+        goto err5;
     }
 
     /* POSIX-1.2008, rename, para. 10:
@@ -2250,7 +2258,7 @@ do_rename(void *args)
     assert(ps.st_ino == k.ino);
     ret = back_end_replace(opargs->be, &k, &ps, sizeof(ps));
     if (ret != 0)
-        goto err4;
+        goto err5;
 
     k.ino = opargs->parent;
 
@@ -2258,7 +2266,7 @@ do_rename(void *args)
     if (ret != 1) {
         if (ret == 0)
             ret = -ENOENT;
-        goto err4;
+        goto err5;
     }
 
     /* ", rename, para. 10:
@@ -2269,19 +2277,22 @@ do_rename(void *args)
     assert(ps.st_ino == k.ino);
     ret = back_end_replace(opargs->be, &k, &ps, sizeof(ps));
     if (ret != 0)
-        goto err4;
+        goto err5;
 
     ret = back_end_trans_commit(opargs->be);
     if (ret != 0)
-        goto err4;
+        goto err5;
+
+    set_ref_inode_nodelete(opargs->be, opargs->ref_inodes, ds.st_ino, 0);
+    set_ref_inode_nodelete(opargs->be, opargs->ref_inodes, ss.st_ino, 0);
 
     return 0;
 
-err4:
+err5:
     inc_refcnt(opargs->be, opargs->ref_inodes, ss.st_ino, 1, 0, 0, refinop);
-err3:
+err4:
     dec_refcnt(opargs->ref_inodes, -1, 0, 0, refinop[1]);
-err2:
+err3:
     if (existing) {
         if (S_ISDIR(ds.st_mode)) {
             inc_refcnt(opargs->be, opargs->ref_inodes, ds.st_ino, 2, 0, 0,
@@ -2292,7 +2303,10 @@ err2:
             inc_refcnt(opargs->be, opargs->ref_inodes, ds.st_ino, 1, 0, 0,
                        refinop);
         }
+        set_ref_inode_nodelete(opargs->be, opargs->ref_inodes, ds.st_ino, 0);
     }
+err2:
+    set_ref_inode_nodelete(opargs->be, opargs->ref_inodes, ss.st_ino, 0);
 err1:
     back_end_trans_abort(opargs->be);
     return ret;
