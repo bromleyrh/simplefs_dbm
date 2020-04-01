@@ -187,6 +187,11 @@ struct open_file {
     fuse_ino_t ino;
 };
 
+struct free_ref_inodes_ctx {
+    struct fspriv *priv;
+    int err;
+};
+
 #ifndef ENOATTR
 #define ENOATTR ENODATA
 #endif
@@ -718,10 +723,15 @@ unref_inode(struct back_end *be, struct ref_inodes *ref_inodes,
 static int
 free_ref_inodes_cb(const void *keyval, void *ctx)
 {
-    struct fspriv *priv = (struct fspriv *)ctx;
+    int err;
+    struct free_ref_inodes_ctx *fctx = (struct free_ref_inodes_ctx *)ctx;
+    struct fspriv *priv = fctx->priv;
     struct ref_ino *ino = *(struct ref_ino **)keyval;
 
-    unref_inode(priv->be, &priv->ref_inodes, ino, 0, -INT_MAX, -INT_MAX, NULL);
+    err = unref_inode(priv->be, &priv->ref_inodes, ino, 0, -INT_MAX, -INT_MAX,
+                      NULL);
+    if (err)
+        fctx->err = err;
 
     free(ino);
 
@@ -3087,8 +3097,9 @@ simplefs_destroy(void *userdata)
 {
     avl_tree_walk_ctx_t wctx = NULL;
     int initialized;
-    int ret;
+    int ret, tmp;
     struct fspriv *priv;
+    struct free_ref_inodes_ctx fctx;
     struct mount_data *md = (struct mount_data *)userdata;
 
     pthread_mutex_lock(&mtx);
@@ -3099,16 +3110,26 @@ simplefs_destroy(void *userdata)
 
     priv = md->priv;
 
-    join_worker(priv);
+    ret = join_worker(priv);
 
     /* Note: A resource leak in the file system will occur in the unlikely case
      * that free_ref_inodes_cb() fails. */
-    avl_tree_walk(priv->ref_inodes.ref_inodes, NULL, &free_ref_inodes_cb, priv,
-                  &wctx);
+    fctx.priv = priv;
+    fctx.err = 0;
+    tmp = avl_tree_walk(priv->ref_inodes.ref_inodes, NULL, &free_ref_inodes_cb,
+                        &fctx, &wctx);
+    if (fctx.err)
+        ret = fctx.err;
+    else if (tmp != 0)
+        ret = tmp;
+
     avl_tree_free(priv->ref_inodes.ref_inodes);
+
     pthread_mutex_destroy(&priv->ref_inodes.ref_inodes_mtx);
 
-    ret = back_end_close(priv->be);
+    tmp = back_end_close(priv->be);
+    if (tmp != 0)
+        ret = tmp;
 
     fifo_free(priv->queue);
 
