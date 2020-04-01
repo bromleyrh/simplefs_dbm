@@ -981,18 +981,12 @@ truncate_file(struct back_end *be, fuse_ino_t ino, off_t oldsize, off_t newsize)
     return 0;
 }
 
-/*
- * This function must be called under a transaction to allow cancelling changes
- * in case of an error.
- */
 static int
 delete_file(struct back_end *be, fuse_ino_t ino)
 {
     int ret;
     struct db_key k;
     struct db_obj_stat s;
-
-    ASSERT_UNDER_TRANS(be);
 
     k.type = TYPE_STAT;
     k.ino = ino;
