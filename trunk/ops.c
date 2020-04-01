@@ -2954,7 +2954,7 @@ simplefs_init(void *userdata, struct fuse_conn_info *conn)
     struct db_obj_header hdr;
     struct fspriv *priv;
     struct mount_data *md = (struct mount_data *)userdata;
-    struct ref_ino *refinop;
+    struct ref_ino *refinop[4];
 
 #if FUSE_USE_VERSION == 32
     conn->want = FUSE_CAP_ASYNC_READ | FUSE_CAP_EXPORT_SUPPORT
@@ -3015,7 +3015,7 @@ simplefs_init(void *userdata, struct fuse_conn_info *conn)
 
         /* create root directory */
         ret = new_dir(priv->be, &priv->ref_inodes, 0, NULL, getuid(), getgid(),
-                      ROOT_DIR_INIT_PERMS, NULL, &refinop, 0);
+                      ROOT_DIR_INIT_PERMS, NULL, refinop, 0);
         if (ret != 0)
             goto err6;
 
@@ -3046,7 +3046,7 @@ simplefs_init(void *userdata, struct fuse_conn_info *conn)
 
     /* root I-node implicitly looked up on completion of init request */
     ret = inc_refcnt(priv->be, &priv->ref_inodes, FUSE_ROOT_ID, 0, 0, 1,
-                     &refinop);
+                     &refinop[0]);
     if (ret != 0)
         goto err7;
 
