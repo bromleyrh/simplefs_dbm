@@ -1995,8 +1995,17 @@ do_remove_dir(void *args)
 {
     int ret;
     struct db_key k;
-    struct db_obj_stat ps;
+    struct db_obj_stat s;
     struct op_args *opargs = (struct op_args *)args;
+
+    k.type = TYPE_STAT;
+    k.ino = opargs->ino;
+
+    ret = back_end_look_up(opargs->be, &k, NULL, &s, NULL, 0);
+    if (ret != 1)
+        return (ret == 0) ? -ENOENT : ret;
+    if (s.num_ents != 0)
+        return -ENOTEMPTY;
 
     ret = back_end_trans_new(opargs->be);
     if (ret != 0)
@@ -2012,10 +2021,9 @@ do_remove_dir(void *args)
     if (ret != 0)
         goto err2;
 
-    k.type = TYPE_STAT;
     k.ino = opargs->parent;
 
-    ret = back_end_look_up(opargs->be, &k, NULL, &ps, NULL, 0);
+    ret = back_end_look_up(opargs->be, &k, NULL, &s, NULL, 0);
     if (ret != 1) {
         if (ret == 0)
             ret = -ENOENT;
@@ -2026,9 +2034,9 @@ do_remove_dir(void *args)
      * Upon successful completion, rmdir() shall mark for update the last data
      * modification and last file status change timestamps of the parent
      * directory. */
-    set_ts(NULL, &ps.st_mtim, &ps.st_ctim);
+    set_ts(NULL, &s.st_mtim, &s.st_ctim);
 
-    ret = back_end_replace(opargs->be, &k, &ps, sizeof(ps));
+    ret = back_end_replace(opargs->be, &k, &s, sizeof(s));
     if (ret != 0)
         goto err3;
 
