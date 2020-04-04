@@ -3809,11 +3809,15 @@ static void
 simplefs_flush(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
 {
     int ret;
+    struct fspriv *priv;
+    struct mount_data *md = fuse_req_userdata(req);
 
     (void)ino;
     (void)fi;
 
-    ret = fuse_reply_err(req, 0);
+    priv = md->priv;
+
+    ret = fuse_reply_err(req, -(priv->wb_err));
     if ((ret != 0) && (ret != -ENOENT))
         fuse_reply_err(req, -ret);
 }
