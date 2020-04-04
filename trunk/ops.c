@@ -1755,6 +1755,14 @@ do_forget(void *args)
     if (ret != 0)
         goto err;
 
+    pthread_mutex_lock(&opargs->ref_inodes->ref_inodes_mtx);
+    if (!(refinop->nodelete) && (refinop->nlink == 0) && (refinop->refcnt == 0)
+        && (refinop->nlookup == 0)) {
+        if (avl_tree_delete(opargs->ref_inodes->ref_inodes, &refinop) == 0)
+            free(refinop);
+    }
+    pthread_mutex_unlock(&opargs->ref_inodes->ref_inodes_mtx);
+
     return 0;
 
 err:
