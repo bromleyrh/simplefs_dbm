@@ -387,7 +387,7 @@ simplefs_exit()
 int
 main(int argc, char **argv)
 {
-    int status;
+    int ret, status;
     struct fuse_data fusedata;
 
     if (enable_debugging_features() != 0)
@@ -406,10 +406,12 @@ main(int argc, char **argv)
 
     sess = fusedata.sess;
 
-    if ((process_fuse_events(&fusedata) == 0) && (mount_status() == 0))
-        status = EXIT_SUCCESS;
+    ret = process_fuse_events(&fusedata);
 
     terminate_fuse(&fusedata);
+
+    if ((ret == 0) && (mount_status() == 0))
+        status = EXIT_SUCCESS;
 
     if (fusedata.md.db_pathname != NULL)
         free((void *)(fusedata.md.db_pathname));
