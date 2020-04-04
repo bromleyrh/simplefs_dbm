@@ -132,7 +132,6 @@ struct db_obj_stat {
     uint32_t                num_ents;
 } __attribute__((packed));
 
-/* TODO: use union in below structure to save space */
 struct op_args {
     fuse_req_t              req;
     const struct fuse_ctx   *ctx;
@@ -140,42 +139,52 @@ struct op_args {
     struct ref_inodes       *ref_inodes;
     struct ref_ino          *refinop[4];
     fuse_ino_t              ino;
-    fuse_ino_t              parent;
-    const char              *name;
-    char                    *buf;
-    off_t                   off;
     struct db_key           k;
     struct db_obj_header    hdr;
     struct db_obj_stat      s;
     struct stat             attr;
-    /* lookup() */
-    int                     inc_lookup_cnt;
-    /* forget() */
-    uint64_t                nlookup;
-    /* setattr() */
-    int                     to_set;
-    /* mknod() */
-    dev_t                   rdev;
-    /* mkdir() */
-    mode_t                  mode;
-    /* symlink() */
-    const char              *link;
-    /* rename() */
-    fuse_ino_t              newparent;
-    const char              *newname;
-    /* read() */
-    size_t                  size;
-    struct iovec            *iov;
-    int                     count;
-    /* readdir() */
-    struct open_dir         *odir;
-    size_t                  bufsize;
-    size_t                  buflen;
-    /* setxattr() */
-    char                    *value;
-    int                     flags;
-    /* access() */
-    int                     mask;
+    union {
+        int                 inc_lookup_cnt; /* lookup() */
+        uint64_t            nlookup;        /* forget() */
+        int                 to_set;         /* setattr() */
+        struct {
+            fuse_ino_t      parent;
+            const char      *name;
+            dev_t           rdev;
+            mode_t          mode;
+            const char      *link;
+        } mknod_data;                       /* create(), mkdir(), symlink(),
+                                               mknod() */
+        struct {
+            fuse_ino_t      parent;
+            const char      *name;
+            fuse_ino_t      newparent;
+            const char      *newname;
+        } link_data;                        /* link(), rename(), unlink(),
+                                               rmdir() */
+        struct {
+            off_t           off;
+            size_t          size;
+            char            *buf;
+            struct iovec    *iov;
+            int             count;
+        } rdwr_data;                        /* read(), write(), readlink() */
+        struct {
+            struct open_dir *odir;
+            off_t           off;
+            char            *buf;
+            size_t          bufsize;
+            size_t          buflen;
+        } readdir_data;                     /* readdir() */
+        struct {
+            const char      *name;
+            char            *value;
+            size_t          size;
+            int             flags;
+        } xattr_data;                       /* setxattr(), getxattr(),
+                                               listxattr(), removexattr() */
+        int                 mask;           /* access() */
+    } op_data;
 };
 
 struct open_dir {
@@ -1569,7 +1578,7 @@ do_look_up(void *args)
         return -EIO;
     }
 
-    if (opargs->inc_lookup_cnt) {
+    if (opargs->op_data.inc_lookup_cnt) {
         ret = inc_refcnt(opargs->be, opargs->ref_inodes, opargs->s.st_ino, 0,
                          0, 1, opargs->refinop);
         if (ret != 0)
@@ -1583,7 +1592,7 @@ static int
 do_setattr(void *args)
 {
     int ret;
-    int trunc;
+    int to_set, trunc;
     struct db_key k;
     struct db_obj_stat s;
     struct op_args *opargs = (struct op_args *)args;
@@ -1595,7 +1604,8 @@ do_setattr(void *args)
     if (ret != 1)
         return (ret == 0) ? -ENOENT : ret;
 
-    trunc = !!(opargs->to_set & FUSE_SET_ATTR_SIZE);
+    to_set = opargs->op_data.to_set;
+    trunc = !!(to_set & FUSE_SET_ATTR_SIZE);
 
     if (trunc) {
         if (!S_ISREG(s.st_mode))
@@ -1612,16 +1622,15 @@ do_setattr(void *args)
         s.st_size = opargs->attr.st_size;
     }
 
-    if (opargs->to_set & FUSE_SET_ATTR_MODE)
+    if (to_set & FUSE_SET_ATTR_MODE)
         s.st_mode = (s.st_mode & ~ALLPERMS) | (opargs->attr.st_mode & ALLPERMS);
 
-    if (opargs->to_set & FUSE_SET_ATTR_UID)
+    if (to_set & FUSE_SET_ATTR_UID)
         s.st_uid = opargs->attr.st_uid;
-    if (opargs->to_set & FUSE_SET_ATTR_GID)
+    if (to_set & FUSE_SET_ATTR_GID)
         s.st_gid = opargs->attr.st_gid;
 
-    if ((opargs->to_set & (FUSE_SET_ATTR_MTIME_NOW | FUSE_SET_ATTR_MTIME))
-        == 0) {
+    if ((to_set & (FUSE_SET_ATTR_MTIME_NOW | FUSE_SET_ATTR_MTIME)) == 0) {
         /* POSIX-1.2008, ftruncate, para. 3:
          * Upon successful completion, if fildes refers to a regular file,
          * ftruncate() shall mark for update the last data modification and last
@@ -1634,15 +1643,15 @@ do_setattr(void *args)
         if (trunc)
             do_set_ts(&s.st_mtim, NULL);
     } else {
-        if (opargs->to_set & FUSE_SET_ATTR_MTIME_NOW)
+        if (to_set & FUSE_SET_ATTR_MTIME_NOW)
             do_set_ts(&s.st_mtim, NULL);
-        if (opargs->to_set & FUSE_SET_ATTR_MTIME)
+        if (to_set & FUSE_SET_ATTR_MTIME)
             do_set_ts(&s.st_mtim, &opargs->attr.st_mtim);
     }
 
-    if (opargs->to_set & FUSE_SET_ATTR_ATIME_NOW)
+    if (to_set & FUSE_SET_ATTR_ATIME_NOW)
         do_set_ts(&s.st_atim, NULL);
-    if (opargs->to_set & FUSE_SET_ATTR_ATIME)
+    if (to_set & FUSE_SET_ATTR_ATIME)
         do_set_ts(&s.st_atim, &opargs->attr.st_atim);
 
     /* ", ftruncate, para. 3:
@@ -1691,6 +1700,7 @@ err:
 static int
 do_read_symlink(void *args)
 {
+    const char *link;
     int ret;
     size_t buflen;
     struct db_key k;
@@ -1704,16 +1714,17 @@ do_read_symlink(void *args)
     if (ret != 1)
         return (ret == 0) ? -ENOENT : ret;
 
-    opargs->link = do_malloc(buflen);
-    if (opargs->link == NULL)
+    link = do_malloc(buflen);
+    if (link == NULL)
         return MINUS_ERRNO;
 
-    ret = back_end_look_up(opargs->be, &k, NULL, (void *)(opargs->link), NULL,
-                           0);
+    ret = back_end_look_up(opargs->be, &k, NULL, (void *)link, NULL, 0);
     if (ret != 1) {
-        free((void *)(opargs->link));
+        free((void *)link);
         return (ret == 0) ? -ENOENT : ret;
     }
+
+    opargs->op_data.rdwr_data.buf = (char *)link;
 
     return 0;
 }
@@ -1742,7 +1753,7 @@ do_forget(void *args)
         goto err;
     }
 
-    for (to_unref = opargs->nlookup; to_unref > 0; to_unref -= unref) {
+    for (to_unref = opargs->op_data.nlookup; to_unref > 0; to_unref -= unref) {
         unref = MIN(UNREF_MAX, to_unref);
 
         ret = unref_inode(opargs->be, opargs->ref_inodes, refinop, 0, 0,
@@ -1774,6 +1785,7 @@ static int
 do_create_node(void *args)
 {
     const struct fuse_ctx *ctx;
+    int mode;
     int ret;
     struct db_key k;
     struct db_obj_stat ps;
@@ -1781,8 +1793,9 @@ do_create_node(void *args)
 
     ctx = opargs->ctx;
 
-    if (((opargs->mode & S_IFMT) == S_IFDIR)
-        || ((opargs->mode & S_IFMT) == S_IFLNK))
+    mode = opargs->op_data.mknod_data.mode;
+
+    if (((mode & S_IFMT) == S_IFDIR) || ((mode & S_IFMT) == S_IFLNK))
         return -EINVAL;
 
     ret = back_end_trans_new(opargs->be);
@@ -1798,9 +1811,10 @@ do_create_node(void *args)
      * Upon successful completion, mkfifo() shall mark for update the last data
      * access, last data modification, and last file status change timestamps of
      * the file. */
-    ret = new_node(opargs->be, opargs->ref_inodes, opargs->ino, opargs->name,
-                   ctx->uid, ctx->gid, opargs->mode & ~(ctx->umask),
-                   opargs->rdev, 0, &opargs->attr, opargs->refinop, 1);
+    ret = new_node(opargs->be, opargs->ref_inodes, opargs->ino,
+                   opargs->op_data.mknod_data.name, ctx->uid, ctx->gid,
+                   mode & ~(ctx->umask), opargs->op_data.mknod_data.rdev, 0,
+                   &opargs->attr, opargs->refinop, 1);
     if (ret != 0)
         goto err1;
 
@@ -1865,8 +1879,9 @@ do_create_dir(void *args)
      * Upon successful completion, mkdir() shall mark for update the last data
      * access, last data modification, and last file status change timestamps of
      * the directory. */
-    ret = new_dir(opargs->be, opargs->ref_inodes, opargs->ino, opargs->name,
-                  ctx->uid, ctx->gid, opargs->mode & ~(ctx->umask),
+    ret = new_dir(opargs->be, opargs->ref_inodes, opargs->ino,
+                  opargs->op_data.mknod_data.name, ctx->uid, ctx->gid,
+                  opargs->op_data.mknod_data.mode & ~(ctx->umask),
                   &opargs->attr, opargs->refinop, 1);
     if (ret != 0)
         goto err1;
@@ -1915,6 +1930,8 @@ err1:
 static int
 do_remove_node_link(void *args)
 {
+    const char *name;
+    fuse_ino_t parent;
     int deleted;
     int ret;
     struct db_key k;
@@ -1926,8 +1943,11 @@ do_remove_node_link(void *args)
     if (ret != 0)
         return ret;
 
+    parent = opargs->op_data.link_data.parent;
+    name = opargs->op_data.link_data.name;
+
     k.type = TYPE_STAT;
-    k.ino = opargs->parent;
+    k.ino = parent;
 
     ret = back_end_look_up(opargs->be, &k, NULL, &s, NULL, 0);
     if (ret != 1) {
@@ -1941,8 +1961,8 @@ do_remove_node_link(void *args)
     if (ret != 0)
         goto err1;
 
-    ret = rem_node_link(opargs->be, opargs->ref_inodes, opargs->ino,
-                        opargs->parent, opargs->name, &deleted, &refinop);
+    ret = rem_node_link(opargs->be, opargs->ref_inodes, opargs->ino, parent,
+                        name, &deleted, &refinop);
     if (ret != 0)
         goto err2;
 
@@ -1999,6 +2019,8 @@ err1:
 static int
 do_remove_dir(void *args)
 {
+    const char *name;
+    fuse_ino_t parent;
     int ret;
     struct db_key k;
     struct db_obj_stat s;
@@ -2017,17 +2039,20 @@ do_remove_dir(void *args)
     if (ret != 0)
         return ret;
 
+    parent = opargs->op_data.link_data.parent;
+    name = opargs->op_data.link_data.name;
+
     ret = set_ref_inode_nodelete(opargs->be, opargs->ref_inodes, opargs->ino,
                                  1);
     if (ret != 0)
         goto err1;
 
-    ret = rem_dir(opargs->be, opargs->ref_inodes, opargs->ino, opargs->parent,
-                  opargs->name, 1, 1);
+    ret = rem_dir(opargs->be, opargs->ref_inodes, opargs->ino, parent, name, 1,
+                  1);
     if (ret != 0)
         goto err2;
 
-    k.ino = opargs->parent;
+    k.ino = parent;
 
     ret = back_end_look_up(opargs->be, &k, NULL, &s, NULL, 0);
     if (ret != 1) {
@@ -2059,7 +2084,7 @@ do_remove_dir(void *args)
 err3:
     inc_refcnt(opargs->be, opargs->ref_inodes, opargs->ino, 2, 0, 0,
                opargs->refinop);
-    inc_refcnt(opargs->be, opargs->ref_inodes, opargs->parent, 1, 0, 0,
+    inc_refcnt(opargs->be, opargs->ref_inodes, parent, 1, 0, 0,
                opargs->refinop);
 err2:
     set_ref_inode_nodelete(opargs->be, opargs->ref_inodes, opargs->ino, 0);
@@ -2071,7 +2096,9 @@ err1:
 static int
 do_create_symlink(void *args)
 {
+    const char *link, *name;
     const struct fuse_ctx *ctx;
+    fuse_ino_t parent;
     int ret;
     size_t len;
     struct db_key k;
@@ -2080,7 +2107,11 @@ do_create_symlink(void *args)
 
     ctx = opargs->ctx;
 
-    len = strlen(opargs->link);
+    parent = opargs->op_data.mknod_data.parent;
+    name = opargs->op_data.mknod_data.name;
+    link = opargs->op_data.mknod_data.link;
+
+    len = strlen(link);
 #if SIZE_MAX > OFF_MAX
     if (len > (size_t)OFF_MAX)
         len = OFF_MAX;
@@ -2094,8 +2125,8 @@ do_create_symlink(void *args)
      * Upon successful completion, symlink() shall mark for update the last data
      * access, last data modification, and last file status change timestamps of
      * the symbolic link. */
-    ret = new_node(opargs->be, opargs->ref_inodes, opargs->parent, opargs->name,
-                   ctx->uid, ctx->gid, S_IFLNK | S_IRWXU | S_IRWXG | S_IRWXO, 0,
+    ret = new_node(opargs->be, opargs->ref_inodes, parent, name, ctx->uid,
+                   ctx->gid, S_IFLNK | S_IRWXU | S_IRWXG | S_IRWXO, 0,
                    (off_t)len, &opargs->attr, opargs->refinop, 1);
     if (ret != 0)
         goto err1;
@@ -2104,12 +2135,12 @@ do_create_symlink(void *args)
     k.ino = opargs->attr.st_ino;
     k.pgno = 0;
 
-    ret = back_end_insert(opargs->be, &k, opargs->link, len + 1);
+    ret = back_end_insert(opargs->be, &k, link, len + 1);
     if (ret != 0)
         goto err2;
 
     k.type = TYPE_STAT;
-    k.ino = opargs->parent;
+    k.ino = parent;
 
     ret = back_end_look_up(opargs->be, &k, NULL, &ps, NULL, 0);
     if (ret != 1) {
@@ -2147,6 +2178,8 @@ err1:
 static int
 do_rename(void *args)
 {
+    const char *name, *newname;
+    fuse_ino_t parent, newparent;
     int existing, ret;
     struct db_key k;
     struct db_obj_dirent dde, sde;
@@ -2154,9 +2187,14 @@ do_rename(void *args)
     struct op_args *opargs = (struct op_args *)args;
     struct ref_ino *refinop[3];
 
+    parent = opargs->op_data.link_data.parent;
+    name = opargs->op_data.link_data.name;
+    newparent = opargs->op_data.link_data.newparent;
+    newname = opargs->op_data.link_data.newname;
+
     k.type = TYPE_DIRENT;
-    k.ino = opargs->parent;
-    strlcpy(k.name, opargs->name, sizeof(k.name));
+    k.ino = parent;
+    strlcpy(k.name, name, sizeof(k.name));
 
     ret = back_end_look_up(opargs->be, &k, NULL, &sde, NULL, 0);
     if (ret != 1)
@@ -2178,8 +2216,8 @@ do_rename(void *args)
         goto err1;
 
     k.type = TYPE_DIRENT;
-    k.ino = opargs->newparent;
-    strlcpy(k.name, opargs->newname, sizeof(k.name));
+    k.ino = newparent;
+    strlcpy(k.name, newname, sizeof(k.name));
 
     ret = back_end_look_up(opargs->be, &k, NULL, &dde, NULL, 0);
     if (ret != 0) {
@@ -2213,12 +2251,11 @@ do_rename(void *args)
             goto err2;
 
         if (S_ISDIR(ds.st_mode)) {
-            ret = rem_dir(opargs->be, opargs->ref_inodes, ds.st_ino,
-                          opargs->newparent, opargs->newname, 1, 1);
+            ret = rem_dir(opargs->be, opargs->ref_inodes, ds.st_ino, newparent,
+                          newname, 1, 1);
         } else {
             ret = rem_node_link(opargs->be, opargs->ref_inodes, ds.st_ino,
-                                opargs->newparent, opargs->newname, NULL,
-                                &refinop[0]);
+                                newparent, newname, NULL, &refinop[0]);
         }
         if (ret != 0) {
             set_ref_inode_nodelete(opargs->be, opargs->ref_inodes, ds.st_ino,
@@ -2233,26 +2270,26 @@ do_rename(void *args)
     k.type = TYPE_STAT;
 
     if (S_ISDIR(ss.st_mode)) {
-        ret = new_dir_link(opargs->be, opargs->ref_inodes, ss.st_ino,
-                           opargs->newparent, opargs->newname, &refinop[1]);
+        ret = new_dir_link(opargs->be, opargs->ref_inodes, ss.st_ino, newparent,
+                           newname, &refinop[1]);
         if (ret != 0)
             goto err3;
 
-        ret = rem_dir_link(opargs->be, opargs->ref_inodes, ss.st_ino,
-                           opargs->parent, opargs->name, &refinop[2]);
+        ret = rem_dir_link(opargs->be, opargs->ref_inodes, ss.st_ino, parent,
+                           name, &refinop[2]);
     } else {
         ret = new_node_link(opargs->be, opargs->ref_inodes, ss.st_ino,
-                            opargs->newparent, opargs->newname, &refinop[1]);
+                            newparent, newname, &refinop[1]);
         if (ret != 0)
             goto err3;
 
-        ret = rem_node_link(opargs->be, opargs->ref_inodes, ss.st_ino,
-                            opargs->parent, opargs->name, NULL, &refinop[2]);
+        ret = rem_node_link(opargs->be, opargs->ref_inodes, ss.st_ino, parent,
+                            name, NULL, &refinop[2]);
     }
     if (ret != 0)
         goto err4;
 
-    k.ino = opargs->newparent;
+    k.ino = newparent;
 
     ret = back_end_look_up(opargs->be, &k, NULL, &ps, NULL, 0);
     if (ret != 1) {
@@ -2274,7 +2311,7 @@ do_rename(void *args)
     if (ret != 0)
         goto err5;
 
-    k.ino = opargs->parent;
+    k.ino = parent;
 
     ret = back_end_look_up(opargs->be, &k, NULL, &ps, NULL, 0);
     if (ret != 1) {
@@ -2311,8 +2348,8 @@ err3:
         if (S_ISDIR(ds.st_mode)) {
             inc_refcnt(opargs->be, opargs->ref_inodes, ds.st_ino, 2, 0, 0,
                        refinop);
-            inc_refcnt(opargs->be, opargs->ref_inodes, opargs->newparent, 1, 0,
-                       0, refinop);
+            inc_refcnt(opargs->be, opargs->ref_inodes, newparent, 1, 0, 0,
+                       refinop);
         } else {
             inc_refcnt(opargs->be, opargs->ref_inodes, ds.st_ino, 1, 0, 0,
                        refinop);
@@ -2329,6 +2366,8 @@ err1:
 static int
 do_create_node_link(void *args)
 {
+    const char *newname;
+    fuse_ino_t newparent;
     int ret;
     struct db_key k;
     struct db_obj_stat ps;
@@ -2339,8 +2378,11 @@ do_create_node_link(void *args)
     if (ret != 0)
         return ret;
 
-    ret = new_node_link(opargs->be, opargs->ref_inodes, opargs->ino,
-                        opargs->newparent, opargs->newname, &refinop);
+    newparent = opargs->op_data.link_data.newparent;
+    newname = opargs->op_data.link_data.newname;
+
+    ret = new_node_link(opargs->be, opargs->ref_inodes, opargs->ino, newparent,
+                        newname, &refinop);
     if (ret != 0)
         goto err1;
 
@@ -2363,7 +2405,7 @@ do_create_node_link(void *args)
     if (ret != 0)
         goto err2;
 
-    k.ino = opargs->newparent;
+    k.ino = newparent;
 
     ret = back_end_look_up(opargs->be, &k, NULL, &ps, NULL, 0);
     if (ret != 1) {
@@ -2407,11 +2449,15 @@ err1:
 static int
 do_read_entries(void *args)
 {
+    char *readdir_buf;
     int ret;
+    off_t off;
+    size_t buflen, bufsize;
     size_t entsize;
     struct back_end_iter *iter;
     struct db_key k;
     struct op_args *opargs = (struct op_args *)args;
+    struct open_dir *odir;
 
     dump_db(opargs->be);
 
@@ -2419,16 +2465,21 @@ do_read_entries(void *args)
     if (ret != 0)
         return ret;
 
+    odir = opargs->op_data.readdir_data.odir;
+
     k.type = TYPE_DIRENT;
-    k.ino = opargs->odir->ino;
-    strlcpy(k.name, opargs->odir->cur_name, sizeof(k.name));
+    k.ino = odir->ino;
+    strlcpy(k.name, odir->cur_name, sizeof(k.name));
 
     ret = back_end_iter_search(iter, &k);
     if (ret < 0)
         goto err;
 
-    for (opargs->buflen = 0; opargs->buflen <= opargs->bufsize;
-         opargs->buflen += entsize) {
+    off = opargs->op_data.readdir_data.off;
+    readdir_buf = opargs->op_data.readdir_data.buf;
+    bufsize = opargs->op_data.readdir_data.bufsize;
+
+    for (buflen = 0; buflen <= bufsize; buflen += entsize) {
         size_t remsize;
         struct stat s;
         union {
@@ -2443,17 +2494,17 @@ do_read_entries(void *args)
             break;
         }
 
-        if ((k.ino != opargs->odir->ino) || (k.type != TYPE_DIRENT))
+        if ((k.ino != odir->ino) || (k.type != TYPE_DIRENT))
             break;
 
-        strlcpy(opargs->odir->cur_name, k.name, sizeof(opargs->odir->cur_name));
+        strlcpy(odir->cur_name, k.name, sizeof(odir->cur_name));
 
         memset(&s, 0, sizeof(s));
         s.st_ino = buf.de.ino;
 
-        remsize = opargs->bufsize - opargs->buflen;
-        entsize = fuse_add_direntry(opargs->req, opargs->buf + opargs->buflen,
-                                    remsize, k.name, &s, opargs->off + 1);
+        remsize = bufsize - buflen;
+        entsize = fuse_add_direntry(opargs->req, readdir_buf + buflen, remsize,
+                                    k.name, &s, off + 1);
         if (entsize > remsize)
             goto end;
 
@@ -2464,13 +2515,15 @@ do_read_entries(void *args)
             break;
         }
 
-        ++(opargs->off);
+        ++off;
     }
 
-    opargs->odir->cur_name[0] = '\0';
+    odir->cur_name[0] = '\0';
 
 end:
     back_end_iter_free(iter);
+    opargs->op_data.readdir_data.off = off;
+    opargs->op_data.readdir_data.buflen = buflen;
     return 0;
 
 err:
@@ -2518,15 +2571,18 @@ do_read(void *args)
     if (ret != 1)
         return (ret == 0) ? -ENOENT : ret;
 
-    if (opargs->off >= s.st_size) {
-        opargs->iov = NULL;
-        opargs->count = 0;
+    off = opargs->op_data.rdwr_data.off;
+
+    if (off >= s.st_size) {
+        opargs->op_data.rdwr_data.iov = NULL;
+        opargs->op_data.rdwr_data.count = 0;
         return 0;
     }
 
-    firstpgidx = opargs->off / PG_SIZE;
-    lastpgidx = (MIN(opargs->off + (off_t)opargs->size, s.st_size) - 1)
-                / PG_SIZE;
+    size = opargs->op_data.rdwr_data.size;
+
+    firstpgidx = off / PG_SIZE;
+    lastpgidx = (MIN(off + (off_t)size, s.st_size) - 1) / PG_SIZE;
     count = lastpgidx - firstpgidx + 1;
 
     iov = do_calloc(count, sizeof(*iov));
@@ -2535,8 +2591,6 @@ do_read(void *args)
 
     k.type = TYPE_PAGE;
 
-    off = opargs->off;
-    size = opargs->size;
     iovsz = 0;
     for (i = 0; i < count; i++) {
         char buf[PG_SIZE];
@@ -2572,8 +2626,8 @@ do_read(void *args)
         size -= sz;
     }
 
-    opargs->iov = iov;
-    opargs->count = count;
+    opargs->op_data.rdwr_data.iov = iov;
+    opargs->op_data.rdwr_data.count = count;
 
     return 0;
 
@@ -2585,9 +2639,10 @@ err:
 static int
 do_write(void *args)
 {
+    const char *write_buf;
     int ret;
     off_t off;
-    size_t size;
+    size_t size, write_size;
     struct db_key k;
     struct db_obj_stat s;
     struct op_args *opargs = (struct op_args *)args;
@@ -2605,8 +2660,9 @@ do_write(void *args)
 
     k.type = TYPE_PAGE;
 
-    off = opargs->off;
-    size = opargs->size;
+    write_buf = opargs->op_data.rdwr_data.buf;
+    off = opargs->op_data.rdwr_data.off;
+    size = write_size = opargs->op_data.rdwr_data.size;
     while (size > 0) {
         char buf[PG_SIZE];
         size_t pgoff;
@@ -2626,12 +2682,12 @@ do_write(void *args)
                 return ret;
 
             memset(buf, 0, pgoff);
-            memcpy(buf + pgoff, opargs->buf + opargs->size - size, sz);
+            memcpy(buf + pgoff, write_buf + write_size - size, sz);
             memset(buf + pgoff + sz, 0, sizeof(buf) - pgoff - sz);
 
             ret = back_end_insert(opargs->be, &k, buf, sizeof(buf));
         } else {
-            memcpy(buf + pgoff, opargs->buf + opargs->size - size, sz);
+            memcpy(buf + pgoff, write_buf + write_size - size, sz);
 
             ret = back_end_replace(opargs->be, &k, buf, sizeof(buf));
         }
@@ -2724,71 +2780,80 @@ do_read_header(void *args)
 static int
 do_setxattr(void *args)
 {
+    const char *value;
     int flags;
-    int ret;
-    struct db_key k;
-    struct op_args *opargs = (struct op_args *)args;
-
-    flags = opargs->flags;
-
-    k.type = TYPE_XATTR;
-    k.ino = opargs->ino;
-    strlcpy(k.name, opargs->name, sizeof(k.name));
-
-    if ((flags == 0) || (flags == XATTR_CREATE)) {
-        ret = back_end_insert(opargs->be, &k, opargs->value, opargs->size);
-        if ((ret != -EADDRINUSE) || (flags == XATTR_CREATE))
-            return ret;
-    } else if (flags != XATTR_REPLACE)
-        return -EINVAL;
-
-    return back_end_replace(opargs->be, &k, opargs->value, opargs->size);
-}
-
-static int
-do_getxattr(void *args)
-{
     int ret;
     size_t size;
     struct db_key k;
     struct op_args *opargs = (struct op_args *)args;
 
-    size = opargs->size;
+    flags = opargs->op_data.xattr_data.flags;
 
     k.type = TYPE_XATTR;
     k.ino = opargs->ino;
-    strlcpy(k.name, opargs->name, sizeof(k.name));
+    strlcpy(k.name, opargs->op_data.xattr_data.name, sizeof(k.name));
 
-    ret = back_end_look_up(opargs->be, &k, NULL, NULL, &opargs->size, 0);
+    value = opargs->op_data.xattr_data.value;
+    size = opargs->op_data.xattr_data.size;
+
+    if ((flags == 0) || (flags == XATTR_CREATE)) {
+        ret = back_end_insert(opargs->be, &k, value, size);
+        if ((ret != -EADDRINUSE) || (flags == XATTR_CREATE))
+            return ret;
+    } else if (flags != XATTR_REPLACE)
+        return -EINVAL;
+
+    return back_end_replace(opargs->be, &k, value, size);
+}
+
+static int
+do_getxattr(void *args)
+{
+    char *value = NULL;
+    int ret;
+    size_t size, valsize;
+    struct db_key k;
+    struct op_args *opargs = (struct op_args *)args;
+
+    size = opargs->op_data.xattr_data.size;
+
+    k.type = TYPE_XATTR;
+    k.ino = opargs->ino;
+    strlcpy(k.name, opargs->op_data.xattr_data.name, sizeof(k.name));
+
+    ret = back_end_look_up(opargs->be, &k, NULL, NULL, &valsize, 0);
     if (ret != 1)
         return (ret == 0) ? -EADDRNOTAVAIL : ret;
     if (size == 0)
-        return 0;
-    if (size < opargs->size)
+        goto end;
+    if (size < valsize)
         return -ERANGE;
 
-    if (opargs->size == 0) {
-        opargs->value = NULL;
-        return 0;
-    }
+    if (valsize == 0)
+        goto end;
 
-    opargs->value = do_malloc(opargs->size);
-    if (opargs->value == NULL)
+    value = do_malloc(valsize);
+    if (value == NULL)
         return MINUS_ERRNO;
 
-    ret = back_end_look_up(opargs->be, &k, NULL, opargs->value, NULL, 0);
+    ret = back_end_look_up(opargs->be, &k, NULL, value, NULL, 0);
     if (ret != 1) {
-        free(opargs->value);
+        free(value);
         return (ret == 0) ? -EIO : ret;
     }
 
+end:
+    opargs->op_data.xattr_data.value = value;
+    opargs->op_data.xattr_data.size = valsize;
     return 0;
 }
 
 static int
 do_listxattr(void *args)
 {
+    char *value;
     int ret;
+    size_t bufsize;
     size_t len, size;
     struct back_end_iter *iter;
     struct db_key k;
@@ -2806,7 +2871,7 @@ do_listxattr(void *args)
     if (ret < 0)
         goto err1;
 
-    opargs->value = NULL;
+    value = NULL;
     len = size = 0;
     for (;;) {
         ret = back_end_iter_get(iter, &k, NULL, NULL);
@@ -2819,7 +2884,7 @@ do_listxattr(void *args)
         if ((k.ino != opargs->ino) || (k.type != TYPE_XATTR))
             break;
 
-        ret = add_xattr_name(&opargs->value, &len, &size, k.name);
+        ret = add_xattr_name(&value, &len, &size, k.name);
         if (ret != 0)
             goto err2;
 
@@ -2831,23 +2896,26 @@ do_listxattr(void *args)
         }
     }
 
-    if (opargs->size == 0) {
-        if (opargs->value != NULL)
-            free(opargs->value);
-    } else if (opargs->size < len) {
+    bufsize = opargs->op_data.xattr_data.size;
+
+    if (bufsize == 0) {
+        if (value != NULL)
+            free(value);
+    } else if (bufsize < len) {
         ret = -ERANGE;
         goto err2;
     }
 
     back_end_iter_free(iter);
 
-    opargs->size = len;
+    opargs->op_data.xattr_data.value = value;
+    opargs->op_data.xattr_data.size = len;
 
     return 0;
 
 err2:
-    if (opargs->value != NULL)
-        free(opargs->value);
+    if (value != NULL)
+        free(value);
 err1:
     back_end_iter_free(iter);
     return ret;
@@ -2861,7 +2929,7 @@ do_removexattr(void *args)
 
     k.type = TYPE_XATTR;
     k.ino = opargs->ino;
-    strlcpy(k.name, opargs->name, sizeof(k.name));
+    strlcpy(k.name, opargs->op_data.xattr_data.name, sizeof(k.name));
 
     return back_end_delete(opargs->be, &k);
 }
@@ -2874,7 +2942,7 @@ do_access(void *args)
     struct db_obj_stat s;
     struct op_args *opargs = (struct op_args *)args;
 
-    if (opargs->mask & F_OK) {
+    if (opargs->op_data.mask & F_OK) {
         k.type = TYPE_STAT;
         k.ino = opargs->ino;
 
@@ -2889,7 +2957,9 @@ do_access(void *args)
 static int
 do_create(void *args)
 {
+    const char *name;
     const struct fuse_ctx *ctx;
+    fuse_ino_t parent;
     int ret;
     struct db_key k;
     struct db_obj_stat ps;
@@ -2901,18 +2971,21 @@ do_create(void *args)
     if (ret != 0)
         return ret;
 
+    parent = opargs->op_data.mknod_data.parent;
+    name = opargs->op_data.mknod_data.name;
+
     /* POSIX-1.2008, open, para. 7:
      * If O_CREAT is set and the file did not previously exist, upon successful
      * completion, open() shall mark for update the last data access, last data
      * modification, and last file status change timestamps of the file... */
-    ret = new_node(opargs->be, opargs->ref_inodes, opargs->parent, opargs->name,
-                   ctx->uid, ctx->gid, opargs->mode & ~(ctx->umask), 0, 0,
-                   &opargs->attr, opargs->refinop, 1);
+    ret = new_node(opargs->be, opargs->ref_inodes, parent, name, ctx->uid,
+                   ctx->gid, opargs->op_data.mknod_data.mode & ~(ctx->umask), 0,
+                   0, &opargs->attr, opargs->refinop, 1);
     if (ret != 0)
         goto err1;
 
     k.type = TYPE_STAT;
-    k.ino = opargs->parent;
+    k.ino = parent;
 
     ret = back_end_look_up(opargs->be, &k, NULL, &ps, NULL, 0);
     if (ret != 1) {
@@ -3177,7 +3250,7 @@ simplefs_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
     opargs.k.ino = parent;
     strlcpy(opargs.k.name, name, sizeof(opargs.k.name));
 
-    opargs.inc_lookup_cnt = 1;
+    opargs.op_data.inc_lookup_cnt = 1;
 
     ret = do_queue_op(priv, &do_look_up, &opargs);
     if (ret != 1) {
@@ -3240,7 +3313,8 @@ simplefs_forget(fuse_req_t req, fuse_ino_t ino, unsigned long nlookup)
     opargs.ref_inodes = &priv->ref_inodes;
 
     opargs.ino = ino;
-    opargs.nlookup = nlookup;
+
+    opargs.op_data.nlookup = nlookup;
 
     do_queue_op(priv, &do_forget, &opargs);
     /* Note: A resource leak in the file system will occur in the unlikely case
@@ -3267,7 +3341,7 @@ simplefs_getattr(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
     opargs.k.type = TYPE_STAT;
     opargs.k.ino = ino;
 
-    opargs.inc_lookup_cnt = 0;
+    opargs.op_data.inc_lookup_cnt = 0;
 
     ret = do_queue_op(priv, &do_look_up, &opargs);
     if (ret != 1) {
@@ -3308,7 +3382,8 @@ simplefs_setattr(fuse_req_t req, fuse_ino_t ino, struct stat *attr, int to_set,
 
     opargs.ino = ino;
     opargs.attr = *attr;
-    opargs.to_set = to_set;
+
+    opargs.op_data.to_set = to_set;
 
     ret = do_queue_op(priv, &do_setattr, &opargs);
     if (ret != 0)
@@ -3327,6 +3402,7 @@ err:
 static void
 simplefs_readlink(fuse_req_t req, fuse_ino_t ino)
 {
+    const char *link;
     int ret;
     struct fspriv *priv;
     struct mount_data *md = fuse_req_userdata(req);
@@ -3342,8 +3418,10 @@ simplefs_readlink(fuse_req_t req, fuse_ino_t ino)
     if (ret != 0)
         goto err;
 
-    ret = fuse_reply_readlink(req, opargs.link);
-    free((void *)(opargs.link));
+    link = (const char *)(opargs.op_data.rdwr_data.buf);
+
+    ret = fuse_reply_readlink(req, link);
+    free((void *)link);
     if ((ret != 0) && (ret != -ENOENT))
         goto err;
 
@@ -3371,9 +3449,10 @@ simplefs_mknod(fuse_req_t req, fuse_ino_t parent, const char *name, mode_t mode,
     opargs.ref_inodes = &priv->ref_inodes;
 
     opargs.ino = parent;
-    opargs.name = name;
-    opargs.mode = mode;
-    opargs.rdev = rdev;
+
+    opargs.op_data.mknod_data.name = name;
+    opargs.op_data.mknod_data.mode = mode;
+    opargs.op_data.mknod_data.rdev = rdev;
 
     ret = do_queue_op(priv, &do_create_node, &opargs);
     if (ret != 0)
@@ -3413,8 +3492,9 @@ simplefs_mkdir(fuse_req_t req, fuse_ino_t parent, const char *name, mode_t mode)
     opargs.ref_inodes = &priv->ref_inodes;
 
     opargs.ino = parent;
-    opargs.name = name;
-    opargs.mode = mode;
+
+    opargs.op_data.mknod_data.name = name;
+    opargs.op_data.mknod_data.mode = mode;
 
     ret = do_queue_op(priv, &do_create_dir, &opargs);
     if (ret != 0)
@@ -3454,7 +3534,7 @@ simplefs_unlink(fuse_req_t req, fuse_ino_t parent, const char *name)
     opargs.k.ino = parent;
     strlcpy(opargs.k.name, name, sizeof(opargs.k.name));
 
-    opargs.inc_lookup_cnt = 0;
+    opargs.op_data.inc_lookup_cnt = 0;
 
     ret = do_queue_op(priv, &do_look_up, &opargs);
     if (ret != 1) {
@@ -3463,9 +3543,10 @@ simplefs_unlink(fuse_req_t req, fuse_ino_t parent, const char *name)
         goto err;
     }
 
-    opargs.parent = parent;
     opargs.ino = opargs.s.st_ino;
-    opargs.name = name;
+
+    opargs.op_data.link_data.parent = parent;
+    opargs.op_data.link_data.name = name;
 
     ret = do_queue_op(priv, &do_remove_node_link, &opargs);
     if (ret != 0)
@@ -3503,7 +3584,7 @@ simplefs_rmdir(fuse_req_t req, fuse_ino_t parent, const char *name)
     opargs.k.ino = parent;
     strlcpy(opargs.k.name, name, sizeof(opargs.k.name));
 
-    opargs.inc_lookup_cnt = 0;
+    opargs.op_data.inc_lookup_cnt = 0;
 
     ret = do_queue_op(priv, &do_look_up, &opargs);
     if (ret != 1) {
@@ -3512,9 +3593,10 @@ simplefs_rmdir(fuse_req_t req, fuse_ino_t parent, const char *name)
         goto err;
     }
 
-    opargs.parent = parent;
     opargs.ino = opargs.s.st_ino;
-    opargs.name = name;
+
+    opargs.op_data.link_data.parent = parent;
+    opargs.op_data.link_data.name = name;
 
     ret = do_queue_op(priv, &do_remove_dir, &opargs);
     if (ret != 0)
@@ -3547,10 +3629,9 @@ simplefs_symlink(fuse_req_t req, const char *link, fuse_ino_t parent,
     opargs.be = priv->be;
     opargs.ref_inodes = &priv->ref_inodes;
 
-    opargs.link = link;
-
-    opargs.parent = parent;
-    opargs.name = name;
+    opargs.op_data.mknod_data.parent = parent;
+    opargs.op_data.mknod_data.name = name;
+    opargs.op_data.mknod_data.link = link;
 
     ret = do_queue_op(priv, &do_create_symlink, &opargs);
     if (ret != 0)
@@ -3602,10 +3683,10 @@ simplefs_rename(fuse_req_t req, fuse_ino_t parent, const char *name,
     opargs.be = priv->be;
     opargs.ref_inodes = &priv->ref_inodes;
 
-    opargs.parent = parent;
-    opargs.name = name;
-    opargs.newparent = newparent;
-    opargs.newname = newname;
+    opargs.op_data.link_data.parent = parent;
+    opargs.op_data.link_data.name = name;
+    opargs.op_data.link_data.newparent = newparent;
+    opargs.op_data.link_data.newname = newname;
 
     ret = do_queue_op(priv, &do_rename, &opargs);
     if (ret != 0)
@@ -3637,8 +3718,9 @@ simplefs_link(fuse_req_t req, fuse_ino_t ino, fuse_ino_t newparent,
     opargs.ref_inodes = &priv->ref_inodes;
 
     opargs.ino = ino;
-    opargs.newparent = newparent;
-    opargs.newname = newname;
+
+    opargs.op_data.link_data.newparent = newparent;
+    opargs.op_data.link_data.newname = newname;
 
     ret = do_queue_op(priv, &do_create_node_link, &opargs);
     if (ret != 0)
@@ -3723,8 +3805,10 @@ static void
 simplefs_read(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off,
               struct fuse_file_info *fi)
 {
+    int count;
     int ret;
     struct fspriv *priv;
+    struct iovec *iov;
     struct mount_data *md = fuse_req_userdata(req);
     struct op_args opargs;
 
@@ -3743,15 +3827,18 @@ simplefs_read(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off,
 
     opargs.ino = ino;
 
-    opargs.size = size;
-    opargs.off = off;
+    opargs.op_data.rdwr_data.size = size;
+    opargs.op_data.rdwr_data.off = off;
 
     ret = do_queue_op(priv, &do_read, &opargs);
     if (ret != 0)
         goto err;
 
-    ret = fuse_reply_iov(req, opargs.iov, opargs.count);
-    free_iov(opargs.iov, opargs.count);
+    iov = opargs.op_data.rdwr_data.iov;
+    count = opargs.op_data.rdwr_data.count;
+
+    ret = fuse_reply_iov(req, iov, count);
+    free_iov(iov, count);
     if ((ret != 0) && (ret != -ENOENT))
         goto err;
 
@@ -3787,9 +3874,9 @@ simplefs_write(fuse_req_t req, fuse_ino_t ino, const char *buf, size_t size,
 
     opargs.ino = ino;
 
-    opargs.buf = (char *)buf;
-    opargs.size = size;
-    opargs.off = off;
+    opargs.op_data.rdwr_data.buf = (char *)buf;
+    opargs.op_data.rdwr_data.size = size;
+    opargs.op_data.rdwr_data.off = off;
 
     ret = do_queue_op(priv, &do_write, &opargs);
     if (ret != 0)
@@ -3905,10 +3992,10 @@ simplefs_readdir(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off,
 
     opargs.be = priv->be;
 
-    opargs.odir = odir;
-    opargs.buf = buf;
-    opargs.bufsize = size;
-    opargs.off = off;
+    opargs.op_data.readdir_data.odir = odir;
+    opargs.op_data.readdir_data.buf = buf;
+    opargs.op_data.readdir_data.bufsize = size;
+    opargs.op_data.readdir_data.off = off;
 
     ret = do_queue_op(priv, &do_read_entries, &opargs);
     if (ret != 0) {
@@ -3916,7 +4003,7 @@ simplefs_readdir(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off,
         goto err;
     }
 
-    ret = fuse_reply_buf(req, buf, opargs.buflen);
+    ret = fuse_reply_buf(req, buf, opargs.op_data.readdir_data.buflen);
     free(buf);
     if ((ret != 0) && (ret != -ENOENT))
         goto err;
@@ -4115,10 +4202,11 @@ simplefs_setxattr(fuse_req_t req, fuse_ino_t ino, const char *name,
     opargs.be = priv->be;
 
     opargs.ino = ino;
-    opargs.name = name;
-    opargs.value = (char *)value;
-    opargs.size = size;
-    opargs.flags = flags;
+
+    opargs.op_data.xattr_data.name = name;
+    opargs.op_data.xattr_data.value = (char *)value;
+    opargs.op_data.xattr_data.size = size;
+    opargs.op_data.xattr_data.flags = flags;
 
     ret = do_queue_op(priv, &do_setxattr, &opargs);
     if (ret != 0)
@@ -4143,7 +4231,9 @@ static void
 simplefs_getxattr(fuse_req_t req, fuse_ino_t ino, const char *name, size_t size)
 #endif
 {
+    char *value;
     int ret;
+    size_t valsize;
     struct fspriv *priv;
     struct mount_data *md = fuse_req_userdata(req);
     struct op_args opargs;
@@ -4160,8 +4250,9 @@ simplefs_getxattr(fuse_req_t req, fuse_ino_t ino, const char *name, size_t size)
     opargs.be = priv->be;
 
     opargs.ino = ino;
-    opargs.name = name;
-    opargs.size = size;
+
+    opargs.op_data.xattr_data.name = name;
+    opargs.op_data.xattr_data.size = size;
 
     ret = do_queue_op(priv, &do_getxattr, &opargs);
     if (ret != 0) {
@@ -4170,17 +4261,21 @@ simplefs_getxattr(fuse_req_t req, fuse_ino_t ino, const char *name, size_t size)
         goto err;
     }
 
+    valsize = opargs.op_data.xattr_data.size;
+
     if (size == 0) {
-        ret = fuse_reply_xattr(req, opargs.size);
+        ret = fuse_reply_xattr(req, valsize);
         if ((ret != 0) && (ret != -ENOENT))
             goto err;
         return;
     }
 
-    ret = fuse_reply_buf(req, opargs.value, opargs.size);
+    value = opargs.op_data.xattr_data.value;
 
-    if (opargs.value != NULL)
-        free(opargs.value);
+    ret = fuse_reply_buf(req, value, valsize);
+
+    if (value != NULL)
+        free(value);
 
     if ((ret != 0) && (ret != -ENOENT))
         goto err;
@@ -4194,7 +4289,9 @@ err:
 static void
 simplefs_listxattr(fuse_req_t req, fuse_ino_t ino, size_t size)
 {
+    char *value;
     int ret;
+    size_t bufsize;
     struct fspriv *priv;
     struct mount_data *md = fuse_req_userdata(req);
     struct op_args opargs;
@@ -4204,23 +4301,28 @@ simplefs_listxattr(fuse_req_t req, fuse_ino_t ino, size_t size)
     opargs.be = priv->be;
 
     opargs.ino = ino;
-    opargs.size = size;
+
+    opargs.op_data.xattr_data.size = size;
 
     ret = do_queue_op(priv, &do_listxattr, &opargs);
     if (ret != 0)
         goto err;
 
+    bufsize = opargs.op_data.xattr_data.size;
+
     if (size == 0) {
-        ret = fuse_reply_xattr(req, opargs.size);
+        ret = fuse_reply_xattr(req, bufsize);
         if ((ret != 0) && (ret != -ENOENT))
             goto err;
         return;
     }
 
-    ret = fuse_reply_buf(req, opargs.value, opargs.size);
+    value = opargs.op_data.xattr_data.value;
 
-    if (opargs.value != NULL)
-        free(opargs.value);
+    ret = fuse_reply_buf(req, value, bufsize);
+
+    if (value != NULL)
+        free(value);
 
     if ((ret != 0) && (ret != -ENOENT))
         goto err;
@@ -4244,7 +4346,8 @@ simplefs_removexattr(fuse_req_t req, fuse_ino_t ino, const char *name)
     opargs.be = priv->be;
 
     opargs.ino = ino;
-    opargs.name = name;
+
+    opargs.op_data.xattr_data.name = name;
 
     ret = do_queue_op(priv, &do_removexattr, &opargs);
     if (ret != 0) {
@@ -4276,7 +4379,8 @@ simplefs_access(fuse_req_t req, fuse_ino_t ino, int mask)
     opargs.be = priv->be;
 
     opargs.ino = ino;
-    opargs.mask = mask;
+
+    opargs.op_data.mask = mask;
 
     ret = do_queue_op(priv, &do_access, &opargs);
     if (ret != 0)
@@ -4316,9 +4420,9 @@ simplefs_create(fuse_req_t req, fuse_ino_t parent, const char *name,
     opargs.be = priv->be;
     opargs.ref_inodes = &priv->ref_inodes;
 
-    opargs.parent = parent;
-    opargs.name = name;
-    opargs.mode = mode;
+    opargs.op_data.mknod_data.parent = parent;
+    opargs.op_data.mknod_data.name = name;
+    opargs.op_data.mknod_data.mode = mode;
 
     ofile = do_malloc(sizeof(*ofile));
     if (ofile == NULL) {
