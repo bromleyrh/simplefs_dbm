@@ -201,6 +201,8 @@ struct free_ref_inodes_ctx {
     int err;
 };
 
+#define FSNAME PACKAGE_STRING
+
 #ifndef ENOATTR
 #define ENOATTR ENODATA
 #endif
@@ -3156,7 +3158,7 @@ simplefs_init(void *userdata, struct fuse_conn_info *conn)
     init = 1;
     pthread_mutex_unlock(&mtx);
 
-    syslog(LOG_INFO, "FUSE file system initialized successfully");
+    syslog(LOG_INFO, FSNAME " initialized successfully");
 
     return;
 
@@ -3227,9 +3229,9 @@ simplefs_destroy(void *userdata)
     pthread_mutex_unlock(&mtx);
 
     if (ret == 0)
-        syslog(LOG_INFO, "FUSE file system terminated successfully");
+        syslog(LOG_INFO, FSNAME " terminated successfully");
     else
-        syslog(LOG_ERR, "FUSE file system terminated with error");
+        syslog(LOG_ERR, FSNAME " terminated with error");
 }
 
 static void
