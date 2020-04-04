@@ -3130,7 +3130,7 @@ simplefs_destroy(void *userdata)
     free(priv);
 
     pthread_mutex_lock(&mtx);
-    initialized = ret;
+    init = ret;
     pthread_mutex_unlock(&mtx);
 
     if (ret == 0)
