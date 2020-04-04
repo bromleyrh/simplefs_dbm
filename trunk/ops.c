@@ -2683,7 +2683,19 @@ do_close(void *args)
     if (ret != 1)
         return (ret == 0) ? -ENOENT : ret;
 
-    return unref_inode(opargs->be, opargs->ref_inodes, refinop, 0, -1, 0, NULL);
+    ret = unref_inode(opargs->be, opargs->ref_inodes, refinop, 0, -1, 0, NULL);
+    if (ret != 0)
+        return ret;
+
+    pthread_mutex_lock(&opargs->ref_inodes->ref_inodes_mtx);
+    if (!(refinop->nodelete) && (refinop->nlink == 0) && (refinop->refcnt == 0)
+        && (refinop->nlookup == 0)) {
+        if (avl_tree_delete(opargs->ref_inodes->ref_inodes, &refinop) == 0)
+            free(refinop);
+    }
+    pthread_mutex_unlock(&opargs->ref_inodes->ref_inodes_mtx);
+
+    return 0;
 }
 
 static int
