@@ -41,6 +41,7 @@ static int set_up_signal_handlers(void);
 
 static int enable_debugging_features(void);
 
+static int opt_proc(void *, const char *, int, struct fuse_args *);
 static int do_fuse_parse_cmdline(struct fuse_args *, char **, int *, int *);
 static int parse_cmdline(struct fuse_args *, struct fuse_data *);
 
@@ -125,6 +126,20 @@ err:
 }
 
 static int
+opt_proc(void *data, const char *arg, int key, struct fuse_args *outargs)
+{
+    struct mount_data *md = (struct mount_data *)data;
+
+    (void)key;
+    (void)outargs;
+
+    if (strcmp("ro", arg) == 0)
+        md->ro = 1;
+
+    return 1;
+}
+
+static int
 do_fuse_parse_cmdline(struct fuse_args *args, char **mountpoint,
                       int *multithreaded, int *foreground)
 {
@@ -159,14 +174,13 @@ parse_cmdline(struct fuse_args *args, struct fuse_data *fusedata)
 {
     static const struct fuse_opt opts[] = {
         {"-F %s",   offsetof(struct mount_data, db_pathname),   0},
-        {"ro",      offsetof(struct mount_data, ro),            1},
         FUSE_OPT_END
     };
 
     fusedata->md.db_pathname = NULL;
     fusedata->md.ro = 0;
 
-    if (fuse_opt_parse(args, &fusedata->md, opts, NULL) == -1)
+    if (fuse_opt_parse(args, &fusedata->md, opts, &opt_proc) == -1)
         goto err1;
 
     if (do_fuse_parse_cmdline(args, (char **)&fusedata->mountpoint, NULL,
@@ -175,7 +189,7 @@ parse_cmdline(struct fuse_args *args, struct fuse_data *fusedata)
         goto err2;
 
     if (fusedata->mountpoint == NULL) {
-        error(0, 0, "missing mountpoint parameter");
+        error(0, 0, "Missing mountpoint parameter");
         goto err2;
     }
 
