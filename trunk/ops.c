@@ -20,6 +20,8 @@
 
 #include <files/acc_ctl.h>
 
+#include <myutil/version.h>
+
 #include <fuse.h>
 #include <fuse_lowlevel.h>
 
@@ -202,6 +204,7 @@ struct free_ref_inodes_ctx {
 };
 
 #define FSNAME PACKAGE_STRING
+#define LIBNAME "libutil " LIBUTIL_VERSION
 
 #ifndef ENOATTR
 #define ENOATTR ENODATA
@@ -3158,7 +3161,7 @@ simplefs_init(void *userdata, struct fuse_conn_info *conn)
     init = 1;
     pthread_mutex_unlock(&mtx);
 
-    syslog(LOG_INFO, FSNAME " initialized successfully");
+    syslog(LOG_INFO, FSNAME " using " LIBNAME " initialized successfully");
 
     return;
 
