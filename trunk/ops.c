@@ -564,7 +564,7 @@ sync_cb(int status, void *ctx)
 {
     struct fspriv *priv = (struct fspriv *)ctx;
 
-    if (status != 0)
+    if (status < 0)
         priv->wb_err = status;
 }
 
