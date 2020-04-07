@@ -84,7 +84,8 @@ enum db_obj_type {
     TYPE_DIRENT,        /* look up by ino, name */
     TYPE_STAT,          /* look up by ino */
     TYPE_PAGE,          /* look up by ino, pgno */
-    TYPE_XATTR          /* look up by ino, name */
+    TYPE_XATTR,         /* look up by ino, name */
+    TYPE_ULINKED_INO    /* loop up by ino */
 };
 
 #define MAX_NAME (NAME_MAX+1)
@@ -290,6 +291,8 @@ static int dec_refcnt(struct ref_inodes *, int32_t, int32_t, int32_t,
 static int set_ref_inode_nodelete(struct back_end *, struct ref_inodes *,
                                   fuse_ino_t, int);
 
+static int remove_ulinked_nodes(struct back_end *);
+
 static void do_set_ts(struct disk_timespec *, struct timespec *);
 static void set_ts(struct disk_timespec *, struct disk_timespec *,
                    struct disk_timespec *);
@@ -463,6 +466,7 @@ db_key_cmp(const void *k1, const void *k2, struct back_end_key_ctx *key_ctx)
     case TYPE_PAGE:
         cmp = uint64_cmp(key1->pgno, key2->pgno);
     case TYPE_STAT:
+    case TYPE_ULINKED_INO:
         break;
     default:
         abort();
@@ -614,6 +618,11 @@ dump_cb(const void *key, const void *data, size_t datasize, void *ctx)
                         "size %zu\n",
                 (uint64_t)(k->ino), k->name, datasize);
         break;
+    case TYPE_ULINKED_INO:
+        fprintf(stderr, "Unlinked I-node entry: node %" PRIu64 " -> st_ino %"
+                        PRIu64 "\n",
+                (uint64_t)(k->ino), (uint64_t)(s->st_ino));
+        break;
     default:
         abort();
     }
@@ -742,13 +751,28 @@ free_ref_inodes_cb(const void *keyval, void *ctx)
     struct fspriv *priv = fctx->priv;
     struct ref_ino *ino = *(struct ref_ino **)keyval;
 
+    err = back_end_trans_new(priv->be);
+    if (err)
+        goto err1;
+
     err = unref_inode(priv->be, &priv->ref_inodes, ino, 0, -INT_MAX, -INT_MAX,
                       NULL);
     if (err)
-        fctx->err = err;
+        goto err2;
+
+    err = back_end_trans_commit(priv->be);
+    if (err)
+        goto err2;
 
     free(ino);
 
+    return 0;
+
+err2:
+    back_end_trans_abort(priv->be);
+err1:
+    fctx->err = err;
+    free(ino);
     return 0;
 }
 
@@ -870,6 +894,62 @@ set_ref_inode_nodelete(struct back_end *be, struct ref_inodes *ref_inodes,
 
 err:
     pthread_mutex_unlock(&ref_inodes->ref_inodes_mtx);
+    return ret;
+}
+
+static int
+remove_ulinked_nodes(struct back_end *be)
+{
+    int ret;
+    struct back_end_iter *iter;
+
+    for (;;) {
+        struct db_key k;
+
+        ret = back_end_iter_new(&iter, be);
+        if (ret != 0)
+            return ret;
+
+        k.type = TYPE_ULINKED_INO;
+        k.ino = 0;
+
+        ret = back_end_iter_search(iter, &k);
+        if (ret < 0) {
+            back_end_iter_free(iter);
+            return ret;
+        }
+
+        ret = back_end_iter_get(iter, &k, NULL, NULL);
+        back_end_iter_free(iter);
+        if (ret != 0) {
+            if (ret != -EADDRNOTAVAIL)
+                return ret;
+            break;
+        }
+
+        if (k.type != TYPE_ULINKED_INO)
+            break;
+
+        ret = back_end_trans_new(be);
+        if (ret != 0)
+            return ret;
+
+        fprintf(stderr, "Warning: removing I-node %" PRIu64 " with no links\n",
+                (uint64_t)(k.ino));
+
+        ret = delete_file(be, k.ino);
+        if (ret != 0)
+            goto err;
+
+        ret = back_end_trans_commit(be);
+        if (ret != 0)
+            goto err;
+    }
+
+    return 0;
+
+err:
+    back_end_trans_abort(be);
     return ret;
 }
 
@@ -999,12 +1079,18 @@ truncate_file(struct back_end *be, fuse_ino_t ino, off_t oldsize, off_t newsize)
     return 0;
 }
 
+/*
+ * This function must be called under a transaction to allow cancelling changes
+ * in case of an error.
+ */
 static int
 delete_file(struct back_end *be, fuse_ino_t ino)
 {
     int ret;
     struct db_key k;
     struct db_obj_stat s;
+
+    ASSERT_UNDER_TRANS(be);
 
     k.type = TYPE_STAT;
     k.ino = ino;
@@ -1031,6 +1117,12 @@ delete_file(struct back_end *be, fuse_ino_t ino)
     }
 
     k.type = TYPE_STAT;
+
+    ret = back_end_delete(be, &k);
+    if (ret != 0)
+        return ret;
+
+    k.type = TYPE_ULINKED_INO;
 
     return back_end_delete(be, &k);
 }
@@ -1982,22 +2074,30 @@ do_remove_node_link(void *args)
     if (ret != 0)
         goto err3;
 
+    k.ino = opargs->ino;
+
+    ret = back_end_look_up(opargs->be, &k, NULL, &s, NULL, 0);
+    if (ret != 1) {
+        if (ret == 0)
+            ret = -ENOENT;
+        goto err3;
+    }
+
     if (!deleted) {
-        k.ino = opargs->ino;
-
-        ret = back_end_look_up(opargs->be, &k, NULL, &s, NULL, 0);
-        if (ret != 1) {
-            if (ret == 0)
-                ret = -ENOENT;
-            goto err3;
-        }
-
         /* ", unlink, para. 4:
          * Also, if the file's link count is not 0, the last file status change
          * timestamp of the file shall be marked for update. */
         do_set_ts(&s.st_ctim, NULL);
 
         ret = back_end_replace(opargs->be, &k, &s, sizeof(s));
+        if (ret != 0)
+            goto err3;
+    }
+
+    if (s.st_nlink == 0) {
+        k.type = TYPE_ULINKED_INO;
+
+        ret = back_end_insert(opargs->be, &k, NULL, 0);
         if (ret != 0)
             goto err3;
     }
@@ -2075,6 +2175,23 @@ do_remove_dir(void *args)
     ret = back_end_replace(opargs->be, &k, &s, sizeof(s));
     if (ret != 0)
         goto err3;
+
+    k.ino = opargs->ino;
+
+    ret = back_end_look_up(opargs->be, &k, NULL, &s, NULL, 0);
+    if (ret != 1) {
+        if (ret == 0)
+            ret = -ENOENT;
+        goto err3;
+    }
+
+    if (s.st_nlink == 0) {
+        k.type = TYPE_ULINKED_INO;
+
+        ret = back_end_insert(opargs->be, &k, NULL, 0);
+        if (ret != 0)
+            goto err3;
+    }
 
     ret = back_end_trans_commit(opargs->be);
     if (ret != 0)
@@ -3140,6 +3257,12 @@ simplefs_init(void *userdata, struct fuse_conn_info *conn)
             ret = -EPROTONOSUPPORT;
             goto err6;
         }
+
+        if (!(args.ro)) {
+            ret = remove_ulinked_nodes(priv->be);
+            if (ret != 0)
+                goto err6;
+        }
     }
 
     md->priv = priv;
@@ -3204,8 +3327,6 @@ simplefs_destroy(void *userdata)
 
     ret = join_worker(priv);
 
-    /* Note: A resource leak in the file system will occur in the unlikely case
-     * that free_ref_inodes_cb() fails. */
     fctx.priv = priv;
     fctx.err = 0;
     tmp = avl_tree_walk(priv->ref_inodes.ref_inodes, NULL, &free_ref_inodes_cb,
@@ -3322,8 +3443,6 @@ simplefs_forget(fuse_req_t req, fuse_ino_t ino, unsigned long nlookup)
     opargs.op_data.nlookup = nlookup;
 
     do_queue_op(priv, &do_forget, &opargs);
-    /* Note: A resource leak in the file system will occur in the unlikely case
-     * that do_forget() fails. */
 
     fuse_reply_none(req);
 }
