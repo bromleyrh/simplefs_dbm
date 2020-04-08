@@ -247,14 +247,10 @@ do_fuse_mount(const char *mountpoint, struct fuse_args *args,
 static int
 do_fuse_daemonize()
 {
-    char cwd[PATH_MAX];
     int dfd;
     int err;
 
-    if (getcwd(cwd, sizeof(cwd)) == NULL)
-        return -errno;
-
-    dfd = open(cwd, O_DIRECTORY | O_RDONLY);
+    dfd = open(".", O_DIRECTORY | O_RDONLY);
     if (dfd == -1)
         return -errno;
 
