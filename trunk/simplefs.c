@@ -130,10 +130,9 @@ opt_proc(void *data, const char *arg, int key, struct fuse_args *outargs)
 {
     struct mount_data *md = (struct mount_data *)data;
 
-    (void)key;
     (void)outargs;
 
-    if (strcmp("ro", arg) == 0)
+    if ((key == FUSE_OPT_KEY_OPT) && (strcmp("ro", arg) == 0))
         md->ro = 1;
 
     return 1;
