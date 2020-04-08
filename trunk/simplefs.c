@@ -324,18 +324,19 @@ init_fuse(int argc, char **argv, struct fuse_data *fusedata)
     if ((fuse_opt_add_arg(&args, "-o") == -1)
         || (fuse_opt_add_arg(&args, DEFAULT_FUSE_OPTIONS)
             == -1)) {
+        err = -ENOMEM;
         errmsg = "Out of memory";
         goto err2;
     }
 
-    err = -EIO;
-    errmsg = "Error mounting FUSE file system";
-
     fusedata->sess = do_fuse_mount(fusedata->mountpoint, &args, &simplefs_ops,
                                    sizeof(simplefs_ops), &fusedata->md,
                                    &fusedata->chan);
-    if (fusedata->sess == NULL)
+    if (fusedata->sess == NULL) {
+        err = -EIO;
+        errmsg = "Error mounting FUSE file system";
         goto err2;
+    }
 
     fuse_opt_free_args(&args);
 
