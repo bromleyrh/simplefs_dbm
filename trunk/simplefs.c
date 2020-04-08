@@ -2,6 +2,8 @@
  * simplefs.c
  */
 
+#define _GNU_SOURCE
+
 #include "ops.h"
 #include "simplefs.h"
 
@@ -10,6 +12,8 @@
 #undef NO_ASSERT
 
 #include <forensics.h>
+
+#include <files/util.h>
 
 #include <fuse.h>
 #include <fuse_lowlevel.h>
@@ -40,6 +44,8 @@ static void int_handler(int);
 static int set_up_signal_handlers(void);
 
 static int enable_debugging_features(void);
+
+static void destroy_mount_data(struct mount_data *);
 
 static int opt_proc(void *, const char *, int, struct fuse_args *);
 static int do_fuse_parse_cmdline(struct fuse_args *, char **, int *, int *);
@@ -123,6 +129,14 @@ err:
     err = -errno;
     error(0, errno, "%s", errmsg);
     return err;
+}
+
+static void
+destroy_mount_data(struct mount_data *md)
+{
+    free((void *)(md->mountpoint));
+    if (md->db_pathname != NULL)
+        free((void *)(md->db_pathname));
 }
 
 static int
@@ -311,6 +325,8 @@ do_fuse_unmount(const char *mountpoint, struct fuse_chan *ch,
 static int
 init_fuse(int argc, char **argv, struct fuse_data *fusedata)
 {
+    char *bn, *dn;
+    char buf[PATH_MAX];
     const char *errmsg;
     int err;
     struct fuse_args args = FUSE_ARGS_INIT(argc, argv);
@@ -322,10 +338,24 @@ init_fuse(int argc, char **argv, struct fuse_data *fusedata)
     }
 
     if ((fuse_opt_add_arg(&args, "-o") == -1)
-        || (fuse_opt_add_arg(&args, DEFAULT_FUSE_OPTIONS)
-            == -1)) {
-        err = -ENOMEM;
-        errmsg = "Out of memory";
+        || (fuse_opt_add_arg(&args, DEFAULT_FUSE_OPTIONS) == -1))
+        goto err3;
+
+    dn = dirname_safe(fusedata->mountpoint, buf, sizeof(buf));
+    if (dn == NULL) {
+        err = -ENAMETOOLONG;
+        errmsg = "Pathname too long";
+        goto err2;
+    }
+    bn = strdup(basename_safe(fusedata->mountpoint));
+    if (bn == NULL)
+        goto err3;
+
+    fusedata->mountpoint = bn;
+
+    if (chdir(dn) == -1) {
+        err = -errno;
+        errmsg = "Error changing directory";
         goto err2;
     }
 
@@ -342,11 +372,14 @@ init_fuse(int argc, char **argv, struct fuse_data *fusedata)
 
     return 0;
 
+err3:
+    err = -ENOMEM;
+    errmsg = "Out of memory";
 err2:
     fuse_opt_free_args(&args);
-    free((void *)(fusedata->mountpoint));
-    if (fusedata->md.db_pathname != NULL)
-        free((void *)(fusedata->md.db_pathname));
+    if (fusedata->mountpoint != fusedata->md.mountpoint)
+        free((void *)(fusedata->mountpoint));
+    destroy_mount_data(&fusedata->md);
 err1:
     error(0, -err, "%s", errmsg);
     return err;
@@ -413,7 +446,7 @@ main(int argc, char **argv)
     if (init_fuse(argc, argv, &fusedata) != 0)
         return EXIT_FAILURE;
 
-    if (open_log(fusedata.mountpoint) != 0)
+    if (open_log(fusedata.md.mountpoint) != 0)
         return EXIT_FAILURE;
 
     status = EXIT_FAILURE;
@@ -427,8 +460,7 @@ main(int argc, char **argv)
     if ((ret == 0) && (mount_status() == 0))
         status = EXIT_SUCCESS;
 
-    if (fusedata.md.db_pathname != NULL)
-        free((void *)(fusedata.md.db_pathname));
+    destroy_mount_data(&fusedata.md);
 
     if (status == EXIT_SUCCESS)
         syslog(LOG_INFO, "Returned success status");
