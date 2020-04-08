@@ -132,7 +132,12 @@ opt_proc(void *data, const char *arg, int key, struct fuse_args *outargs)
 
     (void)outargs;
 
-    if ((key == FUSE_OPT_KEY_OPT) && (strcmp("ro", arg) == 0))
+    if (key == FUSE_OPT_KEY_NONOPT) {
+        if (md->mountpoint == NULL) {
+            md->mountpoint = strdup(arg);
+            return (md->mountpoint == NULL) ? -1 : 0;
+        }
+    } else if ((key == FUSE_OPT_KEY_OPT) && (strcmp("ro", arg) == 0))
         md->ro = 1;
 
     return 1;
@@ -177,22 +182,21 @@ parse_cmdline(struct fuse_args *args, struct fuse_data *fusedata)
     };
 
     fusedata->md.db_pathname = NULL;
+    fusedata->md.mountpoint = NULL;
     fusedata->md.ro = 0;
 
     if (fuse_opt_parse(args, &fusedata->md, opts, &opt_proc) == -1)
         goto err1;
 
-    if (do_fuse_parse_cmdline(args, (char **)&fusedata->mountpoint, NULL,
-                              &fusedata->foreground)
-        == -1)
-        goto err2;
-
-    if (fusedata->mountpoint == NULL) {
+    if (fusedata->md.mountpoint == NULL) {
         error(0, 0, "Missing mountpoint parameter");
         goto err2;
     }
 
-    fusedata->md.mountpoint = fusedata->mountpoint;
+    if (do_fuse_parse_cmdline(args, NULL, NULL, &fusedata->foreground) == -1)
+        goto err2;
+
+    fusedata->mountpoint = fusedata->md.mountpoint;
 
     return 0;
 
