@@ -1644,7 +1644,6 @@ rem_dir_link(struct back_end *be, struct ref_inodes *ref_inodes, fuse_ino_t ino,
     if (ret != 1)
         return (ret == 0) ? -ENOENT : ret;
 
-    --(s.st_nlink);
     ret = unref_inode(be, ref_inodes, refinop, -1, 0, 0, NULL);
     if (ret == 0)
         *inop = refinop;
@@ -2395,10 +2394,23 @@ do_rename(void *args)
         }
 
         existing = 1;
+
+        ret = back_end_look_up(opargs->be, &k, NULL, &ds, NULL, 0);
+        if (ret != 1) {
+            if (ret == 0)
+                ret = -ENOENT;
+            goto err3;
+        }
+
+        if (ds.st_nlink == 0) {
+            k.type = TYPE_ULINKED_INO;
+
+            ret = back_end_insert(opargs->be, &k, NULL, 0);
+            if (ret != 0)
+                goto err3;
+        }
     } else
         existing = 0;
-
-    k.type = TYPE_STAT;
 
     if (S_ISDIR(ss.st_mode)) {
         ret = new_dir_link(opargs->be, opargs->ref_inodes, ss.st_ino, newparent,
@@ -2420,6 +2432,7 @@ do_rename(void *args)
     if (ret != 0)
         goto err4;
 
+    k.type = TYPE_STAT;
     k.ino = newparent;
 
     ret = back_end_look_up(opargs->be, &k, NULL, &ps, NULL, 0);
