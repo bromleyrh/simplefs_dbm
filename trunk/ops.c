@@ -200,8 +200,9 @@ struct open_file {
 };
 
 struct free_ref_inodes_ctx {
-    struct fspriv *priv;
-    int err;
+    struct fspriv   *priv;
+    int             nowrite;
+    int             err;
 };
 
 #define FSNAME PACKAGE_STRING
@@ -747,29 +748,37 @@ static int
 free_ref_inodes_cb(const void *keyval, void *ctx)
 {
     int err;
+    int nowrite;
     struct free_ref_inodes_ctx *fctx = (struct free_ref_inodes_ctx *)ctx;
     struct fspriv *priv = fctx->priv;
     struct ref_ino *ino = *(struct ref_ino **)keyval;
 
-    err = back_end_trans_new(priv->be);
-    if (err)
-        goto err1;
+    nowrite = fctx->nowrite;
+
+    if (!nowrite) {
+        err = back_end_trans_new(priv->be);
+        if (err)
+            goto err1;
+    }
 
     err = unref_inode(priv->be, &priv->ref_inodes, ino, 0, -INT_MAX, -INT_MAX,
                       NULL);
     if (err)
         goto err2;
 
-    err = back_end_trans_commit(priv->be);
-    if (err)
-        goto err2;
+    if (!nowrite) {
+        err = back_end_trans_commit(priv->be);
+        if (err)
+            goto err2;
+    }
 
     free(ino);
 
     return 0;
 
 err2:
-    back_end_trans_abort(priv->be);
+    if (!nowrite)
+        back_end_trans_abort(priv->be);
 err1:
     fctx->err = err;
     free(ino);
@@ -3328,6 +3337,7 @@ simplefs_destroy(void *userdata)
     ret = join_worker(priv);
 
     fctx.priv = priv;
+    fctx.nowrite = md->ro;
     fctx.err = 0;
     tmp = avl_tree_walk(priv->ref_inodes.ref_inodes, NULL, &free_ref_inodes_cb,
                         &fctx, &wctx);
