@@ -1062,15 +1062,12 @@ truncate_file(struct back_end *be, fuse_ino_t ino, off_t oldsize, off_t newsize)
     k.type = TYPE_PAGE;
     k.ino = ino;
 
-    for (i = oldnumpg - 1;; i--) {
+    for (i = oldnumpg - 1; i > newnumpg; i--) {
         k.pgno = i;
 
         ret = back_end_delete(be, &k);
         if ((ret != 0) && (ret != -EADDRNOTAVAIL)) /* file may be sparse */
             return ret;
-
-        if (i == newnumpg)
-            break;
     }
 
     if ((newnumpg > 0) && (lastpgsz = newsize % PG_SIZE) > 0) {
