@@ -1120,7 +1120,7 @@ delete_file(struct back_end *be, fuse_ino_t ino)
             k.pgno = --i;
 
             ret = back_end_delete(be, &k);
-            if (ret != 0)
+            if ((ret != 0) && (ret != -EADDRNOTAVAIL)) /* file may be sparse */
                 return ret;
         }
     }
