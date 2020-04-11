@@ -9,6 +9,7 @@
 #include "config.h"
 
 #include "back_end.h"
+#include "back_end_dbm.h"
 #include "common.h"
 #include "ops.h"
 #include "simplefs.h"
@@ -264,7 +265,7 @@ static void verror(int, const char *, va_list);
 
 static int uint64_cmp(uint64_t, uint64_t);
 
-static int db_key_cmp(const void *, const void *, struct back_end_key_ctx *);
+static int db_key_cmp(const void *, const void *, void *);
 
 static void *worker_td(void *);
 static int do_queue_op(struct fspriv *, int (*)(void *), void *);
@@ -440,15 +441,17 @@ uint64_cmp(uint64_t n1, uint64_t n2)
 }
 
 static int
-db_key_cmp(const void *k1, const void *k2, struct back_end_key_ctx *key_ctx)
+db_key_cmp(const void *k1, const void *k2, void *key_ctx)
 {
     int cmp;
     struct db_key *key1 = (struct db_key *)k1;
     struct db_key *key2 = (struct db_key *)k2;
 
     if (key_ctx != NULL) {
-        memcpy(key_ctx->last_key, k2, sizeof(struct db_key));
-        key_ctx->last_key_valid = 1;
+        struct db_key_ctx *ctx = (struct db_key_ctx *)key_ctx;
+
+        memcpy(ctx->last_key, k2, sizeof(struct db_key));
+        ctx->last_key_valid = 1;
     }
 
     cmp = uint64_cmp(key1->type, key2->type);
@@ -3231,7 +3234,8 @@ simplefs_init(void *userdata, struct fuse_conn_info *conn)
     if (ret != 0)
         goto err4;
 
-    ret = back_end_open(&priv->be, sizeof(struct db_key), &db_key_cmp, &args);
+    ret = back_end_open(&priv->be, sizeof(struct db_key), BACK_END_DBM,
+                        &db_key_cmp, &args);
     if (ret != 0) {
         if (ret != -ENOENT)
             goto err5;
@@ -3241,8 +3245,8 @@ simplefs_init(void *userdata, struct fuse_conn_info *conn)
                   "system)\n", stderr);
         }
 
-        ret = back_end_create(&priv->be, sizeof(struct db_key), &db_key_cmp,
-                              &args);
+        ret = back_end_create(&priv->be, sizeof(struct db_key), BACK_END_DBM,
+                              &db_key_cmp, &args);
         if (ret != 0)
             goto err5;
 
