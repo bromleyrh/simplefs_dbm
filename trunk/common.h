@@ -53,6 +53,8 @@ static __thread int asserttmp;
 #define _STR(x) #x
 #define STR(x) _STR(x)
 
+#define ARRAY_SIZE(arr) (sizeof(arr) / sizeof((arr)[0]))
+
 #endif
 
 /* vi: set expandtab sw=4 ts=4: */

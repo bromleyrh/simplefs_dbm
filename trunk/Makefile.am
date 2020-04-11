@@ -41,7 +41,10 @@ mount_simplefs_CFLAGS = $(AM_CFLAGS)
 
 EXTRA_DIST = build-aux
 
+check_PROGRAMS =
+
 include scripts/Makefile.am
+include tests/Makefile.am
 
 distclean-local:
 	-rm -f scan_build
