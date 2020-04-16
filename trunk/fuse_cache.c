@@ -8,6 +8,7 @@
 
 #include <avl_tree.h>
 
+#include <assert.h>
 #include <errno.h>
 #include <stddef.h>
 #include <stdlib.h>
@@ -32,11 +33,17 @@ struct op {
     size_t          datasize;
 };
 
+struct key_ctx {
+    void    *last_key;
+    int     last_key_valid;
+};
+
 struct fuse_cache {
     struct avl_tree             *cache;
     void                        *ctx;
     const struct back_end_ops   *ops;
     size_t                      key_size;
+    struct key_ctx              key_ctx;
     back_end_key_cmp_t          key_cmp;
     struct avl_tree             *trans;
     int                         trans_valid;
@@ -50,9 +57,16 @@ struct fuse_cache_iter {
 static int cache_obj_cmp(const void *, const void *, void *);
 static int op_cmp(const void *, const void *, void *);
 
+static int get_next_elem(void *, void *, size_t *, const void *,
+                         struct fuse_cache *);
+static int do_iter_get(void *, void *, void **, size_t *, size_t *,
+                       struct fuse_cache *);
+
 static int init_cache_obj(struct cache_obj *, const void *, const void *,
                           size_t, struct fuse_cache *);
 static void destroy_cache_obj(struct cache_obj *);
+static int return_cache_obj(const struct cache_obj *, void *, void *, size_t *,
+                            struct fuse_cache *);
 
 static int fuse_cache_create(void **, size_t, back_end_key_cmp_t, void *);
 static int fuse_cache_open(void **, size_t, back_end_key_cmp_t, void *);
@@ -119,6 +133,75 @@ op_cmp(const void *k1, const void *k2, void *ctx)
 }
 
 static int
+get_next_elem(void *retkey, void *retdata, size_t *retdatasize, const void *key,
+              struct fuse_cache *cache)
+{
+    avl_tree_iter_t iter;
+    int res;
+    size_t datalen;
+    struct cache_obj *o;
+    struct cache_obj obj;
+
+    if (retdatasize == NULL)
+        retdatasize = &datalen;
+
+    res = avl_tree_iter_new(&iter, cache->cache);
+    if (res != 0)
+        return res;
+
+    obj.key = key;
+    o = &obj;
+    res = avl_tree_iter_search(iter, &o);
+    if (res != 1) {
+        if (res == 0)
+            res = -ENOENT;
+        goto end;
+    }
+
+    res = avl_tree_iter_next(iter);
+    if (res != 0)
+        goto end;
+
+    res = avl_tree_iter_get(iter, &o);
+    if (res == 1)
+        res = return_cache_obj(o, retkey, retdata, retdatasize, cache);
+
+end:
+    avl_tree_iter_free(iter);
+    return res;
+}
+
+static int
+do_iter_get(void *iter, void *key, void **data, size_t *datalen,
+            size_t *datasize, struct fuse_cache *cache)
+{
+    int res;
+    size_t len;
+
+    res = (*(cache->ops->iter_get))(iter, NULL, NULL, &len);
+    if (res != 0)
+        return res;
+
+    if (len > *datalen) {
+        void *tmp;
+
+        tmp = do_realloc(*data, len);
+        if (tmp == NULL)
+            return -errno;
+        *data = tmp;
+        *datasize = len;
+    }
+
+    res = (*(cache->ops->iter_get))(iter, key, *data, &len);
+    if (res == 0) {
+        assert(len <= *datasize);
+        *datalen = len;
+    }
+
+    return 0;
+}
+
+static int
 init_cache_obj(struct cache_obj *o, const void *key, const void *data,
                size_t datasize, struct fuse_cache *cache)
 {
@@ -154,6 +237,20 @@ destroy_cache_obj(struct cache_obj *o)
 }
 
 static int
+return_cache_obj(const struct cache_obj *o, void *retkey, void *retdata,
+                 size_t *retdatasize, struct fuse_cache *cache)
+{
+    if (retkey != NULL)
+        memcpy(retkey, o->key, cache->key_size);
+    if (retdata != NULL)
+        memcpy(retdata, o->data, o->datasize);
+    if (retdatasize != NULL)
+        *retdatasize = o->datasize;
+
+    return 1;
+}
+
+static int
 fuse_cache_create(void **ctx, size_t key_size, back_end_key_cmp_t key_cmp,
                   void *args)
 {
@@ -168,20 +265,26 @@ fuse_cache_create(void **ctx, size_t key_size, back_end_key_cmp_t key_cmp,
     ret->key_size = key_size;
     ret->key_cmp = key_cmp;
 
+    ret->key_ctx.last_key = do_malloc(key_size);
+    if (ret->key_ctx.last_key == NULL) {
+        err = -errno;
+        goto err1;
+    }
+
     err = avl_tree_new(&ret->cache, sizeof(struct cache_obj *), &cache_obj_cmp,
                        0, NULL, ret, NULL);
     if (err)
-        goto err1;
+        goto err2;
 
     err = avl_tree_new(&ret->trans, sizeof(struct op), &op_cmp, 0, NULL, ret,
                        NULL);
     if (err)
-        goto err2;
+        goto err3;
 
     err = (*(cache_args->ops->create))(&ret->ctx, key_size, key_cmp,
                                        cache_args->args);
     if (err)
-        goto err3;
+        goto err4;
 
     ret->ops = cache_args->ops;
 
@@ -190,10 +293,12 @@ fuse_cache_create(void **ctx, size_t key_size, back_end_key_cmp_t key_cmp,
     *ctx = ret;
     return 0;
 
-err3:
+err4:
     avl_tree_free(ret->trans);
-err2:
+err3:
     avl_tree_free(ret->cache);
+err2:
+    free(ret->key_ctx.last_key);
 err1:
     free(ret);
     return err;
@@ -214,20 +319,26 @@ fuse_cache_open(void **ctx, size_t key_size, back_end_key_cmp_t key_cmp,
     ret->key_size = key_size;
     ret->key_cmp = key_cmp;
 
+    ret->key_ctx.last_key = do_malloc(key_size);
+    if (ret->key_ctx.last_key == NULL) {
+        err = -errno;
+        goto err1;
+    }
+
     err = avl_tree_new(&ret->cache, sizeof(struct cache_obj *), &cache_obj_cmp,
                        0, NULL, ret, NULL);
     if (err)
-        goto err1;
+        goto err2;
 
     err = avl_tree_new(&ret->trans, sizeof(struct op), &op_cmp, 0, NULL, ret,
                        NULL);
     if (err)
-        goto err2;
+        goto err3;
 
     err = (*(cache_args->ops->open))(&ret->ctx, key_size, key_cmp,
                                      cache_args->args);
     if (err)
-        goto err3;
+        goto err4;
 
     ret->ops = cache_args->ops;
 
@@ -236,10 +347,12 @@ fuse_cache_open(void **ctx, size_t key_size, back_end_key_cmp_t key_cmp,
     *ctx = ret;
     return 0;
 
-err3:
+err4:
     avl_tree_free(ret->trans);
-err2:
+err3:
     avl_tree_free(ret->cache);
+err2:
+    free(ret->key_ctx.last_key);
 err1:
     free(ret);
     return err;
@@ -261,6 +374,8 @@ fuse_cache_close(void *ctx)
     if (tmp != 0)
         err = tmp;
 
+    free(cache->key_ctx.last_key);
+
     free(cache);
 
     return err;
@@ -272,6 +387,8 @@ fuse_cache_insert(void *ctx, const void *key, const void *data, size_t datasize)
     int err;
     struct cache_obj *o;
     struct fuse_cache *cache = (struct fuse_cache *)ctx;
+
+    /* insert into cache */
 
     o = do_malloc(sizeof(*o));
     if (o == NULL)
@@ -285,6 +402,7 @@ fuse_cache_insert(void *ctx, const void *key, const void *data, size_t datasize)
     if (err)
         goto err2;
 
+    /* insert into back end */
     err = (*(cache->ops->insert))(cache->ctx, key, data, datasize);
     if (err)
         goto err3;
@@ -309,6 +427,8 @@ fuse_cache_replace(void *ctx, const void *key, const void *data,
     struct cache_obj obj;
     struct fuse_cache *cache = (struct fuse_cache *)ctx;
 
+    /* replace in cache */
+
     obj.key = key;
     o = &obj;
     res = avl_tree_search(cache->cache, &o, &o_old);
@@ -321,6 +441,7 @@ fuse_cache_replace(void *ctx, const void *key, const void *data,
     if (res != 0)
         goto err1;
 
+    /* replace in back end */
     res = (*(cache->ops->replace))(cache->ctx, key, data, datasize);
     if (res != 0)
         goto err2;
@@ -338,10 +459,54 @@ static int
 fuse_cache_look_up(void *ctx, const void *key, void *retkey, void *retdata,
                    size_t *retdatasize, int look_up_nearest)
 {
+    int res;
+    struct cache_obj *o;
+    struct cache_obj obj;
     struct fuse_cache *cache = (struct fuse_cache *)ctx;
 
+    /* look up in cache */
+    obj.key = key;
+    o = &obj;
+    res = avl_tree_search(cache->cache, &o, &o);
+    if (res != 0)
+        goto out_cache;
+
+    /* look up in back end */
+    res = (*(cache->ops->look_up))(cache->ctx, key, retkey, retdata,
+                                   retdatasize, 0);
+    if (!look_up_nearest || (res != 0))
+        return res;
+
+    /* look up nearest key in cache */
+
+    cache->key_ctx.last_key_valid = 0;
+
+    res = avl_tree_search(cache->cache, &o, &o);
+
+    assert(res == 0);
+    if (cache->key_ctx.last_key_valid) {
+        int cmp;
+
+        cmp = (*(cache->key_cmp))(cache->key_ctx.last_key, key, NULL);
+        if (cmp > 0) {
+            obj.key = cache->key_ctx.last_key;
+            o = &obj;
+            res = avl_tree_search(cache->cache, &o, &o);
+            assert(res != 0);
+            goto out_cache;
+        }
+        res = get_next_elem(retkey, retdata, retdatasize,
+                            cache->key_ctx.last_key, cache);
+        return (res == -EADDRNOTAVAIL) ? 0 : res;
+    }
+
+    /* look up nearest key in back end */
     return (*(cache->ops->look_up))(cache->ctx, key, retkey, retdata,
-                                    retdatasize, look_up_nearest);
+                                    retdatasize, 1);
+
+out_cache:
+    return (res == 1)
+           ? return_cache_obj(o, retkey, retdata, retdatasize, cache) : res;
 }
 
 static int
@@ -352,10 +517,12 @@ fuse_cache_delete(void *ctx, const void *key)
     struct cache_obj obj;
     struct fuse_cache *cache = (struct fuse_cache *)ctx;
 
+    /* delete from back end */
     err = (*(cache->ops->delete))(cache->ctx, key);
     if (err)
         return err;
 
+    /* delete from cache */
     obj.key = key;
     o = &obj;
     if (avl_tree_delete(cache->cache, &o) != 0)
@@ -367,9 +534,94 @@ fuse_cache_delete(void *ctx, const void *key)
 static int
 fuse_cache_walk(void *ctx, back_end_walk_cb_t fn, void *wctx)
 {
+    avl_tree_iter_t citer;
+    int res;
+    size_t datalen, datasize;
+    struct cache_obj *o;
     struct fuse_cache *cache = (struct fuse_cache *)ctx;
+    void *biter;
+    void *iter;
+    void *data;
+    void *key, *minkey;
 
-    return (*(cache->ops->walk))(cache->ctx, fn, wctx);
+    key = do_malloc(cache->key_size);
+    if (key == NULL)
+        return -errno;
+
+    datasize = 16;
+    data = do_malloc(datasize);
+    if (data == NULL) {
+        res = -errno;
+        goto err1;
+    }
+
+    res = avl_tree_iter_new(&citer, cache->cache);
+    if (res != 0) {
+        if (res != -ENOENT)
+            goto err2;
+        citer = NULL;
+    }
+
+    res = (*(cache->ops->iter_new))(&biter, cache->ctx);
+    if (res != 0) {
+        if (res != -ENOENT)
+            goto err3;
+        if (citer == NULL)
+            return -ENOENT;
+        biter = NULL;
+    }
+
+    if (citer != NULL) {
+        res = avl_tree_iter_get(citer, &o);
+        if (res != 0)
+            goto err4;
+        if (biter == NULL) {
+            iter = citer;
+            minkey = (void *)(o->key);
+        }
+    }
+    if (biter != NULL) {
+        res = (*(cache->ops->iter_get))(biter, key, NULL, NULL);
+        if (res != 0)
+            goto err4;
+        if (citer == NULL) {
+            iter = biter;
+            minkey = key;
+        }
+    }
+    if ((citer != NULL) && (biter != NULL)) {
+        res = (*(cache->key_cmp))(o->key, key, NULL);
+        if (res < 0) {
+            iter = citer;
+            minkey = (void *)(o->key);
+        } else {
+            iter = biter;
+            minkey = key;
+        }
+    }
+
+    for (;;) {
+    }
+
+    avl_tree_iter_free(citer);
+    (*(cache->ops->iter_free))(biter);
+
+    free(key);
+    free(data);
+
+    return 0;
+
+err4:
+    if (biter != NULL)
+        (*(cache->ops->iter_free))(biter);
+err3:
+    if (citer != NULL)
+        avl_tree_iter_free(citer);
+err2:
+    free(data);
+err1:
+    free(key);
+    return res;
 }
 
 static int
