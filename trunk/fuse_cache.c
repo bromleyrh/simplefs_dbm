@@ -544,6 +544,8 @@ fuse_cache_walk(void *ctx, back_end_walk_cb_t fn, void *wctx)
     void *data;
     void *key, *minkey;
 
+    /* allocate key and data buffers */
+
     key = do_malloc(cache->key_size);
     if (key == NULL)
         return -errno;
@@ -554,6 +556,8 @@ fuse_cache_walk(void *ctx, back_end_walk_cb_t fn, void *wctx)
         res = -errno;
         goto err1;
     }
+
+    /* initialize cache and back end iterators */
 
     res = avl_tree_iter_new(&citer, cache->cache);
     if (res != 0) {
@@ -571,6 +575,7 @@ fuse_cache_walk(void *ctx, back_end_walk_cb_t fn, void *wctx)
         biter = NULL;
     }
 
+    /* get minimum element */
     if (citer != NULL) {
         res = avl_tree_iter_get(citer, &o);
         if (res != 0)
@@ -594,17 +599,101 @@ fuse_cache_walk(void *ctx, back_end_walk_cb_t fn, void *wctx)
         if (res < 0) {
             iter = citer;
             minkey = (void *)(o->key);
-        } else {
+        } else if (res > 0) {
             iter = biter;
             minkey = key;
+        } else { /* skip duplicate element */
+            res = (*(cache->ops->iter_next))(biter);
+            if (res != 0) {
+                if (res != -EADDRNOTAVAIL)
+                    goto err4;
+                (*(cache->ops->iter_free))(biter);
+                biter = NULL;
+            }
         }
     }
 
+    /* iterate through remaining elements */
     for (;;) {
-    }
+        const void *d;
+        size_t dlen;
 
-    avl_tree_iter_free(citer);
-    (*(cache->ops->iter_free))(biter);
+        /* invoke callback function with key and data of current minimum
+           element */
+        if (iter == biter) {
+            res = do_iter_get(biter, minkey, &data, &datalen, &datasize, cache);
+            if (res != 0)
+                goto err4;
+            d = data;
+            dlen = datalen;
+        } else {
+            d = o->data;
+            dlen = o->datasize;
+        }
+        res = (*fn)(minkey, d, dlen, wctx);
+        if (res != 0)
+            goto err4;
+
+        /* advance iterator associated with current minimum element */
+        if (iter == citer) {
+            res = avl_tree_iter_next(citer);
+            if (res != 0) {
+                if (res != -EADDRNOTAVAIL)
+                    goto err4;
+                avl_tree_iter_free(citer);
+                citer = NULL;
+                if (biter == NULL)
+                    break;
+                iter = biter;
+            }
+        } else {
+            res = (*(cache->ops->iter_next))(biter);
+            if (res != 0) {
+                if (res != -EADDRNOTAVAIL)
+                    goto err4;
+                (*(cache->ops->iter_free))(biter);
+                biter = NULL;
+                if (citer == NULL)
+                    break;
+                iter = citer;
+            }
+        }
+
+        /* get element at new iterator position */
+        if (iter == citer) {
+            res = avl_tree_iter_get(citer, &o);
+            if (res != 0)
+                goto err4;
+            if (biter == NULL)
+                minkey = (void *)(o->key);
+        } else {
+            res = (*(cache->ops->iter_get))(biter, key, NULL, NULL);
+            if (res != 0)
+                goto err4;
+            if (citer == NULL)
+                minkey = key;
+        }
+
+        if ((citer != NULL) && (biter != NULL)) {
+            /* determine next minimum element */
+            res = (*(cache->key_cmp))(o->key, key, NULL);
+            if (res < 0) {
+                iter = citer;
+                minkey = (void *)(o->key);
+            } else if (res > 0) {
+                iter = biter;
+                minkey = key;
+            } else { /* skip duplicate element */
+                res = (*(cache->ops->iter_next))(biter);
+                if (res != 0) {
+                    if (res != -EADDRNOTAVAIL)
+                        goto err4;
+                    (*(cache->ops->iter_free))(biter);
+                    biter = NULL;
+                }
+            }
+        }
+    }
 
     free(key);
     free(data);
