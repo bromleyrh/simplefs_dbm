@@ -53,6 +53,9 @@ struct fuse_cache_iter {
     void                *iter;
     avl_tree_iter_t     citer;
     void                *biter;
+    struct cache_obj    *o;
+    void                *key;
+    void                *minkey;
     struct fuse_cache   *cache;
 };
 
@@ -182,13 +185,12 @@ get_next_iter_elem(struct cache_obj *o, void *key, avl_tree_iter_t citer,
                    struct fuse_cache *cache)
 {
     int res;
-    void *retminkey;
 
     res = (*(cache->key_cmp))(o->key, key, NULL);
     if (res > 0) {
         *iter = *biter;
-        retminkey = key;
-        goto end;
+        *minkey = key;
+        return 0;
     }
 
     if (res == 0) { /* skip duplicate element */
@@ -202,11 +204,7 @@ get_next_iter_elem(struct cache_obj *o, void *key, avl_tree_iter_t citer,
     }
 
     *iter = citer;
-    retminkey = (void *)(o->key);
-
-end:
-    if (minkey != NULL)
-        *minkey = retminkey;
+    *minkey = (void *)(o->key);
     return 0;
 }
 
@@ -660,7 +658,7 @@ fuse_cache_walk(void *ctx, back_end_walk_cb_t fn, void *wctx)
         if (res != 0)
             goto err4;
 
-        /* advance iterator associated with current minimum element */
+        /* advance iterator associated with current element */
         if (iter == citer) {
             res = avl_tree_iter_next(citer);
             if (res != 0) {
@@ -730,29 +728,33 @@ static int
 fuse_cache_iter_new(void **iter, void *ctx)
 {
     int res;
-    struct cache_obj *o;
     struct fuse_cache *cache = (struct fuse_cache *)ctx;
     struct fuse_cache_iter *ret;
-    void *key;
 
     ret = do_malloc(sizeof(*ret));
     if (ret == NULL)
         return -errno;
 
+    ret->key = do_malloc(cache->key_size);
+    if (ret->key == NULL) {
+        res = -errno;
+        goto err1;
+    }
+
     res = avl_tree_iter_new(&ret->citer, cache->cache);
     if (res != 0) {
         if (res != -ENOENT)
-            goto err1;
+            goto err2;
         ret->citer = NULL;
     }
 
     res = (*(cache->ops->iter_new))(&ret->biter, cache->ctx);
     if (res != 0) {
         if (res != -ENOENT)
-            goto err2;
+            goto err3;
         if (ret->citer == NULL) {
             res = -ENOENT;
-            goto err2;
+            goto err3;
         }
         ret->biter = NULL;
     }
@@ -763,36 +765,30 @@ fuse_cache_iter_new(void **iter, void *ctx)
     else if (ret->biter == NULL)
         ret->iter = ret->citer;
     else {
-        key = do_malloc(cache->key_size);
-        if (key == NULL)
-            goto err3;
-
-        res = avl_tree_iter_get(ret->citer, &o);
+        res = avl_tree_iter_get(ret->citer, &ret->o);
         if (res != 0)
             goto err4;
-        res = (*(cache->ops->iter_get))(ret->biter, key, NULL, NULL);
+        res = (*(cache->ops->iter_get))(ret->biter, ret->key, NULL, NULL);
         if (res != 0)
             goto err4;
 
-        res = get_next_iter_elem(o, key, ret->citer, &ret->biter, &ret->iter,
-                                 NULL, cache);
+        res = get_next_iter_elem(ret->o, ret->key, ret->citer, &ret->biter,
+                                 &ret->iter, &ret->minkey, cache);
         if (res != 0)
             goto err4;
-
-        free(key);
     }
 
     *iter = ret;
     return 0;
 
 err4:
-    free(key);
-err3:
     if (ret->biter != NULL)
         (*(cache->ops->iter_free))(ret->biter);
-err2:
+err3:
     if (ret->citer != NULL)
         avl_tree_iter_free(ret->citer);
+err2:
+    free(ret->key);
 err1:
     free(ret);
     return res;
@@ -813,6 +809,8 @@ fuse_cache_iter_free(void *iter)
             err = tmp;
     }
 
+    free(iterator->key);
+
     free(iterator);
 
     return err;
@@ -822,7 +820,56 @@ static int
 fuse_cache_iter_get(void *iter, void *retkey, void *retdata,
                     size_t *retdatasize)
 {
+    int err;
     struct fuse_cache_iter *iterator = (struct fuse_cache_iter *)iter;
+
+    if (iterator->minkey == NULL) {
+        /* get element at new iterator position */
+        if (iterator->iter == iterator->citer) {
+            err = avl_tree_iter_get(iterator->citer, &iterator->o);
+            if (err)
+                return err;
+            if (iterator->biter == NULL)
+                iterator->minkey = (void *)(iterator->o->key);
+        } else {
+            err = (*(iterator->cache->ops->iter_get))(iterator->biter,
+                                                      iterator->key, NULL,
+                                                      NULL);
+            if (err)
+                return err;
+            if (iterator->citer == NULL)
+                iterator->minkey = iterator->key;
+        }
+
+        if ((iterator->citer != NULL) && (iterator->biter != NULL)) {
+            /* determine next element */
+            err = get_next_iter_elem(iterator->o, iterator->key,
+                                     iterator->citer, &iterator->biter,
+                                     &iterator->iter, &iterator->minkey,
+                                     iterator->cache);
+            if (err) {
+                iterator->minkey = NULL;
+                return err;
+            }
+        }
+    }
+
+    if (iterator->iter == iterator->citer) {
+        struct cache_obj *o;
+
+        avl_tree_iter_get(iterator->citer, &o);
+
+        if (retkey != NULL)
+            memcpy(retkey, o->key, iterator->cache->key_size);
+        if (retdata != NULL)
+            memcpy(retdata, o->data, o->datasize);
+        if (retdatasize != NULL)
+            *retdatasize = o->datasize;
+
+        return 0;
+    }
+
+    /* iterator->iter == iterator->biter */
 
     return (*(iterator->cache->ops->iter_get))(iterator->iter, retkey, retdata,
                                                retdatasize);
@@ -831,9 +878,35 @@ fuse_cache_iter_get(void *iter, void *retkey, void *retdata,
 static int
 fuse_cache_iter_next(void *iter)
 {
+    int err;
     struct fuse_cache_iter *iterator = (struct fuse_cache_iter *)iter;
 
-    return (*(iterator->cache->ops->iter_next))(iterator->iter);
+    /* advance iterator associated with current element */
+    if (iterator->iter == iterator->citer) {
+        err = avl_tree_iter_next(iterator->citer);
+        if (err) {
+            if (err != -EADDRNOTAVAIL)
+                return err;
+            avl_tree_iter_free(iterator->citer);
+            iterator->citer = NULL;
+            if (iterator->biter == NULL)
+                return -EADDRNOTAVAIL;
+            iterator->iter = iterator->biter;
+        }
+    } else {
+        err = (*(iterator->cache->ops->iter_next))(iterator->biter);
+        if (err) {
+            if (err != -EADDRNOTAVAIL)
+                return err;
+            (*(iterator->cache->ops->iter_free))(iterator->biter);
+            iterator->biter = NULL;
+            if (iterator->citer == NULL)
+                return -EADDRNOTAVAIL;
+            iterator->iter = iterator->citer;
+        }
+    }
+
+    return 0;
 }
 
 static int
