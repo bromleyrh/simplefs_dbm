@@ -373,6 +373,7 @@ back_end_dbm_iter_new(void **iter, void *ctx)
     ret->srch_key = do_malloc(dbctx->key_size);
     if (ret->srch_key == NULL)
         goto err2;
+    ret->srch_status = -EINVAL;
 
     *iter = ret;
     return 0;
