@@ -18,6 +18,7 @@ struct cache_obj {
     const void  *key;
     const void  *data;
     size_t      datasize;
+    int         deleted;
 };
 
 enum op_type {
@@ -172,13 +173,20 @@ get_next_elem(void *retkey, void *retdata, size_t *retdatasize, const void *key,
         goto end;
     }
 
-    res = avl_tree_iter_next(iter);
-    if (res != 0)
-        goto end;
+    for (;;) {
+        res = avl_tree_iter_next(iter);
+        if (res != 0)
+            goto end;
 
-    res = avl_tree_iter_get(iter, &o);
-    if (res == 1)
-        res = return_cache_obj(o, retkey, retdata, retdatasize, cache);
+        res = avl_tree_iter_get(iter, &o);
+        if (res != 0)
+            goto end;
+
+        if (!(o->deleted)) {
+            res = return_cache_obj(o, retkey, retdata, retdatasize, cache);
+            break;
+        }
+    }
 
 end:
     avl_tree_iter_free(iter);
@@ -272,6 +280,19 @@ do_iter_search_cache(avl_tree_iter_t iter, const void *key,
             return res;
     }
 
+    for (;;) {
+        res = avl_tree_iter_get(iter, &o);
+        if (res != 0)
+            return res;
+
+        if (!(o->deleted))
+            break;
+
+        res = avl_tree_iter_next(iter);
+        if (res != 0)
+            return res;
+    }
+
     return 0;
 }
 
@@ -305,6 +326,7 @@ init_cache_obj(struct cache_obj *o, const void *key, const void *data,
     o->key = k;
     o->data = d;
     o->datasize = datasize;
+    o->deleted = 0;
 
     return 0;
 }
@@ -466,8 +488,8 @@ fuse_cache_close(void *ctx)
 static int
 fuse_cache_insert(void *ctx, const void *key, const void *data, size_t datasize)
 {
-    int err;
-    struct cache_obj *o;
+    int res;
+    struct cache_obj *o, *o_old;
     struct fuse_cache *cache = (struct fuse_cache *)ctx;
 
     /* insert into cache */
@@ -476,17 +498,42 @@ fuse_cache_insert(void *ctx, const void *key, const void *data, size_t datasize)
     if (o == NULL)
         return -errno;
 
-    err = init_cache_obj(o, key, data, datasize, cache);
-    if (err)
+    res = init_cache_obj(o, key, data, datasize, cache);
+    if (res != 0)
         goto err1;
 
-    err = avl_tree_insert(cache->cache, &o);
-    if (err)
-        goto err2;
+    res = avl_tree_insert(cache->cache, &o);
+    if (res != 0) {
+        if (res!= -EADDRINUSE)
+            goto err2;
+
+        res = avl_tree_search(cache->cache, &o, &o_old);
+        if (res != 1) {
+            if (res == 0)
+                res = -EIO;
+            goto err2;
+        }
+
+        if (!(o_old->deleted)) {
+            res = -EADDRINUSE;
+            goto err2;
+        }
+
+        free(o);
+
+        free((void *)(o_old->key));
+        free((void *)(o_old->data));
+        o_old->key = key;
+        o_old->data = data;
+        o_old->datasize = datasize;
+        o_old->deleted = 0;
+
+        return 0;
+    }
 
     /* insert into back end */
-    err = (*(cache->ops->insert))(cache->ctx, key, data, datasize);
-    if (err)
+    res = (*(cache->ops->insert))(cache->ctx, key, data, datasize);
+    if (res != 0)
         goto err3;
 
     return 0;
@@ -497,7 +544,7 @@ err2:
     destroy_cache_obj(o);
 err1:
     free(o);
-    return err;
+    return res;
 }
 
 static int
@@ -517,6 +564,9 @@ fuse_cache_replace(void *ctx, const void *key, const void *data,
     if (res != 1)
         return (res == 0) ? -EADDRNOTAVAIL : res;
 
+    if (o_old->deleted)
+        return -EADDRNOTAVAIL;
+
     obj = *o_old;
 
     res = init_cache_obj(o_old, key, data, datasize, cache);
@@ -527,6 +577,9 @@ fuse_cache_replace(void *ctx, const void *key, const void *data,
     res = (*(cache->ops->replace))(cache->ctx, key, data, datasize);
     if (res != 0)
         goto err2;
+
+    free((void *)(obj.key));
+    free((void *)(obj.data));
 
     return 0;
 
@@ -550,8 +603,11 @@ fuse_cache_look_up(void *ctx, const void *key, void *retkey, void *retdata,
     obj.key = key;
     o = &obj;
     res = avl_tree_search(cache->cache, &o, &o);
-    if (res != 0)
+    if (res != 0) {
+        if ((res == 1) && o->deleted)
+            res = 0;
         goto out_cache;
+    }
 
     /* look up in back end */
     res = (*(cache->ops->look_up))(cache->ctx, key, retkey, retdata,
@@ -594,20 +650,31 @@ out_cache:
 static int
 fuse_cache_delete(void *ctx, const void *key)
 {
-    int err;
+    int in_cache = 0;
+    int res;
     struct cache_obj *o;
     struct cache_obj obj;
     struct fuse_cache *cache = (struct fuse_cache *)ctx;
 
-    /* delete from back end */
-    err = (*(cache->ops->delete))(cache->ctx, key);
-    if (err)
-        return err;
-
-    /* delete from cache */
     obj.key = key;
     o = &obj;
-    if (avl_tree_delete(cache->cache, &o) != 0)
+
+    res = avl_tree_search(cache->cache, &o, &o);
+    if (res != 0) {
+        if (res != 1)
+            return res;
+        if (o->deleted)
+            return -EADDRNOTAVAIL;
+        in_cache = 1;
+    }
+
+    /* delete from back end */
+    res = (*(cache->ops->delete))(cache->ctx, key);
+    if (res != 0)
+        return res;
+
+    /* delete from cache */
+    if (in_cache && (avl_tree_delete(cache->cache, &o) != 0))
         abort();
 
     return 0;
@@ -685,6 +752,7 @@ fuse_cache_walk(void *ctx, back_end_walk_cb_t fn, void *wctx)
     /* iterate through remaining elements */
     for (;;) {
         const void *d;
+        int del;
         size_t dlen;
 
         /* invoke callback function with key and data of current minimum
@@ -695,13 +763,17 @@ fuse_cache_walk(void *ctx, back_end_walk_cb_t fn, void *wctx)
                 goto err4;
             d = data;
             dlen = datalen;
+            del = 0;
         } else {
             d = o->data;
             dlen = o->datasize;
+            del = o->deleted;
         }
-        res = (*fn)(minkey, d, dlen, wctx);
-        if (res != 0)
-            goto err4;
+        if (!del) {
+            res = (*fn)(minkey, d, dlen, wctx);
+            if (res != 0)
+                goto err4;
+        }
 
         /* advance iterator associated with current element */
         if (iter == citer) {
@@ -928,16 +1000,24 @@ fuse_cache_iter_next(void *iter)
 
     /* advance iterator associated with current element */
     if (iterator->iter == iterator->citer) {
-        err = avl_tree_iter_next(iterator->citer);
-        if (err) {
-            if (err != -EADDRNOTAVAIL)
-                return err;
-            avl_tree_iter_free(iterator->citer);
-            iterator->citer = NULL;
-            if (iterator->biter == NULL)
-                return -EADDRNOTAVAIL;
-            iterator->iter = iterator->biter;
+        for (;;) {
+            struct cache_obj *o;
+
+            err = avl_tree_iter_next(iterator->citer);
+            if (err)
+                break;
+
+            err = avl_tree_iter_get(iterator->citer, &o);
+            if (err || !(o->deleted))
+                break;
         }
+        if (err != -EADDRNOTAVAIL)
+            return err;
+        avl_tree_iter_free(iterator->citer);
+        iterator->citer = NULL;
+        if (iterator->biter == NULL)
+            return -EADDRNOTAVAIL;
+        iterator->iter = iterator->biter;
     } else {
         err = (*(iterator->cache->ops->iter_next))(iterator->biter);
         if (err) {
