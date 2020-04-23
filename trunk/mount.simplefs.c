@@ -195,16 +195,25 @@ main(int argc, char **argv)
 
     mountpoint = mount_argv[MOUNT_MOUNTPOINT_ARGV_IDX];
 
-    if (snprintf(buf, sizeof(buf), "%s", mountpoint) >= (int)sizeof(buf))
-        error(EXIT_FAILURE, 0, "Path argument too long");
-    if (chdir(dirname(buf)) == -1)
-        error(EXIT_FAILURE, errno, "Error changing directory");
+    if (snprintf(buf, sizeof(buf), "%s", mountpoint) >= (int)sizeof(buf)) {
+        err = -ENAMETOOLONG;
+        errmsg = "Path argument too long";
+        goto err1;
+    }
+    if (chdir(dirname(buf)) == -1) {
+        err = -errno;
+        errmsg = "Error changing directory";
+        goto err1;
+    }
 
     snprintf(buf, sizeof(buf), "%s", mountpoint);
     mountpoint = mount_argv[MOUNT_MOUNTPOINT_ARGV_IDX] = basename(buf);
 
-    if ((sigfillset(&set) != 0) || (sigprocmask(SIG_BLOCK, &set, &oset) == -1))
+    if ((sigfillset(&set) != 0)
+        || (sigprocmask(SIG_BLOCK, &set, &oset) == -1)) {
+        free(mount_argv);
         return EXIT_FAILURE;
+    }
 
     err = do_mount(mount_argv, 0);
     if (err)
@@ -221,11 +230,14 @@ main(int argc, char **argv)
         goto err2;
     }
 
+    free(mount_argv);
+
     return EXIT_SUCCESS;
 
 err2:
     do_mount(mount_argv, 1);
 err1:
+    free(mount_argv);
     error(EXIT_FAILURE, (err > 0) ? EIO : -err, "%s", errmsg);
 }
 
