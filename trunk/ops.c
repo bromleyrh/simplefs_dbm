@@ -2478,7 +2478,8 @@ do_rename(void *args)
     if (ret != 0)
         goto err5;
 
-    set_ref_inode_nodelete(opargs->be, opargs->ref_inodes, ds.st_ino, 0);
+    if (existing)
+        set_ref_inode_nodelete(opargs->be, opargs->ref_inodes, ds.st_ino, 0);
     set_ref_inode_nodelete(opargs->be, opargs->ref_inodes, ss.st_ino, 0);
 
     return 0;
