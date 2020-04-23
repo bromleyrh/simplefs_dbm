@@ -705,6 +705,7 @@ fuse_cache_walk(void *ctx, back_end_walk_cb_t fn, void *wctx)
         res = -errno;
         goto err1;
     }
+    datalen = 0;
 
     /* initialize cache and back end iterators */
 
@@ -713,7 +714,8 @@ fuse_cache_walk(void *ctx, back_end_walk_cb_t fn, void *wctx)
         if (res != -ENOENT)
             goto err2;
         citer = NULL;
-    }
+    } else
+        assert(citer != NULL);
 
     res = (*(cache->ops->iter_new))(&biter, cache->ctx);
     if (res != 0) {
@@ -722,7 +724,8 @@ fuse_cache_walk(void *ctx, back_end_walk_cb_t fn, void *wctx)
         if (citer == NULL)
             return -ENOENT;
         biter = NULL;
-    }
+    } else
+        assert(biter != NULL);
 
     /* get minimum element */
     if (citer != NULL) {
