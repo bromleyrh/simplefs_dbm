@@ -265,7 +265,7 @@ do_iter_search_cache(avl_tree_iter_t iter, const void *key,
 
     res = avl_tree_iter_search(iter, &o);
     if (res != 0)
-        return res;
+        return (res == 1) ? 0 : res;
 
     o = cache->key_ctx.last_key;
 
@@ -299,7 +299,10 @@ do_iter_search_cache(avl_tree_iter_t iter, const void *key,
 static int
 do_iter_search_be(void *iter, const void *key, struct fuse_cache *cache)
 {
-    return (*(cache->ops->iter_search))(iter, key);
+    int res;
+
+    res = (*(cache->ops->iter_search))(iter, key);
+    return (res == 1) ? 0 : res;
 }
 
 static int
@@ -490,7 +493,7 @@ fuse_cache_insert(void *ctx, const void *key, const void *data, size_t datasize)
 
     res = avl_tree_insert(cache->cache, &o);
     if (res != 0) {
-        if (res!= -EADDRINUSE)
+        if (res != -EADDRINUSE)
             goto err2;
 
         res = avl_tree_search(cache->cache, &o, &o_old);
@@ -537,35 +540,41 @@ static int
 fuse_cache_replace(void *ctx, const void *key, const void *data,
                    size_t datasize)
 {
+    int in_cache = 0;
     int res;
     struct cache_obj *o, *o_old;
     struct cache_obj obj;
     struct fuse_cache *cache = (struct fuse_cache *)ctx;
 
     /* replace in cache */
-
     obj.key = key;
     o = &obj;
     res = avl_tree_search(cache->cache, &o, &o_old);
-    if (res != 1)
-        return (res == 0) ? -EADDRNOTAVAIL : res;
-
-    if (o_old->deleted)
-        return -EADDRNOTAVAIL;
-
-    obj = *o_old;
-
-    res = init_cache_obj(o_old, key, data, datasize, cache);
-    if (res != 0)
-        goto err1;
+    if (res == 1) {
+        if (o_old->deleted)
+            return -EADDRNOTAVAIL;
+        obj = *o_old;
+        res = init_cache_obj(o_old, key, data, datasize, cache);
+        if (res != 0)
+            goto err1;
+        in_cache = 1;
+    } else if (res != 0)
+        return res;
 
     /* replace in back end */
     res = (*(cache->ops->replace))(cache->ctx, key, data, datasize);
-    if (res != 0)
-        goto err2;
+    if (res != 0) {
+        if (!in_cache)
+            return res;
+        if (res != -EADDRNOTAVAIL)
+            goto err2;
+        return 0;
+    }
 
-    free((void *)(obj.key));
-    free((void *)(obj.data));
+    if (in_cache) {
+        free((void *)(obj.key));
+        free((void *)(obj.data));
+    }
 
     return 0;
 
