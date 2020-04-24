@@ -11,6 +11,7 @@
 #include "back_end.h"
 #include "back_end_dbm.h"
 #include "common.h"
+#include "fuse_cache.h"
 #include "ops.h"
 #include "simplefs.h"
 #include "util.h"
@@ -3194,10 +3195,11 @@ static void
 simplefs_init(void *userdata, struct fuse_conn_info *conn)
 {
     int ret;
-    struct db_args args;
+    struct db_args dbargs;
     struct db_key k;
     struct db_obj_header hdr;
     struct fspriv *priv;
+    struct fuse_cache_args args;
     struct mount_data *md = (struct mount_data *)userdata;
     struct ref_ino *refinop[4];
 
@@ -3221,12 +3223,15 @@ simplefs_init(void *userdata, struct fuse_conn_info *conn)
     if (ret != 0)
         goto err2;
 
-    args.db_pathname = (md->db_pathname == NULL)
-                       ? DB_PATHNAME : md->db_pathname;
-    args.db_mode = ACC_MODE_DEFAULT;
-    args.ro = md->ro;
-    args.sync_cb = &sync_cb;
-    args.sync_ctx = priv;
+    dbargs.db_pathname = (md->db_pathname == NULL)
+                         ? DB_PATHNAME : md->db_pathname;
+    dbargs.db_mode = ACC_MODE_DEFAULT;
+    dbargs.ro = md->ro;
+    dbargs.sync_cb = &sync_cb;
+    dbargs.sync_ctx = priv;
+
+    args.ops = BACK_END_DBM;
+    args.args = &dbargs;
 
     ret = avl_tree_new(&priv->ref_inodes.ref_inodes, sizeof(struct ref_ino *),
                        &ref_inode_cmp, 0, NULL, NULL, NULL);
@@ -3236,19 +3241,19 @@ simplefs_init(void *userdata, struct fuse_conn_info *conn)
     if (ret != 0)
         goto err4;
 
-    ret = back_end_open(&priv->be, sizeof(struct db_key), BACK_END_DBM,
+    ret = back_end_open(&priv->be, sizeof(struct db_key), BACK_END_FUSE_CACHE,
                         &db_key_cmp, &args);
     if (ret != 0) {
         if (ret != -ENOENT)
             goto err5;
 
-        if (args.ro) {
+        if (dbargs.ro) {
             fputs("Warning: Ignoring read-only mount flag (creating file "
                   "system)\n", stderr);
         }
 
-        ret = back_end_create(&priv->be, sizeof(struct db_key), BACK_END_DBM,
-                              &db_key_cmp, &args);
+        ret = back_end_create(&priv->be, sizeof(struct db_key),
+                              BACK_END_FUSE_CACHE, &db_key_cmp, &args);
         if (ret != 0)
             goto err5;
 
@@ -3283,7 +3288,7 @@ simplefs_init(void *userdata, struct fuse_conn_info *conn)
             goto err6;
         }
 
-        if (!(args.ro)) {
+        if (!(dbargs.ro)) {
             ret = remove_ulinked_nodes(priv->be);
             if (ret != 0)
                 goto err6;
