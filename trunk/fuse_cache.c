@@ -75,8 +75,9 @@ static int op_cmp(const void *, const void *, void *);
 static int get_next_elem(void *, void *, size_t *, const void *,
                          struct fuse_cache *);
 
-static int get_next_iter_elem(struct cache_obj *, void *, avl_tree_iter_t,
-                              void **, void **, void **, struct fuse_cache *);
+static int get_next_iter_elem(struct cache_obj *, void *, void **, size_t *,
+                              size_t *, avl_tree_iter_t, void **, void **,
+                              void **, struct fuse_cache *);
 static int do_iter_get(void *, void *, void **, size_t *, size_t *,
                        struct fuse_cache *);
 static int do_iter_search_cache(avl_tree_iter_t, const void *,
@@ -203,9 +204,9 @@ end:
 }
 
 static int
-get_next_iter_elem(struct cache_obj *o, void *key, avl_tree_iter_t citer,
-                   void **biter, void **iter, void **minkey,
-                   struct fuse_cache *cache)
+get_next_iter_elem(struct cache_obj *o, void *key, void **data, size_t *datalen,
+                   size_t *datasize, avl_tree_iter_t citer, void **biter,
+                   void **iter, void **minkey, struct fuse_cache *cache)
 {
     int res;
 
@@ -223,6 +224,10 @@ get_next_iter_elem(struct cache_obj *o, void *key, avl_tree_iter_t citer,
                 return res;
             (*(cache->ops->iter_free))(*biter);
             *biter = NULL;
+        } else {
+            res = do_iter_get(*biter, key, data, datalen, datasize, cache);
+            if (res != 0)
+                return res;
         }
     }
 
@@ -237,6 +242,9 @@ do_iter_get(void *iter, void *key, void **data, size_t *datalen,
 {
     int res;
     size_t len;
+
+    if (data == NULL)
+        return (*(cache->ops->iter_get))(iter, key, NULL, NULL);
 
     res = (*(cache->ops->iter_get))(iter, NULL, NULL, &len);
     if (res != 0)
@@ -693,11 +701,12 @@ fuse_cache_delete(void *ctx, const void *key)
         return res;
 
     /* delete from cache */
-    if (in_cache && (avl_tree_delete(cache->cache, &o) != 0))
-        abort();
-
-    TAILQ_REMOVE(&cache->list, o, e);
-    --(cache->num_ent);
+    if (in_cache) {
+        if (avl_tree_delete(cache->cache, &o) != 0)
+            abort();
+        TAILQ_REMOVE(&cache->list, o, e);
+        --(cache->num_ent);
+    }
 
     return 0;
 }
@@ -769,7 +778,8 @@ fuse_cache_walk(void *ctx, back_end_walk_cb_t fn, void *wctx)
         }
     }
     if ((citer != NULL) && (biter != NULL)) {
-        res = get_next_iter_elem(o, key, citer, &biter, &iter, &minkey, cache);
+        res = get_next_iter_elem(o, key, &data, &datalen, &datasize, citer,
+                                 &biter, &iter, &minkey, cache);
         if (res != 0)
             goto err4;
     }
@@ -841,8 +851,8 @@ fuse_cache_walk(void *ctx, back_end_walk_cb_t fn, void *wctx)
         }
 
         if ((citer != NULL) && (biter != NULL)) { /* determine next element */
-            res = get_next_iter_elem(o, key, citer, &biter, &iter, &minkey,
-                                     cache);
+            res = get_next_iter_elem(o, key, &data, &datalen, &datasize, citer,
+                                     &biter, &iter, &minkey, cache);
             if (res != 0)
                 goto err4;
         }
@@ -916,8 +926,8 @@ fuse_cache_iter_new(void **iter, void *ctx)
         if (res != 0)
             goto err4;
 
-        res = get_next_iter_elem(ret->o, ret->key, ret->citer, &ret->biter,
-                                 &ret->iter, &ret->minkey, cache);
+        res = get_next_iter_elem(ret->o, ret->key, NULL, NULL, NULL, ret->citer,
+                                 &ret->biter, &ret->iter, &ret->minkey, cache);
         if (res != 0)
             goto err4;
     }
@@ -987,8 +997,8 @@ fuse_cache_iter_get(void *iter, void *retkey, void *retdata,
 
         if ((iterator->citer != NULL) && (iterator->biter != NULL)) {
             /* determine next element */
-            err = get_next_iter_elem(iterator->o, iterator->key,
-                                     iterator->citer, &iterator->biter,
+            err = get_next_iter_elem(iterator->o, iterator->key, NULL, NULL,
+                                     NULL, iterator->citer, &iterator->biter,
                                      &iterator->iter, &iterator->minkey,
                                      iterator->cache);
             if (err) {
@@ -1111,9 +1121,9 @@ fuse_cache_iter_search(void *iter, const void *key)
         if (res != 0)
             goto err2;
 
-        res = get_next_iter_elem(iterator->o, iterator->key, citer, &biter,
-                                 &iterator->iter, &iterator->minkey,
-                                 iterator->cache);
+        res = get_next_iter_elem(iterator->o, iterator->key, NULL, NULL, NULL,
+                                 citer, &biter, &iterator->iter,
+                                 &iterator->minkey, iterator->cache);
         if (res != 0)
             goto err2;
     }
