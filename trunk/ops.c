@@ -623,9 +623,8 @@ dump_cb(const void *key, const void *data, size_t datasize, void *ctx)
                 (uint64_t)(k->ino), k->name, datasize);
         break;
     case TYPE_ULINKED_INO:
-        fprintf(stderr, "Unlinked I-node entry: node %" PRIu64 " -> st_ino %"
-                        PRIu64 "\n",
-                (uint64_t)(k->ino), (uint64_t)(s->st_ino));
+        fprintf(stderr, "Unlinked I-node entry: node %" PRIu64 "\n",
+                (uint64_t)(k->ino));
         break;
     default:
         abort();
