@@ -14,11 +14,14 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <sys/queue.h>
+
 struct cache_obj {
-    const void  *key;
-    const void  *data;
-    size_t      datasize;
-    int         deleted;
+    const void              *key;
+    const void              *data;
+    size_t                  datasize;
+    int                     deleted;
+    TAILQ_ENTRY(cache_obj)  e;
 };
 
 enum op_type {
@@ -39,6 +42,8 @@ struct key_ctx {
     int                 last_key_valid;
 };
 
+TAILQ_HEAD(cache_obj_list, cache_obj);
+
 struct fuse_cache {
     struct avl_tree             *cache;
     void                        *ctx;
@@ -46,6 +51,8 @@ struct fuse_cache {
     size_t                      key_size;
     struct key_ctx              key_ctx;
     back_end_key_cmp_t          key_cmp;
+    struct cache_obj_list       list;
+    int                         num_ent;
     struct avl_tree             *trans;
     int                         trans_valid;
 };
@@ -59,6 +66,8 @@ struct fuse_cache_iter {
     void                *minkey;
     struct fuse_cache   *cache;
 };
+
+#define MAX_CLEAN_ENTRIES 512
 
 static int cache_obj_cmp(const void *, const void *, void *);
 static int op_cmp(const void *, const void *, void *);
@@ -390,6 +399,9 @@ fuse_cache_create(void **ctx, size_t key_size, back_end_key_cmp_t key_cmp,
 
     ret->ops = cache_args->ops;
 
+    TAILQ_INIT(&ret->list);
+    ret->num_ent = 0;
+
     ret->trans_valid = 0;
 
     *ctx = ret;
@@ -438,6 +450,9 @@ fuse_cache_open(void **ctx, size_t key_size, back_end_key_cmp_t key_cmp,
         goto err3;
 
     ret->ops = cache_args->ops;
+
+    TAILQ_INIT(&ret->list);
+    ret->num_ent = 0;
 
     ret->trans_valid = 0;
 
@@ -524,6 +539,16 @@ fuse_cache_insert(void *ctx, const void *key, const void *data, size_t datasize)
     res = (*(cache->ops->insert))(cache->ctx, key, data, datasize);
     if (res != 0)
         goto err3;
+
+    TAILQ_INSERT_TAIL(&cache->list, o, e);
+    if (cache->num_ent == MAX_CLEAN_ENTRIES) {
+        /* remove least-recently inserted entry */
+        o = TAILQ_FIRST(&cache->list);
+        if (avl_tree_delete(cache->cache, &o) != 0)
+            abort();
+        TAILQ_REMOVE(&cache->list, o, e);
+    } else
+        ++(cache->num_ent);
 
     return 0;
 
@@ -670,6 +695,9 @@ fuse_cache_delete(void *ctx, const void *key)
     /* delete from cache */
     if (in_cache && (avl_tree_delete(cache->cache, &o) != 0))
         abort();
+
+    TAILQ_REMOVE(&cache->list, o, e);
+    --(cache->num_ent);
 
     return 0;
 }
