@@ -3186,6 +3186,15 @@ mount_status()
     return (status >= 0) ? 0 : status;
 }
 
+static void
+set_trans_cb(void *args, void (*cb)(int, int, int, void *), void *ctx)
+{
+    struct db_args *dbargs = (struct db_args *)args;
+
+    dbargs->trans_cb = cb;
+    dbargs->trans_ctx = ctx;
+}
+
 /*
  * Note: If the init request performs an unmount due to an error, a forget
  * request for the root I-node is immediately issued, no destroy request is
@@ -3231,6 +3240,7 @@ simplefs_init(void *userdata, struct fuse_conn_info *conn)
     dbargs.sync_ctx = priv;
 
     args.ops = BACK_END_DBM;
+    args.set_trans_cb = &set_trans_cb;
     args.args = &dbargs;
 
     ret = avl_tree_new(&priv->ref_inodes.ref_inodes, sizeof(struct ref_ino *),

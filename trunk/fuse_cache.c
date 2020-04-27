@@ -7,6 +7,7 @@
 #include "util.h"
 
 #include <avl_tree.h>
+#include <dbm_high_level.h>
 
 #include <assert.h>
 #include <errno.h>
@@ -69,6 +70,8 @@ struct fuse_cache_iter {
 
 #define MAX_CLEAN_ENTRIES 512
 
+static void trans_cb(int, int, int, void *);
+
 static int cache_obj_cmp(const void *, const void *, void *);
 static int op_cmp(const void *, const void *, void *);
 
@@ -128,6 +131,31 @@ const struct back_end_ops back_end_fuse_cache_ops = {
     .trans_commit   = &fuse_cache_trans_commit,
     .sync           = &fuse_cache_sync
 };
+
+static void
+trans_cb(int trans_type, int act, int status, void *ctx)
+{
+    static const char *const type2str[] = {
+        [DB_HL_TRANS_GROUP]                     = "group",
+        [DB_HL_TRANS_USER]                      = "user",
+        [DB_HL_TRANS_GROUP | DB_HL_TRANS_USER]  = "group+user"
+    };
+
+    static const char *const act2str[] = {
+        [DB_HL_ACT_NEW]     = "new",
+        [DB_HL_ACT_ABORT]   = "abort",
+        [DB_HL_ACT_COMMIT]  = "commit"
+    };
+
+    (void)ctx;
+
+    fprintf(stderr,
+            "Transaction data:\n"
+            "\tType: %s transaction\n"
+            "\tAction: %s\n"
+            "\tStatus: %d\n",
+            type2str[trans_type], act2str[act], status);
+}
 
 static int
 cache_obj_cmp(const void *k1, const void *k2, void *ctx)
@@ -400,6 +428,8 @@ fuse_cache_create(void **ctx, size_t key_size, back_end_key_cmp_t key_cmp,
     if (err)
         goto err2;
 
+    (*(cache_args->set_trans_cb))(cache_args->args, &trans_cb, ret);
+
     err = (*(cache_args->ops->create))(&ret->ctx, key_size, key_cmp,
                                        cache_args->args);
     if (err)
@@ -451,6 +481,8 @@ fuse_cache_open(void **ctx, size_t key_size, back_end_key_cmp_t key_cmp,
                        NULL);
     if (err)
         goto err2;
+
+    (*(cache_args->set_trans_cb))(cache_args->args, &trans_cb, ret);
 
     err = (*(cache_args->ops->open))(&ret->ctx, key_size, key_cmp,
                                      cache_args->args);

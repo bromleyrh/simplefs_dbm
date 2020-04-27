@@ -11,6 +11,10 @@ struct fuse_cache;
 
 struct fuse_cache_args {
     const struct back_end_ops   *ops;
+    void                        (*set_trans_cb)(void *args,
+                                                void (*cb)(int, int, int,
+                                                           void *),
+                                                void *ctx);
     void                        *args;
 };
 

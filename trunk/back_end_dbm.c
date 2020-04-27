@@ -31,6 +31,8 @@ struct db_ctx {
     size_t              key_size;
     back_end_key_cmp_t  key_cmp;
     struct db_key_ctx   *key_ctx;
+    void                (*trans_cb)(int, int, int, void *);
+    void                *trans_ctx;
     void                (*sync_cb)(int, void *);
     void                *sync_ctx;
 };
@@ -42,6 +44,7 @@ struct db_iter {
     struct db_ctx   *dbctx;
 };
 
+static void trans_cb(struct dbh *, int, int, int, void *);
 static void sync_cb(struct dbh *, int, void *);
 
 static int get_next_elem(void *, void *, size_t *, const void *,
@@ -85,6 +88,16 @@ const struct back_end_ops back_end_dbm_ops = {
     .trans_commit   = &back_end_dbm_trans_commit,
     .sync           = &back_end_dbm_sync
 };
+
+static void
+trans_cb(struct dbh *dbh, int trans_type, int act, int status, void *ctx)
+{
+    struct db_ctx *dbctx = (struct db_ctx *)ctx;
+
+    (void)dbh;
+
+    (*(dbctx->trans_cb))(trans_type, act, status, dbctx->trans_ctx);
+}
 
 static void
 sync_cb(struct dbh *dbh, int status, void *ctx)
@@ -161,6 +174,13 @@ back_end_dbm_create(void **ctx, size_t key_size, back_end_key_cmp_t key_cmp,
     if (err)
         goto err3;
 
+    if (dbargs->trans_cb) {
+        err = db_hl_set_cb(ret->dbh, &trans_cb, ret, NULL);
+        if (err)
+            goto err4;
+        ret->trans_cb = dbargs->trans_cb;
+        ret->trans_ctx = dbargs->trans_ctx;
+    }
     if (dbargs->sync_cb) {
         err = db_hl_sync_set_cb(ret->dbh, &sync_cb, ret, NULL);
         if (err)
@@ -243,6 +263,13 @@ back_end_dbm_open(void **ctx, size_t key_size, back_end_key_cmp_t key_cmp,
     if (err)
         goto err4;
 
+    if (dbargs->trans_cb) {
+        err = db_hl_set_cb(ret->dbh, &trans_cb, ret, NULL);
+        if (err)
+            goto err4;
+        ret->trans_cb = dbargs->trans_cb;
+        ret->trans_ctx = dbargs->trans_ctx;
+    }
     if (dbargs->sync_cb) {
         err = db_hl_sync_set_cb(ret->dbh, &sync_cb, ret, NULL);
         if (err)
