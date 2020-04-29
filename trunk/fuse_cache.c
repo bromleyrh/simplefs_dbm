@@ -45,6 +45,12 @@ struct key_ctx {
 
 TAILQ_HEAD(cache_obj_list, cache_obj);
 
+struct op_list {
+    struct op   *ops;
+    int         len;
+    int         size;
+};
+
 struct fuse_cache {
     struct avl_tree             *cache;
     void                        *ctx;
@@ -54,8 +60,9 @@ struct fuse_cache {
     back_end_key_cmp_t          key_cmp;
     struct cache_obj_list       list;
     int                         num_ent;
-    struct avl_tree             *trans;
-    int                         trans_valid;
+    struct op_list              ops_group;
+    struct op_list              ops_user;
+    int                         trans_state;
 };
 
 struct fuse_cache_iter {
@@ -68,12 +75,17 @@ struct fuse_cache_iter {
     struct fuse_cache   *cache;
 };
 
+#define OP_LIST_INIT_SIZE 128
+
 #define MAX_CLEAN_ENTRIES 512
 
 static void trans_cb(int, int, int, void *);
 
 static int cache_obj_cmp(const void *, const void *, void *);
-static int op_cmp(const void *, const void *, void *);
+
+static int op_list_init(struct op_list *);
+static void op_list_destroy(struct op_list *);
+static int op_list_add(struct op_list *, struct op *);
 
 static int get_next_elem(void *, void *, size_t *, const void *,
                          struct fuse_cache *);
@@ -135,6 +147,8 @@ const struct back_end_ops back_end_fuse_cache_ops = {
 static void
 trans_cb(int trans_type, int act, int status, void *ctx)
 {
+    struct fuse_cache *cache = (struct fuse_cache *)ctx;
+
     static const char *const type2str[] = {
         [DB_HL_TRANS_GROUP]                     = "group",
         [DB_HL_TRANS_USER]                      = "user",
@@ -147,14 +161,24 @@ trans_cb(int trans_type, int act, int status, void *ctx)
         [DB_HL_ACT_COMMIT]  = "commit"
     };
 
-    (void)ctx;
-
     fprintf(stderr,
             "Transaction data:\n"
             "\tType: %s transaction\n"
             "\tAction: %s\n"
             "\tStatus: %d\n",
             type2str[trans_type], act2str[act], status);
+
+    switch (act) {
+    case DB_HL_ACT_NEW:
+        cache->trans_state |= trans_type;
+        break;
+    case DB_HL_ACT_ABORT:
+    case DB_HL_ACT_COMMIT:
+        cache->trans_state &= ~trans_type;
+        break;
+    default:
+        abort();
+    }
 }
 
 static int
@@ -171,18 +195,46 @@ cache_obj_cmp(const void *k1, const void *k2, void *ctx)
 }
 
 static int
-op_cmp(const void *k1, const void *k2, void *ctx)
+op_list_init(struct op_list *list)
 {
-    int cmp;
-    struct fuse_cache *cache = (struct fuse_cache *)ctx;
-    struct op *op1 = (struct op *)k1;
-    struct op *op2 = (struct op *)k2;
+    struct op *ops;
 
-    cmp = (op1->op > op2->op) - (op1->op < op2->op);
-    if (cmp != 0)
-        return cmp;
+    ops = do_malloc(OP_LIST_INIT_SIZE * sizeof(*ops));
+    if (ops == NULL)
+        return -errno;
 
-    return (*(cache->key_cmp))(op1->key, op2->key, NULL);
+    list->ops = ops;
+    list->len = 0;
+    list->size = OP_LIST_INIT_SIZE;
+
+    return 0;
+}
+
+static void
+op_list_destroy(struct op_list *list)
+{
+    free(list->ops);
+}
+
+static int
+op_list_add(struct op_list *list, struct op *op)
+{
+    if (list->len == list->size) {
+        int newsz = list->size * 2;
+        struct op *tmp;
+
+        tmp = do_realloc(list->ops, newsz * sizeof(*tmp));
+        if (tmp == NULL)
+            return -errno;
+
+        list->ops = tmp;
+        list->size = newsz;
+    }
+
+    memcpy(&list->ops[list->len], op, sizeof(struct op));
+    ++(list->len);
+
+    return 0;
 }
 
 static int
@@ -423,30 +475,34 @@ fuse_cache_create(void **ctx, size_t key_size, back_end_key_cmp_t key_cmp,
     if (err)
         goto err1;
 
-    err = avl_tree_new(&ret->trans, sizeof(struct op), &op_cmp, 0, NULL, ret,
-                       NULL);
+    err = op_list_init(&ret->ops_group);
     if (err)
         goto err2;
+    err = op_list_init(&ret->ops_user);
+    if (err)
+        goto err3;
 
     (*(cache_args->set_trans_cb))(cache_args->args, &trans_cb, ret);
 
     err = (*(cache_args->ops->create))(&ret->ctx, key_size, key_cmp,
                                        cache_args->args);
     if (err)
-        goto err3;
+        goto err4;
 
     ret->ops = cache_args->ops;
 
     TAILQ_INIT(&ret->list);
     ret->num_ent = 0;
 
-    ret->trans_valid = 0;
+    ret->trans_state = 0;
 
     *ctx = ret;
     return 0;
 
+err4:
+    op_list_destroy(&ret->ops_user);
 err3:
-    avl_tree_free(ret->trans);
+    op_list_destroy(&ret->ops_group);
 err2:
     avl_tree_free(ret->cache);
 err1:
@@ -477,30 +533,34 @@ fuse_cache_open(void **ctx, size_t key_size, back_end_key_cmp_t key_cmp,
     if (err)
         goto err1;
 
-    err = avl_tree_new(&ret->trans, sizeof(struct op), &op_cmp, 0, NULL, ret,
-                       NULL);
+    err = op_list_init(&ret->ops_group);
     if (err)
         goto err2;
+    err = op_list_init(&ret->ops_user);
+    if (err)
+        goto err3;
 
     (*(cache_args->set_trans_cb))(cache_args->args, &trans_cb, ret);
 
     err = (*(cache_args->ops->open))(&ret->ctx, key_size, key_cmp,
                                      cache_args->args);
     if (err)
-        goto err3;
+        goto err4;
 
     ret->ops = cache_args->ops;
 
     TAILQ_INIT(&ret->list);
     ret->num_ent = 0;
 
-    ret->trans_valid = 0;
+    ret->trans_state = 0;
 
     *ctx = ret;
     return 0;
 
+err4:
+    op_list_destroy(&ret->ops_user);
 err3:
-    avl_tree_free(ret->trans);
+    op_list_destroy(&ret->ops_group);
 err2:
     avl_tree_free(ret->cache);
 err1:
@@ -520,9 +580,8 @@ fuse_cache_close(void *ctx)
     if (tmp != 0)
         err = tmp;
 
-    tmp = avl_tree_free(cache->trans);
-    if (tmp != 0)
-        err = tmp;
+    op_list_destroy(&cache->ops_group);
+    op_list_destroy(&cache->ops_user);
 
     free(cache);
 
