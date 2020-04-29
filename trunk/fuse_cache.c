@@ -17,12 +17,16 @@
 
 #include <sys/queue.h>
 
+#define TRANS DB_HL_TRANS_GROUP
+#define USER_TRANS DB_HL_TRANS_USER
+
 struct cache_obj {
-    const void              *key;
-    const void              *data;
-    size_t                  datasize;
-    int                     deleted;
-    TAILQ_ENTRY(cache_obj)  e;
+    const void  *key;
+    const void  *data;
+    size_t      datasize;
+    int         deleted;
+    int         in_cache;
+    int         lists;
 };
 
 enum op_type {
@@ -32,18 +36,14 @@ enum op_type {
 };
 
 struct op {
-    enum op_type    op;
-    const void      *key;
-    const void      *data;
-    size_t          datasize;
+    enum op_type        op;
+    struct cache_obj    *obj;
 };
 
 struct key_ctx {
     struct cache_obj    *last_key;
     int                 last_key_valid;
 };
-
-TAILQ_HEAD(cache_obj_list, cache_obj);
 
 struct op_list {
     struct op   *ops;
@@ -58,8 +58,6 @@ struct fuse_cache {
     size_t                      key_size;
     struct key_ctx              key_ctx;
     back_end_key_cmp_t          key_cmp;
-    struct cache_obj_list       list;
-    int                         num_ent;
     struct op_list              ops_group;
     struct op_list              ops_user;
     int                         trans_state;
@@ -85,7 +83,10 @@ static int cache_obj_cmp(const void *, const void *, void *);
 
 static int op_list_init(struct op_list *);
 static void op_list_destroy(struct op_list *);
-static int op_list_add(struct op_list *, struct op *);
+static int op_list_add(struct op_list *, enum op_type,
+                       const struct cache_obj *);
+static void op_list_remove(struct op_list *);
+static void op_list_clear(struct op_list *, int, int, struct fuse_cache *);
 
 static int get_next_elem(void *, void *, size_t *, const void *,
                          struct fuse_cache *);
@@ -101,7 +102,7 @@ static int do_iter_search_be(void *, const void *, struct fuse_cache *);
 
 static int init_cache_obj(struct cache_obj *, const void *, const void *,
                           size_t, struct fuse_cache *);
-static void destroy_cache_obj(struct cache_obj *);
+static int destroy_cache_obj(struct cache_obj *, int);
 static int return_cache_obj(const struct cache_obj *, void *, void *, size_t *,
                             struct fuse_cache *);
 
@@ -168,12 +169,22 @@ trans_cb(int trans_type, int act, int status, void *ctx)
             "\tStatus: %d\n",
             type2str[trans_type], act2str[act], status);
 
+    if (status != 0)
+        return;
+
     switch (act) {
     case DB_HL_ACT_NEW:
         cache->trans_state |= trans_type;
         break;
     case DB_HL_ACT_ABORT:
+        cache->trans_state &= ~trans_type;
+        break;
     case DB_HL_ACT_COMMIT:
+        /* clear appropriate operation lists */
+        if (trans_type & DB_HL_TRANS_USER)
+            op_list_clear(&cache->ops_user, USER_TRANS, 1, cache);
+        if (trans_type & DB_HL_TRANS_GROUP)
+            op_list_clear(&cache->ops_group, TRANS, 1, cache);
         cache->trans_state &= ~trans_type;
         break;
     default:
@@ -217,8 +228,11 @@ op_list_destroy(struct op_list *list)
 }
 
 static int
-op_list_add(struct op_list *list, struct op *op)
+op_list_add(struct op_list *list, enum op_type type,
+            const struct cache_obj *obj)
 {
+    struct op *op;
+
     if (list->len == list->size) {
         int newsz = list->size * 2;
         struct op *tmp;
@@ -231,10 +245,43 @@ op_list_add(struct op_list *list, struct op *op)
         list->size = newsz;
     }
 
-    memcpy(&list->ops[list->len], op, sizeof(struct op));
+    op = &list->ops[list->len];
+    op->op = type;
+    op->obj = (struct cache_obj *)obj;
+
     ++(list->len);
 
     return 0;
+}
+
+static void
+op_list_remove(struct op_list *list)
+{
+    --(list->len);
+}
+
+static void
+op_list_clear(struct op_list *list, int which, int rem_from_cache,
+              struct fuse_cache *cache)
+{
+    int i;
+
+    for (i = 0; i < list->len; i++) {
+        struct cache_obj *obj = list->ops[i].obj;
+
+        obj->lists &= ~which;
+
+        if (rem_from_cache) {
+            if (avl_tree_delete(cache->cache, &obj) != 0)
+                abort();
+            obj->in_cache = 0;
+        }
+
+        if (destroy_cache_obj(obj, 0))
+            free(obj);
+    }
+
+    list->len = 0;
 }
 
 static int
@@ -428,14 +475,21 @@ init_cache_obj(struct cache_obj *o, const void *key, const void *data,
     o->datasize = datasize;
     o->deleted = 0;
 
+    o->in_cache = o->lists = 0;
+
     return 0;
 }
 
-static void
-destroy_cache_obj(struct cache_obj *o)
+static int
+destroy_cache_obj(struct cache_obj *o, int force)
 {
-    free((void *)(o->key));
-    free((void *)(o->data));
+    if (force || (!(o->in_cache) && (o->lists == 0))) {
+        free((void *)(o->key));
+        free((void *)(o->data));
+        return 1;
+    }
+
+    return 0;
 }
 
 static int
@@ -490,9 +544,6 @@ fuse_cache_create(void **ctx, size_t key_size, back_end_key_cmp_t key_cmp,
         goto err4;
 
     ret->ops = cache_args->ops;
-
-    TAILQ_INIT(&ret->list);
-    ret->num_ent = 0;
 
     ret->trans_state = 0;
 
@@ -549,9 +600,6 @@ fuse_cache_open(void **ctx, size_t key_size, back_end_key_cmp_t key_cmp,
 
     ret->ops = cache_args->ops;
 
-    TAILQ_INIT(&ret->list);
-    ret->num_ent = 0;
-
     ret->trans_state = 0;
 
     *ctx = ret;
@@ -592,6 +640,7 @@ static int
 fuse_cache_insert(void *ctx, const void *key, const void *data, size_t datasize)
 {
     int res;
+    int trans_state;
     struct cache_obj *o, *o_old;
     struct fuse_cache *cache = (struct fuse_cache *)ctx;
 
@@ -605,21 +654,42 @@ fuse_cache_insert(void *ctx, const void *key, const void *data, size_t datasize)
     if (res != 0)
         goto err1;
 
+    trans_state = cache->trans_state;
+
+    if (trans_state == (TRANS | USER_TRANS)) {
+        /* add insert operation to both operation lists */
+        res = op_list_add(&cache->ops_group, INSERT, o);
+        if (res != 0)
+            goto err2;
+        res = op_list_add(&cache->ops_user, INSERT, o);
+        if (res != 0) {
+            op_list_remove(&cache->ops_group);
+            goto err2;
+        }
+    } else if (trans_state) { /* add insert operation to appropriate list */
+        struct op_list *list = (trans_state == TRANS)
+                               ? &cache->ops_group : &cache->ops_user;
+        res = op_list_add(list, INSERT, o);
+        if (res != 0)
+            goto err2;
+    }
+    o->lists = trans_state;
+
     res = avl_tree_insert(cache->cache, &o);
     if (res != 0) {
         if (res != -EADDRINUSE)
-            goto err2;
+            goto err3;
 
         res = avl_tree_search(cache->cache, &o, &o_old);
         if (res != 1) {
             if (res == 0)
                 res = -EIO;
-            goto err2;
+            goto err3;
         }
 
         if (!(o_old->deleted)) {
             res = -EADDRINUSE;
-            goto err2;
+            goto err3;
         }
 
         free(o);
@@ -633,28 +703,24 @@ fuse_cache_insert(void *ctx, const void *key, const void *data, size_t datasize)
 
         return 0;
     }
+    o->in_cache = 1;
 
     /* insert into back end */
     res = (*(cache->ops->insert))(cache->ctx, key, data, datasize);
     if (res != 0)
-        goto err3;
-
-    TAILQ_INSERT_TAIL(&cache->list, o, e);
-    if (cache->num_ent == MAX_CLEAN_ENTRIES) {
-        /* remove least-recently inserted entry */
-        o = TAILQ_FIRST(&cache->list);
-        if (avl_tree_delete(cache->cache, &o) != 0)
-            abort();
-        TAILQ_REMOVE(&cache->list, o, e);
-    } else
-        ++(cache->num_ent);
+        goto err4;
 
     return 0;
 
-err3:
+err4:
     avl_tree_delete(cache->cache, &o);
+err3:
+    if (trans_state & TRANS)
+        op_list_remove(&cache->ops_group);
+    if (trans_state & USER_TRANS)
+        op_list_remove(&cache->ops_user);
 err2:
-    destroy_cache_obj(o);
+    destroy_cache_obj(o, 1);
 err1:
     free(o);
     return res;
@@ -703,7 +769,7 @@ fuse_cache_replace(void *ctx, const void *key, const void *data,
     return 0;
 
 err2:
-    destroy_cache_obj(o_old);
+    destroy_cache_obj(o_old, 1);
 err1:
     *o_old = obj;
     return res;
@@ -795,8 +861,8 @@ fuse_cache_delete(void *ctx, const void *key)
     if (in_cache) {
         if (avl_tree_delete(cache->cache, &o) != 0)
             abort();
-        TAILQ_REMOVE(&cache->list, o, e);
-        --(cache->num_ent);
+        if (destroy_cache_obj(o, 0))
+            free(o);
     }
 
     return 0;
