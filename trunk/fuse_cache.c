@@ -12,6 +12,7 @@
 #include <assert.h>
 #include <errno.h>
 #include <stddef.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -54,6 +55,7 @@ struct op_list {
     struct op   *ops;
     int         len;
     int         size;
+    const char  *name;
 };
 
 struct fuse_cache {
@@ -65,6 +67,9 @@ struct fuse_cache {
     back_end_key_cmp_t          key_cmp;
     struct op_list              ops_group;
     struct op_list              ops_user;
+    void                        (*dump_cb)(FILE *, const void *, const void *,
+                                           size_t, const char *, void *);
+    void                        *dump_ctx;
     int                         trans_state;
 };
 
@@ -86,13 +91,14 @@ static void trans_cb(int, int, int, void *);
 
 static int cache_obj_cmp(const void *, const void *, void *);
 
-static int op_list_init(struct op_list *);
+static int op_list_init(struct op_list *, const char *);
 static void op_list_destroy(struct op_list *);
 static int op_list_reserve(struct op_list *, int);
 static void op_list_add(struct op_list *, enum op_type,
                         const struct cache_obj *);
 /*static void op_list_remove(struct op_list *);*/
 static void op_list_clear(struct op_list *, int, int, struct fuse_cache *);
+static void op_list_dump(FILE *, struct op_list *, struct fuse_cache *);
 
 static int get_next_elem(void *, void *, size_t *, const void *,
                          struct fuse_cache *);
@@ -212,7 +218,7 @@ cache_obj_cmp(const void *k1, const void *k2, void *ctx)
 }
 
 static int
-op_list_init(struct op_list *list)
+op_list_init(struct op_list *list, const char *name)
 {
     struct op *ops;
 
@@ -223,6 +229,7 @@ op_list_init(struct op_list *list)
     list->ops = ops;
     list->len = 0;
     list->size = OP_LIST_INIT_SIZE;
+    list->name = name;
 
     return 0;
 }
@@ -301,6 +308,33 @@ op_list_clear(struct op_list *list, int which, int rem_from_cache,
     }
 
     list->len = 0;
+}
+
+static void
+op_list_dump(FILE *f, struct op_list *list, struct fuse_cache *cache)
+{
+    int i;
+
+    static const char *op2str[] = {
+        [INSERT] = "insert",
+        [DELETE] = "delete"
+    };
+
+    if (cache->dump_cb == NULL)
+        return;
+
+    fprintf(f, "Operation list \"%s\"\n", list->name);
+
+    for (i = 0; i < list->len; i++) {
+        struct cache_obj *obj;
+        struct op *op = &list->ops[i];
+
+        fprintf(f, "\t%s:\n", op2str[op->op]);
+
+        obj = op->obj;
+        (*(cache->dump_cb))(f, obj->key->p, obj->data->p, obj->datasize, "\t\t",
+                            cache->dump_ctx);
+    }
 }
 
 static int
@@ -604,10 +638,10 @@ fuse_cache_create(void **ctx, size_t key_size, back_end_key_cmp_t key_cmp,
     if (err)
         goto err1;
 
-    err = op_list_init(&ret->ops_group);
+    err = op_list_init(&ret->ops_group, "group");
     if (err)
         goto err2;
-    err = op_list_init(&ret->ops_user);
+    err = op_list_init(&ret->ops_user, "user");
     if (err)
         goto err3;
 
@@ -619,6 +653,9 @@ fuse_cache_create(void **ctx, size_t key_size, back_end_key_cmp_t key_cmp,
         goto err4;
 
     ret->ops = cache_args->ops;
+
+    ret->dump_cb = NULL;
+    ret->dump_ctx = NULL;
 
     ret->trans_state = 0;
 
@@ -659,10 +696,10 @@ fuse_cache_open(void **ctx, size_t key_size, back_end_key_cmp_t key_cmp,
     if (err)
         goto err1;
 
-    err = op_list_init(&ret->ops_group);
+    err = op_list_init(&ret->ops_group, "group");
     if (err)
         goto err2;
-    err = op_list_init(&ret->ops_user);
+    err = op_list_init(&ret->ops_user, "user");
     if (err)
         goto err3;
 
@@ -674,6 +711,9 @@ fuse_cache_open(void **ctx, size_t key_size, back_end_key_cmp_t key_cmp,
         goto err4;
 
     ret->ops = cache_args->ops;
+
+    ret->dump_cb = NULL;
+    ret->dump_ctx = NULL;
 
     ret->trans_state = 0;
 
@@ -718,6 +758,9 @@ fuse_cache_insert(void *ctx, const void *key, const void *data, size_t datasize)
     int trans_state;
     struct cache_obj *o, *o_old;
     struct fuse_cache *cache = (struct fuse_cache *)ctx;
+
+    op_list_dump(stderr, &cache->ops_group, cache);
+    op_list_dump(stderr, &cache->ops_user, cache);
 
     res = op_list_reserve(&cache->ops_group, 1);
     if (res != 0)
@@ -805,6 +848,9 @@ fuse_cache_replace(void *ctx, const void *key, const void *data,
     struct cache_obj *o, *o_old;
     struct data_ref keyref;
     struct fuse_cache *cache = (struct fuse_cache *)ctx;
+
+    op_list_dump(stderr, &cache->ops_group, cache);
+    op_list_dump(stderr, &cache->ops_user, cache);
 
     res = op_list_reserve(&cache->ops_group, 2);
     if (res != 0)
@@ -917,6 +963,9 @@ fuse_cache_look_up(void *ctx, const void *key, void *retkey, void *retdata,
     struct cache_obj obj;
     struct data_ref keyref;
     struct fuse_cache *cache = (struct fuse_cache *)ctx;
+
+    op_list_dump(stderr, &cache->ops_group, cache);
+    op_list_dump(stderr, &cache->ops_user, cache);
 
     /* look up in cache */
     keyref.p = key;
@@ -1466,6 +1515,9 @@ fuse_cache_trans_new(void *ctx)
 {
     struct fuse_cache *cache = (struct fuse_cache *)ctx;
 
+    op_list_dump(stderr, &cache->ops_group, cache);
+    op_list_dump(stderr, &cache->ops_user, cache);
+
     return (*(cache->ops->trans_new))(cache->ctx);
 }
 
@@ -1473,6 +1525,9 @@ static int
 fuse_cache_trans_abort(void *ctx)
 {
     struct fuse_cache *cache = (struct fuse_cache *)ctx;
+
+    op_list_dump(stderr, &cache->ops_group, cache);
+    op_list_dump(stderr, &cache->ops_user, cache);
 
     return (*(cache->ops->trans_abort))(cache->ctx);
 }
@@ -1482,6 +1537,9 @@ fuse_cache_trans_commit(void *ctx)
 {
     struct fuse_cache *cache = (struct fuse_cache *)ctx;
 
+    op_list_dump(stderr, &cache->ops_group, cache);
+    op_list_dump(stderr, &cache->ops_user, cache);
+
     return (*(cache->ops->trans_commit))(cache->ctx);
 }
 
@@ -1490,7 +1548,20 @@ fuse_cache_sync(void *ctx)
 {
     struct fuse_cache *cache = (struct fuse_cache *)ctx;
 
+    op_list_dump(stderr, &cache->ops_group, cache);
+    op_list_dump(stderr, &cache->ops_user, cache);
+
     return (*(cache->ops->sync))(cache->ctx);
+}
+
+void
+fuse_cache_set_dump_cb(struct fuse_cache *cache,
+                       void (*cb)(FILE *, const void *, const void *, size_t,
+                                  const char *, void *),
+                       void *ctx)
+{
+    cache->dump_cb = cb;
+    cache->dump_ctx = (cb == NULL) ? NULL : ctx;
 }
 
 /* vi: set expandtab sw=4 ts=4: */

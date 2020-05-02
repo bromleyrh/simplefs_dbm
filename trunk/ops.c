@@ -274,6 +274,8 @@ static int join_worker(struct fspriv *);
 
 static void sync_cb(int, void *);
 
+static void dump_db_obj(FILE *, const void *, const void *, size_t,
+                        const char *, void *);
 #ifdef DEBUG_DUMP
 static int dump_cb(const void *, const void *, size_t, void *);
 #endif
@@ -580,9 +582,9 @@ sync_cb(int status, void *ctx)
         priv->wb_err = status;
 }
 
-#ifdef DEBUG_DUMP
-static int
-dump_cb(const void *key, const void *data, size_t datasize, void *ctx)
+static void
+dump_db_obj(FILE *f, const void *key, const void *data, size_t datasize,
+            const char *prefix, void *ctx)
 {
     struct db_key *k = (struct db_key *)key;
     struct db_obj_dirent *de;
@@ -591,45 +593,55 @@ dump_cb(const void *key, const void *data, size_t datasize, void *ctx)
 
     (void)ctx;
 
+    fputs(prefix, f);
+
     switch (k->type) {
     case TYPE_HEADER:
         assert(datasize == sizeof(*hdr));
         hdr = (struct db_obj_header *)data;
 
-        fprintf(stderr, "Header: next_ino %" PRIu64 "\n", hdr->next_ino);
+        fprintf(f, "Header: next_ino %" PRIu64 "\n", hdr->next_ino);
         break;
     case TYPE_DIRENT:
         assert(datasize == sizeof(*de));
         de = (struct db_obj_dirent *)data;
 
-        fprintf(stderr, "Directory entry: directory %" PRIu64 ", name %s -> "
-                        "node %" PRIu64 "\n",
+        fprintf(f, "Directory entry: directory %" PRIu64 ", name %s -> node %"
+                   PRIu64 "\n",
                 (uint64_t)(k->ino), k->name, (uint64_t)(de->ino));
         break;
     case TYPE_STAT:
         assert(datasize == sizeof(*s));
         s = (struct db_obj_stat *)data;
 
-        fprintf(stderr, "I-node entry: node %" PRIu64 " -> st_ino %" PRIu64
-                        "\n",
+        fprintf(f, "I-node entry: node %" PRIu64 " -> st_ino %" PRIu64 "\n",
                 (uint64_t)(k->ino), (uint64_t)(s->st_ino));
         break;
     case TYPE_PAGE:
-        fprintf(stderr, "Page: node %" PRIu64 ", page %" PRIu64 ", size %zu\n",
+        fprintf(f, "Page: node %" PRIu64 ", page %" PRIu64 ", size %zu\n",
                 (uint64_t)(k->ino), (uint64_t)(k->pgno), datasize);
         break;
     case TYPE_XATTR:
-        fprintf(stderr, "Extended attribute entry: node %" PRIu64 ", name %s, "
-                        "size %zu\n",
+        fprintf(f, "Extended attribute entry: node %" PRIu64 ", name %s, "
+                   "size %zu\n",
                 (uint64_t)(k->ino), k->name, datasize);
         break;
     case TYPE_ULINKED_INO:
-        fprintf(stderr, "Unlinked I-node entry: node %" PRIu64 "\n",
+        fprintf(f, "Unlinked I-node entry: node %" PRIu64 "\n",
                 (uint64_t)(k->ino));
         break;
     default:
         abort();
     }
+}
+
+#ifdef DEBUG_DUMP
+static int
+dump_cb(const void *key, const void *data, size_t datasize, void *ctx)
+{
+    (void)ctx;
+
+    dump_db_obj(stderr, key, data, datasize, NULL);
 
     return 0;
 }
@@ -3304,6 +3316,9 @@ simplefs_init(void *userdata, struct fuse_conn_info *conn)
                 goto err6;
         }
     }
+
+    fuse_cache_set_dump_cb(*(struct fuse_cache **)(priv->be), &dump_db_obj,
+                           NULL);
 
     md->priv = priv;
 
