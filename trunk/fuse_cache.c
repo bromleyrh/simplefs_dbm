@@ -94,8 +94,7 @@ static int cache_obj_cmp(const void *, const void *, void *);
 static int op_list_init(struct op_list *, const char *);
 static void op_list_destroy(struct op_list *);
 static int op_list_reserve(struct op_list *, int);
-static void op_list_add(struct op_list *, enum op_type,
-                        const struct cache_obj *);
+static void op_list_add(struct op_list *, enum op_type, struct cache_obj *);
 /*static void op_list_remove(struct op_list *);*/
 static void op_list_clear(struct op_list *, int, int, struct fuse_cache *);
 static void op_list_dump(FILE *, struct op_list *, struct fuse_cache *);
@@ -261,8 +260,7 @@ op_list_reserve(struct op_list *list, int num)
 }
 
 static void
-op_list_add(struct op_list *list, enum op_type type,
-            const struct cache_obj *obj)
+op_list_add(struct op_list *list, enum op_type type, struct cache_obj *obj)
 {
     struct op *op;
 
@@ -275,7 +273,7 @@ op_list_add(struct op_list *list, enum op_type type,
 
     ++(list->len);
 
-    ++(op->obj->refcnt);
+    ++(obj->refcnt);
 }
 
 /*static void
@@ -818,12 +816,10 @@ fuse_cache_insert(void *ctx, const void *key, const void *data, size_t datasize)
     if (trans_state == (TRANS | USER_TRANS)) {
         op_list_add(&cache->ops_group, INSERT, o);
         op_list_add(&cache->ops_user, INSERT, o);
-        o->refcnt += 2;
     } else if (trans_state) {
         struct op_list *list = (trans_state == TRANS)
                                ? &cache->ops_group : &cache->ops_user;
         op_list_add(list, INSERT, o);
-        ++(o->refcnt);
     }
     o->lists = trans_state;
 
@@ -876,7 +872,6 @@ fuse_cache_replace(void *ctx, const void *key, const void *data,
         res = init_cache_obj(o_old, key, data, datasize, cache);
         if (res != 0)
             goto err;
-        o->in_cache = 0;
         o_old->in_cache = 1;
         ++(o_old->refcnt);
         in_cache = 1;
@@ -923,12 +918,9 @@ fuse_cache_replace(void *ctx, const void *key, const void *data,
             op_list_add(&cache->ops_group, INSERT, o_old);
             op_list_add(&cache->ops_user, DELETE, o);
             op_list_add(&cache->ops_user, INSERT, o_old);
-            o->refcnt += 2;
-            o_old->refcnt += 2;
         } else {
             op_list_add(&cache->ops_group, INSERT, o);
             op_list_add(&cache->ops_user, INSERT, o);
-            ++(o->refcnt);
         }
     } else if (trans_state) {
         struct op_list *list = (trans_state == TRANS)
@@ -936,16 +928,15 @@ fuse_cache_replace(void *ctx, const void *key, const void *data,
         if (in_cache) {
             op_list_add(list, DELETE, o);
             op_list_add(list, INSERT, o_old);
-            ++(o->refcnt);
-            ++(o_old->refcnt);
-        } else {
+        } else
             op_list_add(list, INSERT, o);
-            ++(o->refcnt);
-        }
     }
     o->lists = trans_state;
-    if (in_cache)
+    if (in_cache) {
+        o->in_cache = 0;
+        --(o->refcnt);
         o_old->lists = trans_state;
+    }
 
     return 0;
 
@@ -1063,12 +1054,10 @@ fuse_cache_delete(void *ctx, const void *key)
     if (trans_state == (TRANS | USER_TRANS)) {
         op_list_add(&cache->ops_group, DELETE, o);
         op_list_add(&cache->ops_user, DELETE, o);
-        o->refcnt += 2;
     } else if (trans_state) {
         struct op_list *list = (trans_state == TRANS)
                                ? &cache->ops_group : &cache->ops_user;
         op_list_add(list, DELETE, o);
-        ++(o->refcnt);
     }
     o->lists = trans_state;
 
