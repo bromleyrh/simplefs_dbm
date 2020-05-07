@@ -868,12 +868,19 @@ fuse_cache_replace(void *ctx, const void *key, const void *data,
             res = -EADDRNOTAVAIL;
             goto err;
         }
-        *o = *o_old;
-        res = init_cache_obj(o_old, key, data, datasize, cache);
+        res = avl_tree_delete(cache->cache, &o_old);
         if (res != 0)
             goto err;
-        o_old->in_cache = 1;
-        ++(o_old->refcnt);
+        res = init_cache_obj(o, key, data, datasize, cache);
+        if (res != 0) {
+            if (avl_tree_insert(cache->cache, &o_old) != 0)
+                abort();
+            goto err;
+        }
+        if (avl_tree_insert(cache->cache, &o) != 0)
+            abort();
+        o->in_cache = 1;
+        ++(o->refcnt);
         in_cache = 1;
     } else {
         if (res != 0)
@@ -901,8 +908,7 @@ fuse_cache_replace(void *ctx, const void *key, const void *data,
             goto err;
         }
         if (res != -EADDRNOTAVAIL) {
-            destroy_cache_obj(o_old, 1);
-            *o_old = *o;
+            destroy_cache_obj(o, 1);
             goto err;
         }
         /* object in cache but not back end */
@@ -914,10 +920,10 @@ fuse_cache_replace(void *ctx, const void *key, const void *data,
        lists */
     if (trans_state == (TRANS | USER_TRANS)) {
         if (in_cache) {
-            op_list_add(&cache->ops_group, DELETE, o);
-            op_list_add(&cache->ops_group, INSERT, o_old);
-            op_list_add(&cache->ops_user, DELETE, o);
-            op_list_add(&cache->ops_user, INSERT, o_old);
+            op_list_add(&cache->ops_group, DELETE, o_old);
+            op_list_add(&cache->ops_group, INSERT, o);
+            op_list_add(&cache->ops_user, DELETE, o_old);
+            op_list_add(&cache->ops_user, INSERT, o);
         } else {
             op_list_add(&cache->ops_group, INSERT, o);
             op_list_add(&cache->ops_user, INSERT, o);
@@ -926,16 +932,16 @@ fuse_cache_replace(void *ctx, const void *key, const void *data,
         struct op_list *list = (trans_state == TRANS)
                                ? &cache->ops_group : &cache->ops_user;
         if (in_cache) {
-            op_list_add(list, DELETE, o);
-            op_list_add(list, INSERT, o_old);
+            op_list_add(list, DELETE, o_old);
+            op_list_add(list, INSERT, o);
         } else
             op_list_add(list, INSERT, o);
     }
     o->lists = trans_state;
     if (in_cache) {
-        o->in_cache = 0;
-        --(o->refcnt);
-        o_old->lists = trans_state;
+        o_old->in_cache = 0;
+        --(o_old->refcnt);
+        o->lists = trans_state;
     }
 
     return 0;
@@ -1265,6 +1271,8 @@ fuse_cache_iter_new(void **iter, void *ctx)
         }
         ret->biter = NULL;
     }
+
+    ret->minkey = NULL;
 
     /* determine iterator referencing minimum element */
     if (ret->citer == NULL)
