@@ -3403,11 +3403,10 @@ simplefs_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
     opargs.op_data.inc_lookup_cnt = 1;
 
     ret = do_queue_op(priv, &do_look_up, &opargs);
-    if (ret != 1) {
-        if (ret != 0)
-            goto err;
-        e.ino = 0;
-    } else {
+    if ((ret != 0) && (ret != 1))
+        goto err;
+    memset(&e, 0, sizeof(e));
+    if (ret == 1) {
         e.ino = opargs.s.st_ino;
         deserialize_stat(&e.attr, &opargs.s);
         if (S_ISDIR(e.attr.st_mode))
@@ -3606,6 +3605,7 @@ simplefs_mknod(fuse_req_t req, fuse_ino_t parent, const char *name, mode_t mode,
     if (ret != 0)
         goto err;
 
+    memset(&e, 0, sizeof(e));
     e.ino = opargs.attr.st_ino;
     e.generation = 1;
     e.attr = opargs.attr;
@@ -3648,6 +3648,7 @@ simplefs_mkdir(fuse_req_t req, fuse_ino_t parent, const char *name, mode_t mode)
     if (ret != 0)
         goto err;
 
+    memset(&e, 0, sizeof(e));
     e.ino = opargs.attr.st_ino;
     e.generation = 1;
     e.attr = opargs.attr;
@@ -3785,6 +3786,7 @@ simplefs_symlink(fuse_req_t req, const char *link, fuse_ino_t parent,
     if (ret != 0)
         goto err;
 
+    memset(&e, 0, sizeof(e));
     e.ino = opargs.attr.st_ino;
     e.generation = 1;
     e.attr = opargs.attr;
@@ -3874,6 +3876,7 @@ simplefs_link(fuse_req_t req, fuse_ino_t ino, fuse_ino_t newparent,
     if (ret != 0)
         goto err;
 
+    memset(&e, 0, sizeof(e));
     e.ino = opargs.s.st_ino;
     e.generation = 1;
     deserialize_stat(&e.attr, &opargs.s);
