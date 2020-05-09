@@ -26,7 +26,10 @@ struct data_ref {
     int         refcnt;
 };
 
+#define CACHE_OBJ_MAGIC 0x4a424f43
+
 struct cache_obj {
+    unsigned        magic;
     struct data_ref *key;
     struct data_ref *data;
     size_t          datasize;
@@ -89,6 +92,8 @@ struct fuse_cache_iter {
 #define OP_LIST_INIT_SIZE 128
 
 #define MAX_CLEAN_ENTRIES 512
+
+#define CACHE_OBJ_VALID(obj) ((obj)->magic == CACHE_OBJ_MAGIC)
 
 static void trans_cb(int, int, int, void *);
 
@@ -285,6 +290,7 @@ chk_process_cache_refs(struct avl_tree *objs, struct avl_tree *cache)
         res = avl_tree_iter_get(iter, &o);
         if (res != 0)
             goto err;
+        assert(CACHE_OBJ_VALID(o));
 
         if (!(o->in_cache)) {
             fputs("Object in cache has in_cache status 0\n", stderr);
@@ -331,6 +337,8 @@ chk_process_list_refs(struct avl_tree *objs, int which, struct op_list *list)
 
     for (i = 0; i < list->len; i++) {
         struct cache_obj *o = list->ops[i].obj;
+
+        assert(CACHE_OBJ_VALID(o));
 
         if (!(o->lists & which)) {
             fprintf(stderr, "Object in list %s does not have list flag set\n",
@@ -506,9 +514,10 @@ op_list_clear(struct op_list *list, int which, int rem_from_cache,
 static void
 op_list_dump(FILE *f, struct op_list *list, struct fuse_cache *cache)
 {
+#ifdef DEBUG_DUMP
     int i;
 
-    static const char *op2str[] = {
+    static const char *const op2str[] = {
         [INSERT] = "insert",
         [DELETE] = "delete"
     };
@@ -528,6 +537,13 @@ op_list_dump(FILE *f, struct op_list *list, struct fuse_cache *cache)
         (*(cache->dump_cb))(f, obj->key->p, obj->data->p, obj->datasize, "\t\t",
                             cache->dump_ctx);
     }
+#else
+    (void)f;
+    (void)list;
+    (void)cache;
+
+    return;
+#endif
 }
 
 static int
@@ -743,6 +759,8 @@ init_cache_obj(struct cache_obj *o, const void *key, const void *data,
     o->in_cache = o->lists = 0;
     o->refcnt = o->chk_refcnt = 0;
 
+    o->magic = CACHE_OBJ_MAGIC;
+
     return 0;
 
 err3:
@@ -788,6 +806,7 @@ destroy_cache_obj(struct cache_obj *o, int force)
             free((void *)(o->data->p));
             free(o->data);
         }
+        o->magic = 0;
         return 1;
     }
 
@@ -983,6 +1002,7 @@ fuse_cache_insert(void *ctx, const void *key, const void *data, size_t datasize)
                 res = -EIO;
             goto err2;
         }
+        assert(CACHE_OBJ_VALID(o_old));
 
         if (!(o_old->deleted)) {
             res = -EADDRINUSE;
@@ -1057,19 +1077,17 @@ fuse_cache_replace(void *ctx, const void *key, const void *data,
     o->key = &keyref;
     res = avl_tree_search(cache->cache, &o, &o_old);
     if (res == 1) { /* key in cache */
+        assert(CACHE_OBJ_VALID(o_old));
         if (o_old->deleted) {
             res = -EADDRNOTAVAIL;
-            goto err;
+            goto err1;
         }
         res = avl_tree_delete(cache->cache, &o_old);
         if (res != 0)
-            goto err;
+            goto err1;
         res = init_cache_obj(o, key, data, datasize, cache);
-        if (res != 0) {
-            if (avl_tree_insert(cache->cache, &o_old) != 0)
-                abort();
-            goto err;
-        }
+        if (res != 0)
+            goto err2;
         if (avl_tree_insert(cache->cache, &o) != 0)
             abort();
         o->in_cache = 1;
@@ -1077,16 +1095,16 @@ fuse_cache_replace(void *ctx, const void *key, const void *data,
         in_cache = 1;
     } else {
         if (res != 0)
-            goto err;
+            goto err1;
 
         /* key not in cache */
         res = init_cache_obj(o, key, data, datasize, cache);
         if (res != 0)
-            goto err;
+            goto err1;
         res = avl_tree_insert(cache->cache, &o);
         if (res != 0) {
             destroy_cache_obj(o, 1);
-            goto err;
+            goto err1;
         }
         o->in_cache = 1;
         ++(o->refcnt);
@@ -1098,11 +1116,11 @@ fuse_cache_replace(void *ctx, const void *key, const void *data,
         if (!in_cache) {
             avl_tree_delete(cache->cache, &o);
             destroy_cache_obj(o, 1);
-            goto err;
+            goto err1;
         }
         if (res != -EADDRNOTAVAIL) {
             destroy_cache_obj(o, 1);
-            goto err;
+            goto err3;
         }
         /* object in cache but not back end */
     }
@@ -1121,14 +1139,19 @@ fuse_cache_replace(void *ctx, const void *key, const void *data,
             op_list_add(&cache->ops_user, USER_TRANS, DELETE, o_old);
         op_list_add(&cache->ops_user, USER_TRANS, INSERT, o);
     }
-    if (in_cache) {
+    if (trans_state && in_cache) {
         o_old->in_cache = 0;
         --(o_old->refcnt);
     }
 
     return check_consistency(cache);
 
-err:
+err3:
+    avl_tree_delete(cache->cache, &o);
+err2:
+    if (avl_tree_insert(cache->cache, &o_old) != 0)
+        abort();
+err1:
     free(o);
     return res;
 }
@@ -1152,8 +1175,11 @@ fuse_cache_look_up(void *ctx, const void *key, void *retkey, void *retdata,
     o = &obj;
     res = avl_tree_search(cache->cache, &o, &o);
     if (res != 0) {
-        if ((res == 1) && o->deleted)
-            res = 0;
+        if (res == 1) {
+            assert(CACHE_OBJ_VALID(o));
+            if (o->deleted)
+                res = 0;
+        }
         goto out_cache;
     }
 
@@ -1177,7 +1203,10 @@ fuse_cache_look_up(void *ctx, const void *key, void *retkey, void *retdata,
         if (cmp > 0) {
             o = cache->key_ctx.last_key;
             res = avl_tree_search(cache->cache, &o, &o);
-            assert(res != 0);
+            if (res == 1)
+                assert(CACHE_OBJ_VALID(o));
+            else
+                assert(res != 0);
             goto out_cache;
         }
         res = get_next_elem(retkey, retdata, retdatasize,
@@ -1220,6 +1249,7 @@ fuse_cache_delete(void *ctx, const void *key)
     if (res != 0) {
         if (res != 1)
             return res;
+        assert(CACHE_OBJ_VALID(o));
         if (o->deleted)
             return -EADDRNOTAVAIL;
         in_cache = 1;
