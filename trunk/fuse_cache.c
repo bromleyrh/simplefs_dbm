@@ -100,6 +100,7 @@ static void trans_cb(int, int, int, void *);
 static int cache_obj_cmp(const void *, const void *, void *);
 static int cache_obj_cmp_chk(const void *, const void *, void *);
 
+static int obj_free_cb(const void *, void *);
 static int obj_verify_refcnt_cb(const void *, void *);
 
 static int chk_process_cache_refs(struct avl_tree *, struct avl_tree *);
@@ -246,6 +247,21 @@ cache_obj_cmp_chk(const void *k1, const void *k2, void *ctx)
     (void)ctx;
 
     return (o1 > o2) - (o1 < o2);
+}
+
+static int
+obj_free_cb(const void *k, void *ctx)
+{
+    struct cache_obj *o = *(struct cache_obj **)k;
+
+    (void)ctx;
+
+    o->in_cache = 0;
+
+    destroy_cache_obj(o, 1);
+    free(o);
+
+    return 0;
 }
 
 static int
@@ -946,10 +962,16 @@ err1:
 static int
 fuse_cache_close(void *ctx)
 {
+    avl_tree_walk_ctx_t wctx = NULL;
     int err, tmp;
     struct fuse_cache *cache = (struct fuse_cache *)ctx;
 
     err = (*(cache->ops->close))(cache->ctx);
+
+    op_list_clear(&cache->ops_group, TRANS, 1, cache);
+    op_list_clear(&cache->ops_user, USER_TRANS, 1, cache);
+
+    avl_tree_walk(cache->cache, NULL, &obj_free_cb, NULL, &wctx);
 
     tmp = avl_tree_free(cache->cache);
     if (tmp != 0)
@@ -1010,6 +1032,7 @@ fuse_cache_insert(void *ctx, const void *key, const void *data, size_t datasize)
         }
 
         destroy_cache_obj(o, 1);
+        free(o);
 
         res = update_cache_obj(o_old, key, data, datasize, cache);
         if (res != 0)
@@ -1260,21 +1283,19 @@ fuse_cache_delete(void *ctx, const void *key)
     if (res != 0)
         return res;
 
-    if (!in_cache)
-        goto end;
-
-    /* delete from cache */
-    o->deleted = 1;
-
     trans_state = cache->trans_state;
 
-    /* add delete operation to appropriate operation lists */
-    if (trans_state & TRANS)
-        op_list_add(&cache->ops_group, TRANS, DELETE, o);
-    if (trans_state & USER_TRANS)
-        op_list_add(&cache->ops_user, USER_TRANS, DELETE, o);
+    if (trans_state && in_cache) {
+        /* delete from cache */
+        o->deleted = 1;
 
-end:
+        /* add delete operation to appropriate operation lists */
+        if (trans_state & TRANS)
+            op_list_add(&cache->ops_group, TRANS, DELETE, o);
+        if (trans_state & USER_TRANS)
+            op_list_add(&cache->ops_user, USER_TRANS, DELETE, o);
+    }
+
     return check_consistency(cache);
 }
 
