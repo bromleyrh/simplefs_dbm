@@ -29,17 +29,19 @@ struct data_ref {
 #define CACHE_OBJ_MAGIC 0x4a424f43
 
 struct cache_obj {
-    unsigned        magic;
-    struct data_ref *key;
-    struct data_ref *data;
-    size_t          datasize;
-    int             deleted;
-    int             in_cache;
-    int             lists;
-    int             refcnt;
-    int             chk_in_cache; /* used for consistency checking */
-    int             chk_lists;
-    int             chk_refcnt;
+    unsigned                magic;
+    struct data_ref         *key;
+    struct data_ref         *data;
+    size_t                  datasize;
+    int                     deleted;
+    int                     destroyed;
+    int                     in_cache;
+    int                     lists;
+    int                     refcnt;
+    int                     chk_in_cache; /* used for consistency checking */
+    int                     chk_lists;
+    int                     chk_refcnt;
+    LIST_ENTRY(cache_obj)   e;
 };
 
 enum op_type {
@@ -57,6 +59,8 @@ struct key_ctx {
     int                 last_key_valid;
 };
 
+LIST_HEAD(op_llist, cache_obj);
+
 struct op_list {
     struct op   *ops;
     int         len;
@@ -71,6 +75,7 @@ struct fuse_cache {
     size_t                      key_size;
     struct key_ctx              key_ctx;
     back_end_key_cmp_t          key_cmp;
+    struct op_llist             ops_global;
     struct op_list              ops_group;
     struct op_list              ops_user;
     void                        (*dump_cb)(FILE *, const void *, const void *,
@@ -106,7 +111,10 @@ static int obj_verify_refcnt_cb(const void *, void *);
 static int chk_process_cache_refs(struct avl_tree *, struct avl_tree *);
 static int chk_process_list_refs(struct avl_tree *, int, struct op_list *);
 
-static int check_consistency(struct fuse_cache *);
+static int verify_refcnts(struct avl_tree *);
+static int verify_list(struct op_llist *, struct fuse_cache *);
+
+static void check_consistency(struct fuse_cache *);
 
 static int op_list_init(struct op_list *, const char *);
 static void op_list_destroy(struct op_list *);
@@ -397,6 +405,81 @@ verify_refcnts(struct avl_tree *objs)
 }
 
 static int
+verify_list(struct op_llist *list, struct fuse_cache *cache)
+{
+    const char *errmsg;
+    int i;
+    int res;
+    struct cache_obj *o;
+
+    LIST_FOREACH(o, list, e) {
+        int in_cache, in_list;
+        struct cache_obj *o_tmp;
+
+        if (o->destroyed) /* object may be inconsistent: skip */
+            continue;
+
+        if (o->refcnt == 0) {
+            errmsg = "Object in global list has refcnt 0";
+            goto err;
+        }
+        if (!(o->in_cache) && (o->lists == 0)) {
+            errmsg = "Object in global list has in_cache status 0 and list "
+                     "flags 0";
+            goto err;
+        }
+
+        res = avl_tree_search(cache->cache, &o, &o_tmp);
+        if (res == 1)
+            in_cache = 1;
+        else if (res == 0) {
+            if (o->in_cache) {
+                errmsg = "Object not in cache has in_cache status 1";
+                goto err;
+            }
+            in_cache = 0;
+        } else
+            return res;
+
+        in_list = 0;
+        for (i = 0; i < cache->ops_group.len; i++) {
+            if (o == cache->ops_group.ops[i].obj) {
+                in_list = 1;
+                break;
+            }
+        }
+        if (!in_list && (o->lists & TRANS)) {
+            errmsg = "Object not in group operation list has group operation "
+                     "flag set";
+            goto err;
+        }
+
+        for (i = 0; i < cache->ops_user.len; i++) {
+            if (o == cache->ops_user.ops[i].obj) {
+                in_list |= 2;
+                break;
+            }
+        }
+        if (!(in_list & 2) && (o->lists & USER_TRANS)) {
+            errmsg = "Object not in user operation list has user operation "
+                     "flag set";
+            goto err;
+        }
+        if (!in_cache && !in_list) {
+            errmsg = "Object in global list not referenced";
+            goto err;
+        }
+    }
+
+    return 0;
+
+err:
+    fprintf(stderr, "%s\n", errmsg);
+    abort();
+    return -EIO;
+}
+
+static void
 check_consistency(struct fuse_cache *cache)
 {
     int err;
@@ -405,32 +488,36 @@ check_consistency(struct fuse_cache *cache)
     err = avl_tree_new(&objs, sizeof(struct cache_obj *), &cache_obj_cmp_chk, 0,
                        NULL, cache, NULL);
     if (err)
-        return err;
+        goto err;
 
     err = chk_process_cache_refs(objs, cache->cache);
     if (err)
-        goto end;
+        goto err;
 
     err = chk_process_list_refs(objs, TRANS, &cache->ops_group);
     if (err)
-        goto end;
+        goto err;
     err = chk_process_list_refs(objs, USER_TRANS, &cache->ops_user);
     if (err)
-        goto end;
+        goto err;
 
     err = verify_refcnts(objs);
+    if (err)
+        goto err;
 
-end:
-    switch (err) {
-    case -EIO:
-        abort();
-    case 0:
-        fputs("Consistency check passed\n", stderr);
-    default:
-        break;
-    }
+    err = verify_list(&cache->ops_global, cache);
+    if (err)
+        goto err;
+
     avl_tree_free(objs);
-    return err;
+
+    fputs("Consistency check passed\n", stderr);
+
+    return;
+
+err:
+    fprintf(stderr, "Consistency check encountered error %d\n", err);
+    abort();
 }
 
 static int
@@ -482,8 +569,7 @@ op_list_add(struct op_list *list, int which, enum op_type type,
 {
     struct op *op;
 
-    if (list->len >= list->size)
-        abort();
+    assert(list->len < list->size);
 
     op = &list->ops[list->len];
     op->op = type;
@@ -772,8 +858,12 @@ init_cache_obj(struct cache_obj *o, const void *key, const void *data,
     o->datasize = datasize;
     o->deleted = 0;
 
+    o->destroyed = 0;
+
     o->in_cache = o->lists = 0;
     o->refcnt = o->chk_refcnt = 0;
+
+    LIST_INSERT_HEAD(&cache->ops_global, o, e);
 
     o->magic = CACHE_OBJ_MAGIC;
 
@@ -814,6 +904,7 @@ destroy_cache_obj(struct cache_obj *o, int force)
     if (force || (o->refcnt == 0)) {
         assert(!(o->in_cache));
         assert(o->lists == 0);
+        LIST_REMOVE(o, e);
         if (--(o->key->refcnt) == 0) {
             free((void *)(o->key->p));
             free(o->key);
@@ -865,6 +956,8 @@ fuse_cache_create(void **ctx, size_t key_size, back_end_key_cmp_t key_cmp,
                        0, NULL, ret, NULL);
     if (err)
         goto err1;
+
+    LIST_INIT(&ret->ops_global);
 
     err = op_list_init(&ret->ops_group, "group");
     if (err)
@@ -923,6 +1016,8 @@ fuse_cache_open(void **ctx, size_t key_size, back_end_key_cmp_t key_cmp,
                        0, NULL, ret, NULL);
     if (err)
         goto err1;
+
+    LIST_INIT(&ret->ops_global);
 
     err = op_list_init(&ret->ops_group, "group");
     if (err)
@@ -1059,7 +1154,8 @@ fuse_cache_insert(void *ctx, const void *key, const void *data, size_t datasize)
         op_list_add(&cache->ops_user, USER_TRANS, INSERT, o);
 
 end:
-    return check_consistency(cache);
+    check_consistency(cache);
+    return 0;
 
 err3:
     avl_tree_delete(cache->cache, &o);
@@ -1075,6 +1171,7 @@ fuse_cache_replace(void *ctx, const void *key, const void *data,
                    size_t datasize)
 {
     int in_cache = 0;
+    int o_old_destroyed = 0;
     int res;
     int trans_state;
     struct cache_obj *o, *o_old;
@@ -1108,6 +1205,9 @@ fuse_cache_replace(void *ctx, const void *key, const void *data,
         res = avl_tree_delete(cache->cache, &o_old);
         if (res != 0)
             goto err1;
+        o_old->in_cache = 0;
+        if (--(o_old->refcnt) == 0)
+            o_old->destroyed = o_old_destroyed = 1;
         res = init_cache_obj(o, key, data, datasize, cache);
         if (res != 0)
             goto err2;
@@ -1116,10 +1216,7 @@ fuse_cache_replace(void *ctx, const void *key, const void *data,
         o->in_cache = 1;
         ++(o->refcnt);
         in_cache = 1;
-    } else {
-        if (res != 0)
-            goto err1;
-
+    } else if (res == 0) {
         /* key not in cache */
         res = init_cache_obj(o, key, data, datasize, cache);
         if (res != 0)
@@ -1131,7 +1228,8 @@ fuse_cache_replace(void *ctx, const void *key, const void *data,
         }
         o->in_cache = 1;
         ++(o->refcnt);
-    }
+    } else
+        goto err1;
 
     /* replace in back end */
     res = (*(cache->ops->replace))(cache->ctx, key, data, datasize);
@@ -1153,27 +1251,35 @@ fuse_cache_replace(void *ctx, const void *key, const void *data,
     /* add insert operation and possibly delete operation to appropriate
        lists */
     if (trans_state & TRANS) {
-        if (in_cache)
+        if (in_cache) {
             op_list_add(&cache->ops_group, TRANS, DELETE, o_old);
+            o_old->destroyed = o_old_destroyed = 0;
+        }
         op_list_add(&cache->ops_group, TRANS, INSERT, o);
     }
     if (trans_state & USER_TRANS) {
-        if (in_cache)
+        if (in_cache) {
             op_list_add(&cache->ops_user, USER_TRANS, DELETE, o_old);
+            o_old->destroyed = o_old_destroyed = 0;
+        }
         op_list_add(&cache->ops_user, USER_TRANS, INSERT, o);
     }
-    if (trans_state && in_cache) {
-        o_old->in_cache = 0;
-        --(o_old->refcnt);
+
+    if (in_cache && o_old_destroyed) {
+        destroy_cache_obj(o_old, 1);
+        free(o_old);
     }
 
-    return check_consistency(cache);
+    check_consistency(cache);
+    return 0;
 
 err3:
     avl_tree_delete(cache->cache, &o);
 err2:
     if (avl_tree_insert(cache->cache, &o_old) != 0)
         abort();
+    o_old->in_cache = 1;
+    ++(o_old->refcnt);
 err1:
     free(o);
     return res;
@@ -1296,7 +1402,8 @@ fuse_cache_delete(void *ctx, const void *key)
             op_list_add(&cache->ops_user, USER_TRANS, DELETE, o);
     }
 
-    return check_consistency(cache);
+    check_consistency(cache);
+    return 0;
 }
 
 static int
@@ -1739,45 +1846,73 @@ err1:
 static int
 fuse_cache_trans_new(void *ctx)
 {
+    int err;
     struct fuse_cache *cache = (struct fuse_cache *)ctx;
 
     op_list_dump(stderr, &cache->ops_group, cache);
     op_list_dump(stderr, &cache->ops_user, cache);
 
-    return (*(cache->ops->trans_new))(cache->ctx);
+    err = (*(cache->ops->trans_new))(cache->ctx);
+    if (err)
+        return err;
+
+    check_consistency(cache);
+
+    return 0;
 }
 
 static int
 fuse_cache_trans_abort(void *ctx)
 {
+    int err;
     struct fuse_cache *cache = (struct fuse_cache *)ctx;
 
     op_list_dump(stderr, &cache->ops_group, cache);
     op_list_dump(stderr, &cache->ops_user, cache);
 
-    return (*(cache->ops->trans_abort))(cache->ctx);
+    err = (*(cache->ops->trans_abort))(cache->ctx);
+    if (err)
+        return err;
+
+    check_consistency(cache);
+
+    return 0;
 }
 
 static int
 fuse_cache_trans_commit(void *ctx)
 {
+    int err;
     struct fuse_cache *cache = (struct fuse_cache *)ctx;
 
     op_list_dump(stderr, &cache->ops_group, cache);
     op_list_dump(stderr, &cache->ops_user, cache);
 
-    return (*(cache->ops->trans_commit))(cache->ctx);
+    err = (*(cache->ops->trans_commit))(cache->ctx);
+    if (err)
+        return err;
+
+    check_consistency(cache);
+
+    return 0;
 }
 
 static int
 fuse_cache_sync(void *ctx)
 {
+    int err;
     struct fuse_cache *cache = (struct fuse_cache *)ctx;
 
     op_list_dump(stderr, &cache->ops_group, cache);
     op_list_dump(stderr, &cache->ops_user, cache);
 
-    return (*(cache->ops->sync))(cache->ctx);
+    err = (*(cache->ops->sync))(cache->ctx);
+    if (err)
+        return err;
+
+    check_consistency(cache);
+
+    return 0;
 }
 
 void
