@@ -182,6 +182,36 @@ const struct back_end_ops back_end_fuse_cache_ops = {
     .sync           = &fuse_cache_sync
 };
 
+/*
+ * trans_cb():
+ * This function must handle commit and abort events from the back end for both
+ * group and user transactions. Handling successful commit events (where status
+ * == 0) involves clearing the corresponding operation list(s) and optionally
+ * removing from the cache each cache object deleted from a list. Unsuccessful
+ * commit events can be ignored, as the back end guarantees a transaction commit
+ * is retried until it succeeds.
+ *
+ * In most cases, transaction abort handling is more complex and requires the
+ * use of one or both operation lists. Note that all abort events have a nonzero
+ * status. When a group+user transaction is aborted, both a rollback operation
+ * affecting the cache and a replay operation affecting the back end must be
+ * carried out. The rollback operation involves traversing the user operation
+ * list in reverse and applying the inverse of each operation to the cache while
+ * removing it from both the user and group operation lists. The replay
+ * operation is performed second and applies each remaining operation in the
+ * group operation list to the back end in order. This replay operation must be
+ * retried until successful. The cache must continue to allow lookups and
+ * traversals but return an error for modifying operations until the replay
+ * operation succeeds.
+ *
+ * When a group transaction is aborted, a replay operation affecting the back
+ * end is performed, as described above. Also as mentioned above, the cache
+ * must continue to permit lookup operations and return errors for other
+ * operations until this replay succeeds.
+ *
+ * A user transaction abort requires a rollback operation affecting the cache,
+ * as performed in the handling of a group+user transaction abort.
+ */
 static void
 trans_cb(int trans_type, int act, int status, void *ctx)
 {
