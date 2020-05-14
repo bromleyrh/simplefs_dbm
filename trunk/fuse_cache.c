@@ -82,6 +82,7 @@ struct fuse_cache {
                                            size_t, const char *, void *);
     void                        *dump_ctx;
     int                         trans_state;
+    int                         replay;
 };
 
 struct fuse_cache_iter {
@@ -122,8 +123,12 @@ static int op_list_reserve(struct op_list *, int);
 static void op_list_add(struct op_list *, int, enum op_type,
                         struct cache_obj *);
 /*static void op_list_remove(struct op_list *);*/
+static void op_list_roll_back(struct op_list *, struct fuse_cache *);
+static int op_list_replay(struct op_list *, struct fuse_cache *);
 static void op_list_clear(struct op_list *, int, int, struct fuse_cache *);
 static void op_list_dump(FILE *, struct op_list *, struct fuse_cache *);
+
+static int check_replay(struct fuse_cache *);
 
 static int get_next_elem(void *, void *, size_t *, const void *,
                          struct fuse_cache *);
@@ -236,7 +241,7 @@ trans_cb(int trans_type, int act, int status, void *ctx)
             "\tStatus: %d\n",
             type2str[trans_type], act2str[act], status);
 
-    if (status != 0)
+    if ((status != 0) && (act != DB_HL_ACT_ABORT))
         return;
 
     switch (act) {
@@ -244,6 +249,11 @@ trans_cb(int trans_type, int act, int status, void *ctx)
         cache->trans_state |= trans_type;
         break;
     case DB_HL_ACT_ABORT:
+        if (trans_type & DB_HL_TRANS_USER)
+            op_list_roll_back(&cache->ops_user, cache);
+        if ((trans_type & DB_HL_TRANS_GROUP)
+            && (op_list_replay(&cache->ops_group, cache) != 0))
+            cache->replay = 1;
         cache->trans_state &= ~trans_type;
         break;
     case DB_HL_ACT_COMMIT:
@@ -618,6 +628,26 @@ op_list_remove(struct op_list *list)
 }
 */
 static void
+op_list_roll_back(struct op_list *list, struct fuse_cache *cache)
+{
+    (void)list;
+    (void)cache;
+
+    abort();
+}
+
+static int
+op_list_replay(struct op_list *list, struct fuse_cache *cache)
+{
+    (void)list;
+    (void)cache;
+
+    abort();
+
+    return 0;
+}
+
+static void
 op_list_clear(struct op_list *list, int which, int rem_from_cache,
               struct fuse_cache *cache)
 {
@@ -676,6 +706,12 @@ op_list_dump(FILE *f, struct op_list *list, struct fuse_cache *cache)
 
     return;
 #endif
+}
+
+static int
+check_replay(struct fuse_cache *cache)
+{
+    return cache->replay ? op_list_replay(&cache->ops_group, cache) : 0;
 }
 
 static int
@@ -1009,6 +1045,7 @@ fuse_cache_create(void **ctx, size_t key_size, back_end_key_cmp_t key_cmp,
     ret->dump_ctx = NULL;
 
     ret->trans_state = 0;
+    ret->replay = 0;
 
     *ctx = ret;
     return 0;
@@ -1069,6 +1106,7 @@ fuse_cache_open(void **ctx, size_t key_size, back_end_key_cmp_t key_cmp,
     ret->dump_ctx = NULL;
 
     ret->trans_state = 0;
+    ret->replay = 0;
 
     *ctx = ret;
     return 0;
@@ -1120,6 +1158,10 @@ fuse_cache_insert(void *ctx, const void *key, const void *data, size_t datasize)
 
     op_list_dump(stderr, &cache->ops_group, cache);
     op_list_dump(stderr, &cache->ops_user, cache);
+
+    res = check_replay(cache);
+    if (res != 0)
+        return res;
 
     res = op_list_reserve(&cache->ops_group, 1);
     if (res != 0)
@@ -1210,6 +1252,10 @@ fuse_cache_replace(void *ctx, const void *key, const void *data,
 
     op_list_dump(stderr, &cache->ops_group, cache);
     op_list_dump(stderr, &cache->ops_user, cache);
+
+    res = check_replay(cache);
+    if (res != 0)
+        return res;
 
     res = op_list_reserve(&cache->ops_group, 2);
     if (res != 0)
@@ -1392,6 +1438,13 @@ fuse_cache_delete(void *ctx, const void *key)
     struct cache_obj obj;
     struct data_ref keyref;
     struct fuse_cache *cache = (struct fuse_cache *)ctx;
+
+    op_list_dump(stderr, &cache->ops_group, cache);
+    op_list_dump(stderr, &cache->ops_user, cache);
+
+    res = check_replay(cache);
+    if (res != 0)
+        return res;
 
     res = op_list_reserve(&cache->ops_group, 1);
     if (res != 0)
@@ -1882,6 +1935,10 @@ fuse_cache_trans_new(void *ctx)
     op_list_dump(stderr, &cache->ops_group, cache);
     op_list_dump(stderr, &cache->ops_user, cache);
 
+    err = check_replay(cache);
+    if (err)
+        return err;
+
     err = (*(cache->ops->trans_new))(cache->ctx);
     if (err)
         return err;
@@ -1899,6 +1956,10 @@ fuse_cache_trans_abort(void *ctx)
 
     op_list_dump(stderr, &cache->ops_group, cache);
     op_list_dump(stderr, &cache->ops_user, cache);
+
+    err = check_replay(cache);
+    if (err)
+        return err;
 
     err = (*(cache->ops->trans_abort))(cache->ctx);
     if (err)
@@ -1918,6 +1979,10 @@ fuse_cache_trans_commit(void *ctx)
     op_list_dump(stderr, &cache->ops_group, cache);
     op_list_dump(stderr, &cache->ops_user, cache);
 
+    err = check_replay(cache);
+    if (err)
+        return err;
+
     err = (*(cache->ops->trans_commit))(cache->ctx);
     if (err)
         return err;
@@ -1935,6 +2000,10 @@ fuse_cache_sync(void *ctx)
 
     op_list_dump(stderr, &cache->ops_group, cache);
     op_list_dump(stderr, &cache->ops_user, cache);
+
+    err = check_replay(cache);
+    if (err)
+        return err;
 
     err = (*(cache->ops->sync))(cache->ctx);
     if (err)
