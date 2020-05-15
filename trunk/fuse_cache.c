@@ -33,6 +33,7 @@ struct cache_obj {
     struct data_ref         *key;
     struct data_ref         *data;
     size_t                  datasize;
+    int                     replace;
     int                     deleted;
     int                     destroyed;
     int                     in_cache;
@@ -122,9 +123,8 @@ static void op_list_destroy(struct op_list *);
 static int op_list_reserve(struct op_list *, int);
 static void op_list_add(struct op_list *, int, enum op_type,
                         struct cache_obj *);
-/*static void op_list_remove(struct op_list *);*/
-static void op_list_roll_back(struct op_list *, struct fuse_cache *);
-static int op_list_replay(struct op_list *, struct fuse_cache *);
+static void op_list_roll_back(struct op_list *, int, struct fuse_cache *);
+static int op_list_replay(struct op_list *, int, struct fuse_cache *);
 static void op_list_clear(struct op_list *, int, int, struct fuse_cache *);
 static void op_list_dump(FILE *, struct op_list *, struct fuse_cache *);
 
@@ -250,9 +250,9 @@ trans_cb(int trans_type, int act, int status, void *ctx)
         break;
     case DB_HL_ACT_ABORT:
         if (trans_type & DB_HL_TRANS_USER)
-            op_list_roll_back(&cache->ops_user, cache);
+            op_list_roll_back(&cache->ops_user, USER_TRANS, cache);
         if ((trans_type & DB_HL_TRANS_GROUP)
-            && (op_list_replay(&cache->ops_group, cache) != 0))
+            && (op_list_replay(&cache->ops_group, TRANS, cache) != 0))
             cache->replay = 1;
         cache->trans_state &= ~trans_type;
         break;
@@ -621,28 +621,73 @@ op_list_add(struct op_list *list, int which, enum op_type type,
     ++(obj->refcnt);
 }
 
-/*static void
-op_list_remove(struct op_list *list)
-{
-    --(list->len);
-}
-*/
 static void
-op_list_roll_back(struct op_list *list, struct fuse_cache *cache)
+op_list_roll_back(struct op_list *list, int which, struct fuse_cache *cache)
 {
-    (void)list;
-    (void)cache;
+    int err;
+    int i;
 
-    abort();
+    for (i = list->len - 1; i >= 0; i--) {
+        struct cache_obj *obj;
+        struct op *op = &list->ops[i];
+
+        obj = op->obj;
+
+        switch (op->op) {
+        case INSERT:
+            /* delete key from cache */
+            err = avl_tree_delete(cache->cache, &obj);
+            break;
+        case DELETE:
+            /* reinsert key into cache */
+            err = avl_tree_insert(cache->cache, &obj);
+            break;
+        default:
+            abort();
+        }
+
+        if (err)
+            abort();
+    }
+
+    op_list_clear(list, which, 0, cache);
 }
 
 static int
-op_list_replay(struct op_list *list, struct fuse_cache *cache)
+op_list_replay(struct op_list *list, int which, struct fuse_cache *cache)
 {
-    (void)list;
-    (void)cache;
+    int err;
+    int i;
 
-    abort();
+    for (i = 0; i < list->len; i++) {
+        struct cache_obj *obj;
+        struct op *op = &list->ops[i];
+
+        obj = op->obj;
+
+        switch (op->op) {
+        case INSERT:
+            if (obj->replace) { /* replace key in back end */
+                err = (*(cache->ops->replace))(cache->ctx, obj->key, obj->data,
+                                               obj->datasize);
+            } else { /* insert key into back end */
+                err = (*(cache->ops->insert))(cache->ctx, obj->key, obj->data,
+                                              obj->datasize);
+            }
+            break;
+        case DELETE:
+            /* delete key from back end */
+            err = (*(cache->ops->delete))(cache->ctx, obj->key);
+            break;
+        default:
+            abort();
+        }
+
+        if (err)
+            return err;
+    }
+
+    op_list_clear(list, which, 0, cache);
 
     return 0;
 }
@@ -693,9 +738,11 @@ op_list_dump(FILE *f, struct op_list *list, struct fuse_cache *cache)
         struct cache_obj *obj;
         struct op *op = &list->ops[i];
 
-        fprintf(f, "\t%s:\n", op2str[op->op]);
-
         obj = op->obj;
+
+        fprintf(f, "\t%s%s:\n", op2str[op->op],
+                obj->replace ? " (replace)" : "");
+
         (*(cache->dump_cb))(f, obj->key->p, obj->data->p, obj->datasize, "\t\t",
                             cache->dump_ctx);
     }
@@ -711,7 +758,7 @@ op_list_dump(FILE *f, struct op_list *list, struct fuse_cache *cache)
 static int
 check_replay(struct fuse_cache *cache)
 {
-    return cache->replay ? op_list_replay(&cache->ops_group, cache) : 0;
+    return cache->replay ? op_list_replay(&cache->ops_group, TRANS, cache) : 0;
 }
 
 static int
@@ -1289,8 +1336,6 @@ fuse_cache_replace(void *ctx, const void *key, const void *data,
             goto err2;
         if (avl_tree_insert(cache->cache, &o) != 0)
             abort();
-        o->in_cache = 1;
-        ++(o->refcnt);
         in_cache = 1;
     } else if (res == 0) {
         /* key not in cache */
@@ -1302,10 +1347,12 @@ fuse_cache_replace(void *ctx, const void *key, const void *data,
             destroy_cache_obj(o, 1);
             goto err1;
         }
-        o->in_cache = 1;
-        ++(o->refcnt);
     } else
         goto err1;
+
+    o->replace = 1;
+    o->in_cache = 1;
+    ++(o->refcnt);
 
     /* replace in back end */
     res = (*(cache->ops->replace))(cache->ctx, key, data, datasize);
