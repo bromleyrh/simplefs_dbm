@@ -12,6 +12,7 @@
 #include <assert.h>
 #include <errno.h>
 #include <stddef.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -30,6 +31,7 @@ struct data_ref {
 
 struct cache_obj {
     unsigned                magic;
+    uint64_t                id; /* used for debugging */
     struct data_ref         *key;
     struct data_ref         *data;
     size_t                  datasize;
@@ -60,7 +62,7 @@ struct key_ctx {
     int                 last_key_valid;
 };
 
-LIST_HEAD(op_llist, cache_obj);
+LIST_HEAD(obj_list, cache_obj);
 
 struct op_list {
     struct op   *ops;
@@ -76,12 +78,13 @@ struct fuse_cache {
     size_t                      key_size;
     struct key_ctx              key_ctx;
     back_end_key_cmp_t          key_cmp;
-    struct op_llist             ops_global;
+    struct obj_list             objs;
     struct op_list              ops_group;
     struct op_list              ops_user;
     void                        (*dump_cb)(FILE *, const void *, const void *,
                                            size_t, const char *, void *);
     void                        *dump_ctx;
+    uint64_t                    cur_id;
     int                         trans_state;
     int                         replay;
 };
@@ -114,7 +117,7 @@ static int chk_process_cache_refs(struct avl_tree *, struct avl_tree *);
 static int chk_process_list_refs(struct avl_tree *, int, struct op_list *);
 
 static int verify_refcnts(struct avl_tree *);
-static int verify_list(struct op_llist *, struct fuse_cache *);
+static int verify_list(struct obj_list *, struct fuse_cache *);
 
 static void check_consistency(struct fuse_cache *);
 
@@ -123,7 +126,8 @@ static void op_list_destroy(struct op_list *);
 static int op_list_reserve(struct op_list *, int);
 static void op_list_add(struct op_list *, int, enum op_type,
                         struct cache_obj *);
-static void op_list_roll_back(struct op_list *, int, struct fuse_cache *);
+static void op_list_roll_back(struct op_list *, int, struct op_list *, int,
+                              struct fuse_cache *);
 static int op_list_replay(struct op_list *, int, struct fuse_cache *);
 static void op_list_clear(struct op_list *, int, int, struct fuse_cache *);
 static void op_list_dump(FILE *, struct op_list *, struct fuse_cache *);
@@ -241,7 +245,7 @@ trans_cb(int trans_type, int act, int status, void *ctx)
             "\tStatus: %d\n",
             type2str[trans_type], act2str[act], status);
 
-    if ((status != 0) && (act != DB_HL_ACT_ABORT))
+    if ((cache->replay == 2) || ((status != 0) && (act != DB_HL_ACT_ABORT)))
         return;
 
     switch (act) {
@@ -249,8 +253,10 @@ trans_cb(int trans_type, int act, int status, void *ctx)
         cache->trans_state |= trans_type;
         break;
     case DB_HL_ACT_ABORT:
-        if (trans_type & DB_HL_TRANS_USER)
-            op_list_roll_back(&cache->ops_user, USER_TRANS, cache);
+        if (trans_type & DB_HL_TRANS_USER) {
+            op_list_roll_back(&cache->ops_user, USER_TRANS, &cache->ops_group,
+                              TRANS, cache);
+        }
         if ((trans_type & DB_HL_TRANS_GROUP)
             && (op_list_replay(&cache->ops_group, TRANS, cache) != 0))
             cache->replay = 1;
@@ -445,7 +451,7 @@ verify_refcnts(struct avl_tree *objs)
 }
 
 static int
-verify_list(struct op_llist *list, struct fuse_cache *cache)
+verify_list(struct obj_list *list, struct fuse_cache *cache)
 {
     const char *errmsg;
     int i;
@@ -545,7 +551,7 @@ check_consistency(struct fuse_cache *cache)
     if (err)
         goto err;
 
-    err = verify_list(&cache->ops_global, cache);
+    err = verify_list(&cache->objs, cache);
     if (err)
         goto err;
 
@@ -622,11 +628,13 @@ op_list_add(struct op_list *list, int which, enum op_type type,
 }
 
 static void
-op_list_roll_back(struct op_list *list, int which, struct fuse_cache *cache)
+op_list_roll_back(struct op_list *list, int which, struct op_list *list_other,
+                  int which_other, struct fuse_cache *cache)
 {
     int err;
-    int i;
+    int i, j;
 
+    j = list_other->len;
     for (i = list->len - 1; i >= 0; i--) {
         struct cache_obj *obj;
         struct op *op = &list->ops[i];
@@ -637,27 +645,51 @@ op_list_roll_back(struct op_list *list, int which, struct fuse_cache *cache)
         case INSERT:
             /* delete key from cache */
             err = avl_tree_delete(cache->cache, &obj);
+            if (err)
+                abort();
+            obj->in_cache = 0;
+            --(obj->refcnt);
             break;
         case DELETE:
             /* reinsert key into cache */
             err = avl_tree_insert(cache->cache, &obj);
+            if (err) {
+                if (err != -EADDRINUSE)
+                    abort();
+                obj->deleted = 0;
+            } else {
+                obj->in_cache = 1;
+                ++(obj->refcnt);
+            }
             break;
         default:
             abort();
         }
 
-        if (err)
-            abort();
+        if (j > 0) {
+            struct cache_obj *obj_other = list_other->ops[j-1].obj;
+
+            if (obj_other == obj) {
+                obj_other->lists &= ~which_other;
+                --(obj_other)->refcnt;
+                --j;
+            }
+        }
     }
 
     op_list_clear(list, which, 0, cache);
+    list_other->len = j;
 }
 
 static int
 op_list_replay(struct op_list *list, int which, struct fuse_cache *cache)
 {
-    int err;
+    int err = 0;
     int i;
+    int prev_replay;
+
+    prev_replay = cache->replay;
+    cache->replay = 2;
 
     for (i = 0; i < list->len; i++) {
         struct cache_obj *obj;
@@ -667,29 +699,31 @@ op_list_replay(struct op_list *list, int which, struct fuse_cache *cache)
 
         switch (op->op) {
         case INSERT:
-            if (obj->replace) { /* replace key in back end */
-                err = (*(cache->ops->replace))(cache->ctx, obj->key, obj->data,
-                                               obj->datasize);
+            if (obj->replace == 1) { /* replace key in back end */
+                err = (*(cache->ops->replace))(cache->ctx, obj->key->p,
+                                               obj->data->p, obj->datasize);
             } else { /* insert key into back end */
-                err = (*(cache->ops->insert))(cache->ctx, obj->key, obj->data,
-                                              obj->datasize);
+                err = (*(cache->ops->insert))(cache->ctx, obj->key->p,
+                                              obj->data->p, obj->datasize);
             }
             break;
         case DELETE:
             /* delete key from back end */
-            err = (*(cache->ops->delete))(cache->ctx, obj->key);
+            err = (*(cache->ops->delete))(cache->ctx, obj->key->p);
             break;
         default:
             abort();
         }
 
         if (err)
-            return err;
+            goto end;
     }
 
     op_list_clear(list, which, 0, cache);
 
-    return 0;
+end:
+    cache->replay = prev_replay;
+    return err;
 }
 
 static void
@@ -758,7 +792,16 @@ op_list_dump(FILE *f, struct op_list *list, struct fuse_cache *cache)
 static int
 check_replay(struct fuse_cache *cache)
 {
-    return cache->replay ? op_list_replay(&cache->ops_group, TRANS, cache) : 0;
+    int err;
+
+    if (cache->replay) {
+        err = op_list_replay(&cache->ops_group, TRANS, cache);
+        if (err)
+            return err;
+        cache->replay = 0;
+    }
+
+    return 0;
 }
 
 static int
@@ -958,6 +1001,8 @@ init_cache_obj(struct cache_obj *o, const void *key, const void *data,
         goto err3;
     }
 
+    o->id = (cache->cur_id)++;
+
     memcpy(k, key, cache->key_size);
     memcpy(d, data, datasize);
 
@@ -976,7 +1021,7 @@ init_cache_obj(struct cache_obj *o, const void *key, const void *data,
     o->in_cache = o->lists = 0;
     o->refcnt = o->chk_refcnt = 0;
 
-    LIST_INSERT_HEAD(&cache->ops_global, o, e);
+    LIST_INSERT_HEAD(&cache->objs, o, e);
 
     o->magic = CACHE_OBJ_MAGIC;
 
@@ -1070,7 +1115,7 @@ fuse_cache_create(void **ctx, size_t key_size, back_end_key_cmp_t key_cmp,
     if (err)
         goto err1;
 
-    LIST_INIT(&ret->ops_global);
+    LIST_INIT(&ret->objs);
 
     err = op_list_init(&ret->ops_group, "group");
     if (err)
@@ -1090,6 +1135,8 @@ fuse_cache_create(void **ctx, size_t key_size, back_end_key_cmp_t key_cmp,
 
     ret->dump_cb = NULL;
     ret->dump_ctx = NULL;
+
+    ret->cur_id = 0;
 
     ret->trans_state = 0;
     ret->replay = 0;
@@ -1131,7 +1178,7 @@ fuse_cache_open(void **ctx, size_t key_size, back_end_key_cmp_t key_cmp,
     if (err)
         goto err1;
 
-    LIST_INIT(&ret->ops_global);
+    LIST_INIT(&ret->objs);
 
     err = op_list_init(&ret->ops_group, "group");
     if (err)
@@ -1151,6 +1198,8 @@ fuse_cache_open(void **ctx, size_t key_size, back_end_key_cmp_t key_cmp,
 
     ret->dump_cb = NULL;
     ret->dump_ctx = NULL;
+
+    ret->cur_id = 0;
 
     ret->trans_state = 0;
     ret->replay = 0;
@@ -1377,6 +1426,7 @@ fuse_cache_replace(void *ctx, const void *key, const void *data,
         if (in_cache) {
             op_list_add(&cache->ops_group, TRANS, DELETE, o_old);
             o_old->destroyed = o_old_destroyed = 0;
+            o->replace = 2;
         }
         op_list_add(&cache->ops_group, TRANS, INSERT, o);
     }
@@ -1384,6 +1434,7 @@ fuse_cache_replace(void *ctx, const void *key, const void *data,
         if (in_cache) {
             op_list_add(&cache->ops_user, USER_TRANS, DELETE, o_old);
             o_old->destroyed = o_old_destroyed = 0;
+            o->replace = 2;
         }
         op_list_add(&cache->ops_user, USER_TRANS, INSERT, o);
     }
