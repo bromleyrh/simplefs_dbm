@@ -1142,6 +1142,8 @@ free_iov(struct iovec *iov, int count)
 
     for (i = 0; i < count; i++)
         free(iov[i].iov_base);
+
+    free(iov);
 }
 
 static void
