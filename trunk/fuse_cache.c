@@ -105,6 +105,8 @@ struct fuse_cache_iter {
 
 #define CACHE_OBJ_VALID(obj) ((obj)->magic == CACHE_OBJ_MAGIC)
 
+int back_end_dbm_get_trans_state(void *);
+
 static void trans_cb(int, int, int, void *);
 
 static int cache_obj_cmp(const void *, const void *, void *);
@@ -128,7 +130,7 @@ static void op_list_add(struct op_list *, int, enum op_type,
                         struct cache_obj *);
 static void op_list_roll_back(struct op_list *, int, struct op_list *, int,
                               struct fuse_cache *);
-static int op_list_replay(struct op_list *, int, struct fuse_cache *);
+static int op_list_replay(struct op_list *, struct fuse_cache *);
 static void op_list_clear(struct op_list *, int, int, struct fuse_cache *);
 static void op_list_dump(FILE *, struct op_list *, struct fuse_cache *);
 
@@ -245,7 +247,7 @@ trans_cb(int trans_type, int act, int status, void *ctx)
             "\tStatus: %d\n",
             type2str[trans_type], act2str[act], status);
 
-    if ((cache->replay == 2) || ((status != 0) && (act != DB_HL_ACT_ABORT)))
+    if ((status != 0) && (act != DB_HL_ACT_ABORT))
         return;
 
     switch (act) {
@@ -253,22 +255,26 @@ trans_cb(int trans_type, int act, int status, void *ctx)
         cache->trans_state |= trans_type;
         break;
     case DB_HL_ACT_ABORT:
-        if (trans_type & DB_HL_TRANS_USER) {
-            op_list_roll_back(&cache->ops_user, USER_TRANS, &cache->ops_group,
-                              TRANS, cache);
-        }
-        if ((trans_type & DB_HL_TRANS_GROUP)
-            && (op_list_replay(&cache->ops_group, TRANS, cache) != 0))
-            cache->replay = 1;
         cache->trans_state &= ~trans_type;
+        if (cache->replay != 2) {
+            if (trans_type & DB_HL_TRANS_USER) {
+                op_list_roll_back(&cache->ops_user, USER_TRANS,
+                                  &cache->ops_group, TRANS, cache);
+            }
+            if ((trans_type & DB_HL_TRANS_GROUP)
+                && (op_list_replay(&cache->ops_group, cache) != 0))
+                cache->replay = 1;
+        }
         break;
     case DB_HL_ACT_COMMIT:
+        cache->trans_state &= ~trans_type;
         /* clear appropriate operation lists */
+        if (cache->replay == 2)
+            abort();
         if (trans_type & DB_HL_TRANS_USER)
             op_list_clear(&cache->ops_user, USER_TRANS, 1, cache);
         if (trans_type & DB_HL_TRANS_GROUP)
             op_list_clear(&cache->ops_group, TRANS, 1, cache);
-        cache->trans_state &= ~trans_type;
         break;
     default:
         abort();
@@ -531,6 +537,16 @@ check_consistency(struct fuse_cache *cache)
     int err;
     struct avl_tree *objs;
 
+    /* check transaction state */
+    if (cache->trans_state != back_end_dbm_get_trans_state(cache->ctx)) {
+        fputs("Cache transaction state and back end transaction state differ\n",
+              stderr);
+        err = -EIO;
+        goto err;
+    }
+
+    /* check reference counts */
+
     err = avl_tree_new(&objs, sizeof(struct cache_obj *), &cache_obj_cmp_chk, 0,
                        NULL, cache, NULL);
     if (err)
@@ -551,11 +567,12 @@ check_consistency(struct fuse_cache *cache)
     if (err)
         goto err;
 
+    avl_tree_free(objs);
+
+    /* check cache objects */
     err = verify_list(&cache->objs, cache);
     if (err)
         goto err;
-
-    avl_tree_free(objs);
 
     fputs("Consistency check passed\n", stderr);
 
@@ -682,7 +699,7 @@ op_list_roll_back(struct op_list *list, int which, struct op_list *list_other,
 }
 
 static int
-op_list_replay(struct op_list *list, int which, struct fuse_cache *cache)
+op_list_replay(struct op_list *list, struct fuse_cache *cache)
 {
     int err = 0;
     int i;
@@ -718,8 +735,6 @@ op_list_replay(struct op_list *list, int which, struct fuse_cache *cache)
         if (err)
             goto end;
     }
-
-    op_list_clear(list, which, 0, cache);
 
 end:
     cache->replay = prev_replay;
@@ -795,7 +810,7 @@ check_replay(struct fuse_cache *cache)
     int err;
 
     if (cache->replay) {
-        err = op_list_replay(&cache->ops_group, TRANS, cache);
+        err = op_list_replay(&cache->ops_group, cache);
         if (err)
             return err;
         cache->replay = 0;
@@ -1014,6 +1029,7 @@ init_cache_obj(struct cache_obj *o, const void *key, const void *data,
     o->key = keyref;
     o->data = dataref;
     o->datasize = datasize;
+    o->replace = 0;
     o->deleted = 0;
 
     o->destroyed = 0;

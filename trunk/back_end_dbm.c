@@ -44,6 +44,8 @@ struct db_iter {
     struct db_ctx   *dbctx;
 };
 
+int db_hl_get_trans_state(struct dbh *);
+
 static void trans_cb(struct dbh *, int, int, int, void *);
 static void sync_cb(struct dbh *, int, void *);
 
@@ -524,6 +526,14 @@ back_end_dbm_sync(void *ctx)
     struct db_ctx *dbctx = (struct db_ctx *)ctx;
 
     return db_hl_sync(dbctx->dbh);
+}
+
+int
+back_end_dbm_get_trans_state(void *ctx)
+{
+    struct db_ctx *dbctx = (struct db_ctx *)ctx;
+
+    return db_hl_get_trans_state(dbctx->dbh);
 }
 
 /* vi: set expandtab sw=4 ts=4: */
