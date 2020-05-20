@@ -81,6 +81,8 @@ struct fuse_cache {
     struct obj_list             objs;
     struct op_list              ops_group;
     struct op_list              ops_user;
+    void                        (*sync_cb)(int, void *);
+    void                        *sync_ctx;
     void                        (*dump_cb)(FILE *, const void *, const void *,
                                            size_t, const char *, void *);
     void                        *dump_ctx;
@@ -104,6 +106,8 @@ struct fuse_cache_iter {
 #define MAX_CLEAN_ENTRIES 512
 
 #define CACHE_OBJ_VALID(obj) ((obj)->magic == CACHE_OBJ_MAGIC)
+
+static int fuse_cache_debug = 1;
 
 int back_end_dbm_get_trans_state(void *);
 
@@ -240,12 +244,14 @@ trans_cb(int trans_type, int act, int status, void *ctx)
         [DB_HL_ACT_COMMIT]  = "commit"
     };
 
-    fprintf(stderr,
-            "Transaction data:\n"
-            "\tType: %s transaction\n"
-            "\tAction: %s\n"
-            "\tStatus: %d\n",
-            type2str[trans_type], act2str[act], status);
+    if (fuse_cache_debug) {
+        fprintf(stderr,
+                "Transaction data:\n"
+                "\tType: %s transaction\n"
+                "\tAction: %s\n"
+                "\tStatus: %d\n",
+                type2str[trans_type], act2str[act], status);
+    }
 
     if ((status != 0) && (act != DB_HL_ACT_ABORT))
         return;
@@ -269,8 +275,17 @@ trans_cb(int trans_type, int act, int status, void *ctx)
     case DB_HL_ACT_COMMIT:
         cache->trans_state &= ~trans_type;
         /* clear appropriate operation lists */
-        if (cache->replay == 2)
+        switch (cache->replay) {
+        case 2:
             abort();
+        case 0:
+            if ((cache->sync_cb != NULL) && (trans_type & DB_HL_TRANS_GROUP)) {
+                /* invoke *sync_cb to allow clearing writeback error */
+                (*(cache->sync_cb))(1, cache->sync_ctx);
+            }
+        default:
+            break;
+        }
         if (trans_type & DB_HL_TRANS_USER)
             op_list_clear(&cache->ops_user, USER_TRANS, 1, cache);
         if (trans_type & DB_HL_TRANS_GROUP)
@@ -537,6 +552,9 @@ check_consistency(struct fuse_cache *cache)
     int err;
     struct avl_tree *objs;
 
+    if (!fuse_cache_debug)
+        return;
+
     /* check transaction state */
     if (cache->trans_state != back_end_dbm_get_trans_state(cache->ctx)) {
         fputs("Cache transaction state and back end transaction state differ\n",
@@ -778,7 +796,7 @@ op_list_dump(FILE *f, struct op_list *list, struct fuse_cache *cache)
         [DELETE] = "delete"
     };
 
-    if (cache->dump_cb == NULL)
+    if (!fuse_cache_debug || (cache->dump_cb == NULL))
         return;
 
     fprintf(f, "Operation list \"%s\"\n", list->name);
@@ -1149,6 +1167,8 @@ fuse_cache_create(void **ctx, size_t key_size, back_end_key_cmp_t key_cmp,
 
     ret->ops = cache_args->ops;
 
+    ret->sync_cb = cache_args->sync_cb;
+    ret->sync_ctx = cache_args->sync_ctx;
     ret->dump_cb = NULL;
     ret->dump_ctx = NULL;
 
@@ -1212,6 +1232,8 @@ fuse_cache_open(void **ctx, size_t key_size, back_end_key_cmp_t key_cmp,
 
     ret->ops = cache_args->ops;
 
+    ret->sync_cb = cache_args->sync_cb;
+    ret->sync_ctx = cache_args->sync_ctx;
     ret->dump_cb = NULL;
     ret->dump_ctx = NULL;
 

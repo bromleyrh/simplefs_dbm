@@ -13,6 +13,8 @@ struct fuse_cache;
 
 struct fuse_cache_args {
     const struct back_end_ops   *ops;
+    void                        (*sync_cb)(int status, void *sync_ctx);
+    void                        *sync_ctx;
     void                        (*set_trans_cb)(void *args,
                                                 void (*cb)(int trans_type,
                                                            int act, int status,

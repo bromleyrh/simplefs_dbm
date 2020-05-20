@@ -580,6 +580,8 @@ sync_cb(int status, void *ctx)
 
     if (status < 0)
         priv->wb_err = status;
+    else if (status > 0)
+        priv->wb_err = 0;
 }
 
 static void
@@ -3253,6 +3255,8 @@ simplefs_init(void *userdata, struct fuse_conn_info *conn)
 
     args.ops = BACK_END_DBM;
     args.set_trans_cb = &set_trans_cb;
+    args.sync_cb = &sync_cb;
+    args.sync_ctx = priv;
     args.args = &dbargs;
 
     ret = avl_tree_new(&priv->ref_inodes.ref_inodes, sizeof(struct ref_ino *),
