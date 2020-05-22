@@ -87,7 +87,7 @@ enum db_obj_type {
     TYPE_STAT,          /* look up by ino */
     TYPE_PAGE,          /* look up by ino, pgno */
     TYPE_XATTR,         /* look up by ino, name */
-    TYPE_ULINKED_INO    /* loop up by ino */
+    TYPE_ULINKED_INODE  /* loop up by ino */
 };
 
 #define MAX_NAME (NAME_MAX+1)
@@ -473,7 +473,7 @@ db_key_cmp(const void *k1, const void *k2, void *key_ctx)
     case TYPE_PAGE:
         cmp = uint64_cmp(key1->pgno, key2->pgno);
     case TYPE_STAT:
-    case TYPE_ULINKED_INO:
+    case TYPE_ULINKED_INODE:
         break;
     default:
         abort();
@@ -628,7 +628,7 @@ dump_db_obj(FILE *f, const void *key, const void *data, size_t datasize,
                    "size %zu\n",
                 (uint64_t)(k->ino), k->name, datasize);
         break;
-    case TYPE_ULINKED_INO:
+    case TYPE_ULINKED_INODE:
         fprintf(f, "Unlinked I-node entry: node %" PRIu64 "\n",
                 (uint64_t)(k->ino));
         break;
@@ -936,7 +936,7 @@ remove_ulinked_nodes(struct back_end *be)
         if (ret != 0)
             return ret;
 
-        k.type = TYPE_ULINKED_INO;
+        k.type = TYPE_ULINKED_INODE;
         k.ino = 0;
 
         ret = back_end_iter_search(iter, &k);
@@ -953,7 +953,7 @@ remove_ulinked_nodes(struct back_end *be)
             break;
         }
 
-        if (k.type != TYPE_ULINKED_INO)
+        if (k.type != TYPE_ULINKED_INODE)
             break;
 
         ret = back_end_trans_new(be);
@@ -1145,7 +1145,7 @@ delete_file(struct back_end *be, fuse_ino_t ino)
     if (ret != 0)
         return ret;
 
-    k.type = TYPE_ULINKED_INO;
+    k.type = TYPE_ULINKED_INODE;
 
     return back_end_delete(be, &k);
 }
@@ -2119,7 +2119,7 @@ do_remove_node_link(void *args)
     }
 
     if (s.st_nlink == 0) {
-        k.type = TYPE_ULINKED_INO;
+        k.type = TYPE_ULINKED_INODE;
 
         ret = back_end_insert(opargs->be, &k, NULL, 0);
         if (ret != 0)
@@ -2210,7 +2210,7 @@ do_remove_dir(void *args)
     }
 
     if (s.st_nlink == 0) {
-        k.type = TYPE_ULINKED_INO;
+        k.type = TYPE_ULINKED_INODE;
 
         ret = back_end_insert(opargs->be, &k, NULL, 0);
         if (ret != 0)
@@ -2419,7 +2419,7 @@ do_rename(void *args)
         }
 
         if (ds.st_nlink == 0) {
-            k.type = TYPE_ULINKED_INO;
+            k.type = TYPE_ULINKED_INODE;
 
             ret = back_end_insert(opargs->be, &k, NULL, 0);
             if (ret != 0)
