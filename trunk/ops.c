@@ -83,6 +83,7 @@ struct ref_ino {
 
 enum db_obj_type {
     TYPE_HEADER = 1,
+    TYPE_FREE_INO,      /* look up by ino */
     TYPE_DIRENT,        /* look up by ino, name */
     TYPE_STAT,          /* look up by ino */
     TYPE_PAGE,          /* look up by ino, pgno */
@@ -106,8 +107,17 @@ struct disk_timespec {
 
 struct db_obj_header {
     uint64_t    version;
-    uint64_t    next_ino;
+    uint64_t    numinodes;
     uint8_t     reserved[112];
+} __attribute__((packed));
+
+#define FREE_INO_RANGE_SZ 2048
+
+#define FREE_INO_LAST_USED 1 /* values in all following ranges are free */
+
+struct db_obj_free_ino {
+    uint64_t    used_ino[FREE_INO_RANGE_SZ/NBWD];
+    uint8_t     flags;
 } __attribute__((packed));
 
 struct db_obj_dirent {
@@ -228,6 +238,17 @@ struct free_ref_inodes_ctx {
 #define st_ctim st_ctimespec
 #endif
 
+/*
+ * Format history:
+ * - 1
+ *   initial format
+ * - 2
+ *   changed page size from 128 kiB to 128 kiB - 64 B to reduce internal
+ *   fragmentation
+ * - 3
+ *   modified I-node number allocation scheme to allow reusing I-node numbers
+ *   by storing free I-node number information in bitmaps
+ */
 #define FMT_VERSION 2
 
 #define DATA_BLOCK_MIN_SIZE 64
@@ -283,8 +304,12 @@ static int dump_db(struct back_end *);
 
 static int ref_inode_cmp(const void *, const void *, void *);
 
+static void used_ino_set(uint64_t *, fuse_ino_t, fuse_ino_t, int);
+static fuse_ino_t free_ino_find(uint64_t *, fuse_ino_t);
+static int get_ino(struct back_end *, fuse_ino_t *);
+static int release_ino(struct back_end *, fuse_ino_t);
+
 static uint64_t adj_refcnt(uint64_t *, int32_t);
-static int get_next_ino(struct back_end *, fuse_ino_t *);
 static int unref_inode(struct back_end *, struct ref_inodes *, struct ref_ino *,
                        int32_t, int32_t, int32_t, int *);
 static int free_ref_inodes_cb(const void *, void *);
@@ -472,6 +497,7 @@ db_key_cmp(const void *k1, const void *k2, void *key_ctx)
         break;
     case TYPE_PAGE:
         cmp = uint64_cmp(key1->pgno, key2->pgno);
+    case TYPE_FREE_INO:
     case TYPE_STAT:
     case TYPE_ULINKED_INODE:
         break;
@@ -590,6 +616,7 @@ dump_db_obj(FILE *f, const void *key, const void *data, size_t datasize,
 {
     struct db_key *k = (struct db_key *)key;
     struct db_obj_dirent *de;
+    struct db_obj_free_ino *freeino;
     struct db_obj_header *hdr;
     struct db_obj_stat *s;
 
@@ -602,7 +629,15 @@ dump_db_obj(FILE *f, const void *key, const void *data, size_t datasize,
         assert(datasize == sizeof(*hdr));
         hdr = (struct db_obj_header *)data;
 
-        fprintf(f, "Header: next_ino %" PRIu64 "\n", hdr->next_ino);
+        fputs("Header\n", stderr);
+        break;
+    case TYPE_FREE_INO:
+        assert(datasize == sizeof(*freeino));
+        freeino = (struct db_obj_free_ino *)data;
+
+        fprintf(f, "Free I-node number information: number %" PRIu64 " to %"
+                   PRIu64 "\n",
+                (uint64_t)(k->ino), (uint64_t)(k->ino) + FREE_INO_RANGE_SZ - 1);
         break;
     case TYPE_DIRENT:
         assert(datasize == sizeof(*de));
@@ -673,6 +708,178 @@ ref_inode_cmp(const void *k1, const void *k2, void *ctx)
     return uint64_cmp(ino1->ino, ino2->ino);
 }
 
+static void
+used_ino_set(uint64_t *used_ino, fuse_ino_t base, fuse_ino_t ino, int val)
+{
+    int idx, wordidx;
+    uint64_t mask;
+
+    idx = ino - base;
+    wordidx = idx / NBWD;
+    mask = 1 << (idx % NBWD);
+
+    if (val)
+        used_ino[wordidx] |= mask;
+    else
+        used_ino[wordidx] &= ~mask;
+}
+
+static fuse_ino_t
+free_ino_find(uint64_t *used_ino, fuse_ino_t base)
+{
+    fuse_ino_t ino;
+    int idx;
+    int maxidx;
+    static const uint64_t filled = ~(uint64_t)0;
+    uint64_t word;
+
+    maxidx = FREE_INO_RANGE_SZ / NBWD - 1;
+    for (idx = 0;; idx++) {
+        if (used_ino[idx] != filled)
+            break;
+        if (idx == maxidx)
+            return 0;
+    }
+    ino = base + idx * NBWD;
+    word = ~(used_ino[idx]);
+
+    idx = 0;
+    if (!(word & 0xffffffff)) {
+        word >>= 32;
+        idx += 32;
+    }
+    if (!(word & 0xffff)) {
+        word >>= 16;
+        idx += 16;
+    }
+    if (!(word & 0xff)) {
+        word >>= 8;
+        idx += 8;
+    }
+    if (!(word & 0xf)) {
+        word >>= 4;
+        idx += 4;
+    }
+    if (!(word & 0x3)) {
+        word >>= 2;
+        idx += 2;
+    }
+    if (!(word & 0x1))
+        idx += 1;
+
+    return ino + idx;
+}
+
+static int
+get_ino(struct back_end *be, fuse_ino_t *ino)
+{
+    fuse_ino_t ret;
+    int res;
+    struct back_end_iter *iter;
+    struct db_key k;
+    struct db_obj_free_ino freeino;
+    struct db_obj_header hdr;
+    struct db_obj_stat s;
+
+    res = back_end_iter_new(&iter, be);
+    if (res != 0)
+        return res;
+
+    k.type = TYPE_FREE_INO;
+    k.ino = 0;
+    res = back_end_iter_search(iter, &k);
+    if (res < 0) {
+        back_end_iter_free(iter);
+        return res;
+    }
+
+    res = back_end_iter_get(iter, &k, &freeino, NULL);
+    back_end_iter_free(iter);
+    if (res != 0)
+        return (res == -EADDRNOTAVAIL) ? -ENOSPC : res;
+    if (k.type != TYPE_FREE_INO)
+        return -ENOSPC;
+
+    ret = free_ino_find(freeino.used_ino, k.ino);
+    if (ret == 0) {
+        if (!(freeino.flags & FREE_INO_LAST_USED))
+            return -EILSEQ;
+        if (ULONG_MAX - k.ino < FREE_INO_RANGE_SZ)
+            return -ENOSPC;
+
+        res = back_end_delete(be, &k);
+        if (res != 0)
+            return res;
+
+        k.ino += FREE_INO_RANGE_SZ;
+        memset(freeino.used_ino, 0, sizeof(freeino.used_ino));
+        used_ino_set(freeino.used_ino, k.ino, k.ino, 1);
+        freeino.flags = FREE_INO_LAST_USED;
+        res = back_end_insert(be, &k, &freeino, sizeof(freeino));
+        if (res != 0)
+            return res;
+
+        *ino = k.ino;
+        return 0;
+    }
+
+    used_ino_set(freeino.used_ino, k.ino, ret, 1);
+    res = ((free_ino_find(freeino.used_ino, k.ino) == 0)
+           && !(freeino.flags & FREE_INO_LAST_USED))
+          ? back_end_delete(be, &k)
+          : back_end_replace(be, &k, &freeino, sizeof(freeino));
+    if (res != 0)
+        return res;
+
+    k.type = TYPE_STAT;
+    k.ino = ret;
+    res = back_end_look_up(be, &k, NULL, &s, NULL, 0);
+    if (res != 0)
+        return (res == 1) ? -EIO : res;
+
+    k.type = TYPE_HEADER;
+    res = back_end_look_up(be, &k, NULL, &hdr, NULL, 0);
+    if (res != 1)
+        return (res == 0) ? -EILSEQ : res;
+
+    ++(hdr.numinodes);
+    res = back_end_replace(be, &k, &hdr, sizeof(hdr));
+    if (res != 0)
+        return res;
+
+    *ino = ret;
+    return 0;
+}
+
+static int
+release_ino(struct back_end *be, fuse_ino_t ino)
+{
+    int res;
+    struct db_key k;
+    struct db_obj_free_ino freeino;
+    struct db_obj_header hdr;
+
+    k.type = TYPE_FREE_INO;
+    k.ino = (ino - FUSE_ROOT_ID) / FREE_INO_RANGE_SZ * FREE_INO_RANGE_SZ
+            + FUSE_ROOT_ID;
+    res = back_end_look_up(be, &k, &k, &freeino, NULL, 0);
+    if (res != 1)
+        return (res == 0) ? -EILSEQ : res;
+
+    used_ino_set(freeino.used_ino, k.ino, ino, 0);
+    res = back_end_replace(be, &k, &freeino, sizeof(freeino));
+    if (res != 0)
+        return res;
+
+    k.type = TYPE_HEADER;
+    res = back_end_look_up(be, &k, NULL, &hdr, NULL, 0);
+    if (res != 1)
+        return (res == 0) ? -EILSEQ : res;
+
+    --(hdr.numinodes);
+    return back_end_replace(be, &k, &hdr, sizeof(hdr));
+}
+
 static uint64_t
 adj_refcnt(uint64_t *refcnt, int32_t delta)
 {
@@ -680,35 +887,6 @@ adj_refcnt(uint64_t *refcnt, int32_t delta)
         *refcnt = (delta == -INT_MAX) ? 0 : (*refcnt + delta);
 
     return *refcnt;
-}
-
-/*
- * FIXME: Revise this function to use disk addresses as I-node numbers once
- * reaching ULONG_MAX, instead of returning -ENOSPC
- */
-static int
-get_next_ino(struct back_end *be, fuse_ino_t *ino)
-{
-    fuse_ino_t ret;
-    int res;
-    struct db_key k;
-    struct db_obj_header hdr;
-
-    k.type = TYPE_HEADER;
-    res = back_end_look_up(be, &k, NULL, &hdr, NULL, 0);
-    if (res != 1)
-        return (res == 0) ? -EILSEQ : res;
-
-    if (hdr.next_ino == ULONG_MAX)
-        return -ENOSPC;
-    ret = (hdr.next_ino)++;
-
-    res = back_end_replace(be, &k, &hdr, sizeof(hdr));
-    if (res != 0)
-        return res;
-
-    *ino = ret;
-    return 0;
 }
 
 /*
@@ -1149,7 +1327,11 @@ delete_file(struct back_end *be, fuse_ino_t ino)
 
     k.type = TYPE_ULINKED_INODE;
 
-    return back_end_delete(be, &k);
+    ret = back_end_delete(be, &k);
+    if (ret != 0)
+        return ret;
+
+    return release_ino(be, ino);
 }
 
 static void
@@ -1200,7 +1382,7 @@ new_node(struct back_end *be, struct ref_inodes *ref_inodes, fuse_ino_t parent,
             return ret;
     }
 
-    ret = get_next_ino(be, &ino);
+    ret = get_ino(be, &ino);
     if (ret != 0)
         goto err1;
 
@@ -1351,7 +1533,7 @@ new_dir(struct back_end *be, struct ref_inodes *ref_inodes, fuse_ino_t parent,
     if (rootdir)
         parent = ino = FUSE_ROOT_ID;
     else {
-        ret = get_next_ino(be, &ino);
+        ret = get_ino(be, &ino);
         if (ret != 0)
             goto err1;
     }
@@ -3234,6 +3416,7 @@ simplefs_init(void *userdata, struct fuse_conn_info *conn)
     int ret;
     struct db_args dbargs;
     struct db_key k;
+    struct db_obj_free_ino freeino;
     struct db_obj_header hdr;
     struct fspriv *priv;
     struct fuse_cache_args args;
@@ -3300,8 +3483,17 @@ simplefs_init(void *userdata, struct fuse_conn_info *conn)
 
         k.type = TYPE_HEADER;
         hdr.version = FMT_VERSION;
-        hdr.next_ino = FUSE_ROOT_ID + 1;
+        hdr.numinodes = 1;
         ret = back_end_insert(priv->be, &k, &hdr, sizeof(hdr));
+        if (ret != 0)
+            goto err6;
+
+        k.type = TYPE_FREE_INO;
+        k.ino = FUSE_ROOT_ID;
+        memset(freeino.used_ino, 0, sizeof(freeino.used_ino));
+        used_ino_set(freeino.used_ino, k.ino, FUSE_ROOT_ID, 1);
+        freeino.flags = FREE_INO_LAST_USED;
+        ret = back_end_insert(priv->be, &k, &freeino, sizeof(freeino));
         if (ret != 0)
             goto err6;
 
@@ -4359,7 +4551,7 @@ simplefs_statfs(fuse_req_t req, fuse_ino_t ino)
 
     stbuf.f_files = (fsfilcnt_t)ULONG_MAX;
     stbuf.f_ffree = stbuf.f_favail = (fsfilcnt_t)(stbuf.f_files
-                                                  - opargs.hdr.next_ino + 1);
+                                                  - opargs.hdr.numinodes);
 
     stbuf.f_fsid = 0;
 
