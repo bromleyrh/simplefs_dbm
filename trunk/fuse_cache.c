@@ -142,7 +142,7 @@ static void op_list_dump(FILE *, struct op_list *, struct fuse_cache *);
 
 static int check_replay(struct fuse_cache *);
 
-static int get_next_elem(void *, void *, size_t *, const void *,
+static int get_next_elem(struct cache_obj **, const void *,
                          struct fuse_cache *);
 
 static int get_next_iter_elem(struct cache_obj *, void *, void **, size_t *,
@@ -864,18 +864,13 @@ check_replay(struct fuse_cache *cache)
 }
 
 static int
-get_next_elem(void *retkey, void *retdata, size_t *retdatasize, const void *key,
-              struct fuse_cache *cache)
+get_next_elem(struct cache_obj **o, const void *key, struct fuse_cache *cache)
 {
     avl_tree_iter_t iter;
     int res;
-    size_t datalen;
-    struct cache_obj *o;
+    struct cache_obj *ret;
     struct cache_obj obj;
     struct data_ref keyref;
-
-    if (retdatasize == NULL)
-        retdatasize = &datalen;
 
     res = avl_tree_iter_new(&iter, cache->cache);
     if (res != 0)
@@ -883,8 +878,8 @@ get_next_elem(void *retkey, void *retdata, size_t *retdatasize, const void *key,
 
     keyref.p = key;
     obj.key = &keyref;
-    o = &obj;
-    res = avl_tree_iter_search(iter, &o);
+    ret = &obj;
+    res = avl_tree_iter_search(iter, &ret);
     if (res != 1) {
         if (res == 0)
             res = -ENOENT;
@@ -896,15 +891,15 @@ get_next_elem(void *retkey, void *retdata, size_t *retdatasize, const void *key,
         if (res != 0)
             goto end;
 
-        res = avl_tree_iter_get(iter, &o);
+        res = avl_tree_iter_get(iter, &ret);
         if (res != 0)
             goto end;
 
-        if (!(o->deleted)) {
-            res = return_cache_obj(o, retkey, retdata, retdatasize, 1, cache);
+        if (!(ret->deleted))
             break;
-        }
     }
+
+    *o = ret;
 
 end:
     avl_tree_iter_free(iter);
@@ -1567,7 +1562,7 @@ static int
 fuse_cache_look_up(void *ctx, const void *key, void *retkey, void *retdata,
                    size_t *retdatasize, int look_up_nearest)
 {
-    int res;
+    int cmp, res;
     struct cache_obj *o;
     struct cache_obj obj;
     struct data_ref keyref;
@@ -1604,24 +1599,41 @@ fuse_cache_look_up(void *ctx, const void *key, void *retkey, void *retdata,
 
     assert(res == 0);
     if (cache->key_ctx.last_key_valid) {
-        int cmp;
-
         cmp = (*(cache->key_cmp))(cache->key_ctx.last_key->key, key, NULL);
         if (cmp > 0) {
             o = cache->key_ctx.last_key;
             assert(CACHE_OBJ_VALID(o));
-            goto out_cache;
+        } else {
+            assert(cmp < 0);
+            res = get_next_elem(&o, cache->key_ctx.last_key->key, cache);
+            if (res != 0) {
+                if (res != -EADDRNOTAVAIL)
+                    return res;
+                o = NULL;
+            }
         }
-        res = get_next_elem(retkey, retdata, retdatasize,
-                            cache->key_ctx.last_key->key, cache);
-        if (res != 0)
-            return (res == -EADDRNOTAVAIL) ? 0 : res;
-        return 2;
-    }
+    } else
+        o = NULL;
 
     /* look up nearest key in back end */
-    return (*(cache->ops->look_up))(cache->ctx, key, retkey, retdata,
-                                    retdatasize, 1);
+    res = (*(cache->ops->look_up))(cache->ctx, key, retkey, retdata,
+                                   retdatasize, 1);
+    if (res != 2) {
+        if (res != 0) {
+            assert(res != 1);
+            return res;
+        }
+        goto out_cache;
+    }
+
+    if (o != NULL) {
+        /* determine minimum of keys referenced by o->key and retkey */
+        cmp = (*(cache->key_cmp))(o->key, retkey, NULL);
+        if (cmp < 0)
+            goto out_cache;
+    }
+
+    return 2;
 
 out_cache:
     return (res > 0)
