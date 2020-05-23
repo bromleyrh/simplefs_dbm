@@ -1563,10 +1563,11 @@ fuse_cache_look_up(void *ctx, const void *key, void *retkey, void *retdata,
                    size_t *retdatasize, int look_up_nearest)
 {
     int cmp, res;
-    struct cache_obj *o;
+    struct cache_obj *o, *tmp;
     struct cache_obj obj;
     struct data_ref keyref;
     struct fuse_cache *cache = (struct fuse_cache *)ctx;
+    void *biter;
 
     op_list_dump(stderr, &cache->ops_group, cache);
     op_list_dump(stderr, &cache->ops_user, cache);
@@ -1600,17 +1601,17 @@ fuse_cache_look_up(void *ctx, const void *key, void *retkey, void *retdata,
     assert(res == 0);
     if (cache->key_ctx.last_key_valid) {
         cmp = (*(cache->key_cmp))(cache->key_ctx.last_key->key, key, NULL);
-        if (cmp > 0) {
-            o = cache->key_ctx.last_key;
-            assert(CACHE_OBJ_VALID(o));
-        } else {
-            assert(cmp < 0);
+        assert(cmp != 0);
+        if ((cmp < 0) || cache->key_ctx.last_key->deleted) {
             res = get_next_elem(&o, cache->key_ctx.last_key->key, cache);
             if (res != 0) {
                 if (res != -EADDRNOTAVAIL)
                     return res;
                 o = NULL;
             }
+        } else {
+            o = cache->key_ctx.last_key;
+            assert(CACHE_OBJ_VALID(o));
         }
     } else
         o = NULL;
@@ -1623,7 +1624,50 @@ fuse_cache_look_up(void *ctx, const void *key, void *retkey, void *retdata,
             assert(res != 1);
             return res;
         }
-        goto out_cache;
+        if (o != NULL)
+            goto out_cache;
+        return 0;
+    }
+
+    /* if key is deleted in cache, seek to next non-deleted key */
+    biter = NULL;
+    obj.key = retkey;
+    for (;;) {
+        tmp = &obj;
+        res = avl_tree_search(cache->cache, &tmp, &tmp);
+        if (res < 0)
+            return res;
+        if ((res == 0) || !(tmp->deleted)) {
+            if (biter != NULL)
+                (*(cache->ops->iter_free))(biter);
+            break;
+        }
+
+        if (biter == NULL) {
+            res = (*(cache->ops->iter_new))(&biter, cache->ctx);
+            if (res != 0)
+                return res;
+
+            res = (*(cache->ops->iter_search))(biter, retkey);
+            if (res != 1) {
+                (*(cache->ops->iter_free))(biter);
+                return (res == 0) ? -EIO : res;
+            }
+        } else {
+            res = (*(cache->ops->iter_next))(biter);
+            if (res != 0) {
+                (*(cache->ops->iter_free))(biter);
+                if (res != -EADDRNOTAVAIL)
+                    return res;
+                if (o != NULL)
+                    goto out_cache;
+                return 0;
+            }
+        }
+
+        res = (*(cache->ops->iter_get))(biter, retkey, NULL, NULL);
+        if (res != 0)
+            return res;
     }
 
     if (o != NULL) {
