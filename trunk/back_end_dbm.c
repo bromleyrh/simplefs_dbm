@@ -356,11 +356,13 @@ back_end_dbm_look_up(void *ctx, const void *key, void *retkey, void *retdata,
             res = db_hl_search(dbctx->dbh, dbctx->key_ctx->last_key, retkey,
                                retdata, retdatasize);
             assert(res != 0);
-            return (res == 1) ? 0 : res;
+            return (res == 1) ? 2 : res;
         }
         res = get_next_elem(retkey, retdata, retdatasize,
                             dbctx->key_ctx->last_key, dbctx);
-        return (res == -EADDRNOTAVAIL) ? 0: res;
+        if (res != 0)
+            return (res == -EADDRNOTAVAIL) ? 0: res;
+        return 2;
     }
 
     return res;

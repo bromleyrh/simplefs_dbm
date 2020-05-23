@@ -158,7 +158,7 @@ static int init_cache_obj(struct cache_obj *, const void *, const void *,
                           size_t, struct fuse_cache *);
 static int destroy_cache_obj(struct cache_obj *, int);
 static int return_cache_obj(const struct cache_obj *, void *, void *, size_t *,
-                            struct fuse_cache *);
+                            int, struct fuse_cache *);
 
 static int fuse_cache_create(void **, size_t, back_end_key_cmp_t, void *);
 static int fuse_cache_open(void **, size_t, back_end_key_cmp_t, void *);
@@ -900,7 +900,7 @@ get_next_elem(void *retkey, void *retdata, size_t *retdatasize, const void *key,
             goto end;
 
         if (!(o->deleted)) {
-            res = return_cache_obj(o, retkey, retdata, retdatasize, cache);
+            res = return_cache_obj(o, retkey, retdata, retdatasize, 1, cache);
             break;
         }
     }
@@ -1140,7 +1140,7 @@ destroy_cache_obj(struct cache_obj *o, int force)
 
 static int
 return_cache_obj(const struct cache_obj *o, void *retkey, void *retdata,
-                 size_t *retdatasize, struct fuse_cache *cache)
+                 size_t *retdatasize, int ret, struct fuse_cache *cache)
 {
     if (retkey != NULL)
         memcpy(retkey, o->key->p, cache->key_size);
@@ -1149,7 +1149,7 @@ return_cache_obj(const struct cache_obj *o, void *retkey, void *retdata,
     if (retdatasize != NULL)
         *retdatasize = o->datasize;
 
-    return 1;
+    return ret;
 }
 
 static int
@@ -1570,15 +1570,18 @@ fuse_cache_look_up(void *ctx, const void *key, void *retkey, void *retdata,
         if (cmp > 0) {
             o = cache->key_ctx.last_key;
             res = avl_tree_search(cache->cache, &o, &o);
-            if (res == 1)
+            if (res == 1) {
                 assert(CACHE_OBJ_VALID(o));
-            else
+                res = 2;
+            } else
                 assert(res != 0);
             goto out_cache;
         }
         res = get_next_elem(retkey, retdata, retdatasize,
                             cache->key_ctx.last_key->key, cache);
-        return (res == -EADDRNOTAVAIL) ? 0 : res;
+        if (res != 0)
+            return (res == -EADDRNOTAVAIL) ? 0 : res;
+        return 2;
     }
 
     /* look up nearest key in back end */
@@ -1586,8 +1589,9 @@ fuse_cache_look_up(void *ctx, const void *key, void *retkey, void *retdata,
                                     retdatasize, 1);
 
 out_cache:
-    return (res == 1)
-           ? return_cache_obj(o, retkey, retdata, retdatasize, cache) : res;
+    return (res > 0)
+           ? return_cache_obj(o, retkey, retdata, retdatasize, res, cache)
+           : res;
 }
 
 static int
