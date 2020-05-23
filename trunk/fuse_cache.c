@@ -30,16 +30,16 @@ struct cache_obj {
     const void              *key;
     const void              *data;
     size_t                  datasize;
-    int                     replace;
-    int                     deleted;
-    int                     destroyed;
-    int                     in_cache;
-    int                     lists;
+    unsigned                replace:2;
+    unsigned                deleted:1;
+    unsigned                destroyed:1;
+    unsigned                in_cache:1;
+    unsigned                lists:2;
     int                     refcnt;
     int                     refcnt_group;
     int                     refcnt_user;
-    int                     chk_in_cache; /* used for consistency checking */
-    int                     chk_lists;
+    unsigned                chk_in_cache:1; /* used for consistency checking */
+    unsigned                chk_lists:2;
     int                     chk_refcnt;
     LIST_ENTRY(cache_obj)   e;
     struct avl_tree_node    *n;
