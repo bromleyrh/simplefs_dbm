@@ -22,18 +22,13 @@
 #define TRANS DB_HL_TRANS_GROUP
 #define USER_TRANS DB_HL_TRANS_USER
 
-struct data_ref {
-    const void  *p;
-    int         refcnt;
-};
-
 #define CACHE_OBJ_MAGIC 0x4a424f43
 
 struct cache_obj {
     unsigned                magic;
     uint64_t                id; /* used for debugging */
-    struct data_ref         *key;
-    struct data_ref         *data;
+    const void              *key;
+    const void              *data;
     size_t                  datasize;
     int                     replace;
     int                     deleted;
@@ -315,7 +310,7 @@ cache_obj_cmp(const void *k1, const void *k2, void *ctx)
         cache->key_ctx.last_key_valid = 1;
     }
 
-    return (*(cache->key_cmp))(o1->key->p, o2->key->p, NULL);
+    return (*(cache->key_cmp))(o1->key, o2->key, NULL);
 }
 
 static int
@@ -761,16 +756,16 @@ op_list_replay(struct op_list *list, struct fuse_cache *cache)
         switch (op->op) {
         case INSERT:
             if (obj->replace == 1) { /* replace key in back end */
-                err = (*(cache->ops->replace))(cache->ctx, obj->key->p,
-                                               obj->data->p, obj->datasize);
+                err = (*(cache->ops->replace))(cache->ctx, obj->key, obj->data,
+                                               obj->datasize);
             } else { /* insert key into back end */
-                err = (*(cache->ops->insert))(cache->ctx, obj->key->p,
-                                              obj->data->p, obj->datasize);
+                err = (*(cache->ops->insert))(cache->ctx, obj->key, obj->data,
+                                              obj->datasize);
             }
             break;
         case DELETE:
             /* delete key from back end */
-            err = (*(cache->ops->delete))(cache->ctx, obj->key->p);
+            err = (*(cache->ops->delete))(cache->ctx, obj->key);
             break;
         default:
             abort();
@@ -836,7 +831,7 @@ op_list_dump(FILE *f, struct op_list *list, struct fuse_cache *cache)
         fprintf(f, "\t%s%s:\n", op2str[op->op],
                 obj->replace ? " (replace)" : "");
 
-        (*(cache->dump_cb))(f, obj->key->p, obj->data->p, obj->datasize, "\t\t",
+        (*(cache->dump_cb))(f, obj->key, obj->data, obj->datasize, "\t\t",
                             cache->dump_ctx);
     }
 #else
@@ -870,14 +865,12 @@ get_next_elem(struct cache_obj **o, const void *key, struct fuse_cache *cache)
     int res;
     struct cache_obj *ret;
     struct cache_obj obj;
-    struct data_ref keyref;
 
     res = avl_tree_iter_new(&iter, cache->cache);
     if (res != 0)
         return res;
 
-    keyref.p = key;
-    obj.key = &keyref;
+    obj.key = key;
     ret = &obj;
     res = avl_tree_iter_search(iter, &ret);
     if (res != 1) {
@@ -935,7 +928,7 @@ get_next_iter_elem(struct cache_obj *o, void *key, void **data, size_t *datalen,
     }
 
     *iter = citer;
-    *minkey = (void *)(o->key->p);
+    *minkey = (void *)(o->key);
     return 0;
 }
 
@@ -1018,10 +1011,8 @@ do_iter_search_cache(avl_tree_iter_t iter, const void *key,
     int res;
     struct cache_obj *o;
     struct cache_obj obj;
-    struct data_ref keyref;
 
-    keyref.p = key;
-    obj.key = &keyref;
+    obj.key = key;
     o = &obj;
 
     res = avl_tree_iter_search(iter, &o);
@@ -1072,7 +1063,6 @@ init_cache_obj(struct cache_obj *o, struct avl_tree_node *n, const void *key,
 {
     int err;
     struct avl_tree_node *node;
-    struct data_ref *keyref, *dataref;
     void *k, *d;
 
     if (n == NULL) {
@@ -1082,26 +1072,15 @@ init_cache_obj(struct cache_obj *o, struct avl_tree_node *n, const void *key,
     } else
         node = n;
 
-    keyref = do_malloc(sizeof(*keyref));
-    if (keyref == NULL) {
-        err = -errno;
-        goto err1;
-    }
-    dataref = do_malloc(sizeof(*dataref));
-    if (dataref == NULL) {
-        err = -errno;
-        goto err2;
-    }
-
     k = do_malloc(cache->key_size);
     if (k == NULL) {
         err = -errno;
-        goto err3;
+        goto err1;
     }
     d = do_malloc(datasize);
     if (d == NULL) {
         err = -errno;
-        goto err4;
+        goto err2;
     }
 
     o->id = (cache->cur_id)++;
@@ -1109,13 +1088,8 @@ init_cache_obj(struct cache_obj *o, struct avl_tree_node *n, const void *key,
     memcpy(k, key, cache->key_size);
     memcpy(d, data, datasize);
 
-    keyref->p = k;
-    keyref->refcnt = 1;
-    dataref->p = d;
-    dataref->refcnt = 1;
-
-    o->key = keyref;
-    o->data = dataref;
+    o->key = k;
+    o->data = d;
     o->datasize = datasize;
     o->replace = 0;
     o->deleted = 0;
@@ -1133,12 +1107,8 @@ init_cache_obj(struct cache_obj *o, struct avl_tree_node *n, const void *key,
 
     return 0;
 
-err4:
-    free(k);
-err3:
-    free(dataref);
 err2:
-    free(keyref);
+    free(k);
 err1:
     if (n == NULL)
         avl_tree_free_node(node, cache->cache);
@@ -1155,11 +1125,11 @@ update_cache_obj(struct cache_obj *o, const void *key, const void *data,
     if (d == NULL)
         return -errno;
 
-    memcpy((void *)(o->key->p), key, cache->key_size);
+    memcpy((void *)(o->key), key, cache->key_size);
 
     memcpy(d, data, datasize);
-    free((void *)(o->data->p));
-    o->data->p = d;
+    free((void *)(o->data));
+    o->data = d;
     o->datasize = datasize;
 
     return 0;
@@ -1175,14 +1145,8 @@ destroy_cache_obj(struct cache_obj *o, int force, int keep_node,
         LIST_REMOVE(o, e);
         if (!keep_node)
             avl_tree_free_node(o->n, cache->cache);
-        if (--(o->key->refcnt) == 0) {
-            free((void *)(o->key->p));
-            free(o->key);
-        }
-        if (--(o->data->refcnt) == 0) {
-            free((void *)(o->data->p));
-            free(o->data);
-        }
+        free((void *)(o->key));
+        free((void *)(o->data));
         o->magic = 0;
         return 1;
     }
@@ -1195,9 +1159,9 @@ return_cache_obj(const struct cache_obj *o, void *retkey, void *retdata,
                  size_t *retdatasize, int ret, struct fuse_cache *cache)
 {
     if (retkey != NULL)
-        memcpy(retkey, o->key->p, cache->key_size);
+        memcpy(retkey, o->key, cache->key_size);
     if (retdata != NULL)
-        memcpy(retdata, o->data->p, o->datasize);
+        memcpy(retdata, o->data, o->datasize);
     if (retdatasize != NULL)
         *retdatasize = o->datasize;
 
@@ -1460,7 +1424,6 @@ fuse_cache_replace(void *ctx, const void *key, const void *data,
     int trans_state;
     struct avl_tree_node *n;
     struct cache_obj *o, *o_old;
-    struct data_ref keyref;
     struct fuse_cache *cache = (struct fuse_cache *)ctx;
 
     op_list_dump(stderr, &cache->ops_group, cache);
@@ -1486,8 +1449,7 @@ fuse_cache_replace(void *ctx, const void *key, const void *data,
         goto err1;
 
     /* replace in cache */
-    keyref.p = key;
-    o->key = &keyref;
+    o->key = key;
     res = avl_tree_search(cache->cache, &o, &o_old);
     if (res == 1) { /* key in cache */
         assert(CACHE_OBJ_VALID(o_old));
@@ -1587,7 +1549,6 @@ fuse_cache_look_up(void *ctx, const void *key, void *retkey, void *retdata,
     int cmp, res;
     struct cache_obj *o, *tmp;
     struct cache_obj obj;
-    struct data_ref keyref;
     struct fuse_cache *cache = (struct fuse_cache *)ctx;
     void *biter;
 
@@ -1595,8 +1556,7 @@ fuse_cache_look_up(void *ctx, const void *key, void *retkey, void *retdata,
     op_list_dump(stderr, &cache->ops_user, cache);
 
     /* look up in cache */
-    keyref.p = key;
-    obj.key = &keyref;
+    obj.key = key;
     o = &obj;
     res = avl_tree_search(cache->cache, &o, &o);
     if (res != 0) {
@@ -1715,7 +1675,6 @@ fuse_cache_delete(void *ctx, const void *key)
     int trans_state;
     struct cache_obj *o;
     struct cache_obj obj;
-    struct data_ref keyref;
     struct fuse_cache *cache = (struct fuse_cache *)ctx;
 
     op_list_dump(stderr, &cache->ops_group, cache);
@@ -1732,8 +1691,7 @@ fuse_cache_delete(void *ctx, const void *key)
     if (res != 0)
         return res;
 
-    keyref.p = key;
-    obj.key = &keyref;
+    obj.key = key;
     o = &obj;
 
     res = avl_tree_search(cache->cache, &o, &o);
@@ -1834,7 +1792,7 @@ fuse_cache_walk(void *ctx, back_end_walk_cb_t fn, void *wctx)
             goto err4;
         if (biter == NULL) {
             iter = citer;
-            minkey = (void *)(o->key->p);
+            minkey = (void *)(o->key);
         }
     }
     if (biter != NULL) {
@@ -1869,7 +1827,7 @@ fuse_cache_walk(void *ctx, back_end_walk_cb_t fn, void *wctx)
             dlen = datalen;
             del = 0;
         } else {
-            d = o->data->p;
+            d = o->data;
             dlen = o->datasize;
             del = o->deleted;
         }
@@ -1910,7 +1868,7 @@ fuse_cache_walk(void *ctx, back_end_walk_cb_t fn, void *wctx)
             if (res != 0)
                 goto err4;
             if (biter == NULL)
-                minkey = (void *)(o->key->p);
+                minkey = (void *)(o->key);
         } else {
             res = (*(cache->ops->iter_get))(biter, key, NULL, NULL);
             if (res != 0)
@@ -2067,7 +2025,7 @@ fuse_cache_iter_get(void *iter, void *retkey, void *retdata,
             if (err)
                 return err;
             if (iterator->biter == NULL)
-                iterator->minkey = (void *)(iterator->o->key->p);
+                iterator->minkey = (void *)(iterator->o->key);
         } else {
             err = (*(iterator->cache->ops->iter_get))(iterator->biter,
                                                       iterator->key, NULL,
@@ -2097,9 +2055,9 @@ fuse_cache_iter_get(void *iter, void *retkey, void *retdata,
         avl_tree_iter_get(iterator->citer, &o);
 
         if (retkey != NULL)
-            memcpy(retkey, o->key->p, iterator->cache->key_size);
+            memcpy(retkey, o->key, iterator->cache->key_size);
         if (retdata != NULL)
-            memcpy(retdata, o->data->p, o->datasize);
+            memcpy(retdata, o->data, o->datasize);
         if (retdatasize != NULL)
             *retdatasize = o->datasize;
 
