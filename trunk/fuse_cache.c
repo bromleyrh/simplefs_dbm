@@ -148,6 +148,7 @@ static int get_next_elem(void *, void *, size_t *, const void *,
 static int get_next_iter_elem(struct cache_obj *, void *, void **, size_t *,
                               size_t *, avl_tree_iter_t, void **, void **,
                               void **, struct fuse_cache *);
+static int do_iter_next_non_deleted(void *, int, struct fuse_cache *);
 static int do_iter_get(void *, void *, void **, size_t *, size_t *,
                        struct fuse_cache *);
 static int do_iter_search_cache(avl_tree_iter_t, const void *,
@@ -944,6 +945,45 @@ get_next_iter_elem(struct cache_obj *o, void *key, void **data, size_t *datalen,
 }
 
 static int
+do_iter_next_non_deleted(void *iter, int next, struct fuse_cache *cache)
+{
+    int res;
+    void *key;
+
+    key = do_malloc(cache->key_size);
+    if (key == NULL)
+        return -errno;
+
+    for (;;) {
+        struct cache_obj obj, *o;
+
+        if (next) {
+            res = (*(cache->ops->iter_next))(iter);
+            if (res != 0)
+                goto end;
+        } else
+            next = 1;
+
+        res = (*(cache->ops->iter_get))(iter, key, NULL, NULL);
+        if (res != 0)
+            goto end;
+
+        obj.key = key;
+        o = &obj;
+        res = avl_tree_search(cache->cache, &o, &o);
+        if (res != 1)
+            goto end;
+
+        if (!(o->deleted))
+            break;
+    }
+
+end:
+    free(key);
+    return res;
+}
+
+static int
 do_iter_get(void *iter, void *key, void **data, size_t *datalen,
             size_t *datasize, struct fuse_cache *cache)
 {
@@ -1699,8 +1739,20 @@ fuse_cache_walk(void *ctx, back_end_walk_cb_t fn, void *wctx)
         if (citer == NULL)
             return -ENOENT;
         biter = NULL;
-    } else
+    } else {
         assert(biter != NULL);
+        res = do_iter_next_non_deleted(biter, 0, cache);
+        if (res != 0) {
+            if (res != -EADDRNOTAVAIL)
+                goto err4;
+            if (citer == NULL) {
+                res = -ENOENT;
+                goto err4;
+            }
+            (*(cache->ops->iter_free))(biter);
+            biter = NULL;
+        }
+    }
 
     /* get minimum element */
     if (citer != NULL) {
@@ -1767,7 +1819,7 @@ fuse_cache_walk(void *ctx, back_end_walk_cb_t fn, void *wctx)
                 iter = biter;
             }
         } else {
-            res = (*(cache->ops->iter_next))(biter);
+            res = do_iter_next_non_deleted(biter, 1, cache);
             if (res != 0) {
                 if (res != -EADDRNOTAVAIL)
                     goto err4;
@@ -1855,6 +1907,18 @@ fuse_cache_iter_new(void **iter, void *ctx)
             goto err3;
         }
         ret->biter = NULL;
+    } else {
+        res = do_iter_next_non_deleted(ret->biter, 0, cache);
+        if (res != 0) {
+            if (res != -EADDRNOTAVAIL)
+                goto err4;
+            if (ret->citer == NULL) {
+                res = -ENOENT;
+                goto err4;
+            }
+            (*(cache->ops->iter_free))(ret->biter);
+            ret->biter = NULL;
+        }
     }
 
     ret->minkey = NULL;
@@ -2002,7 +2066,7 @@ fuse_cache_iter_next(void *iter)
             return -EADDRNOTAVAIL;
         iterator->iter = iterator->biter;
     } else {
-        err = (*(iterator->cache->ops->iter_next))(iterator->biter);
+        err = do_iter_next_non_deleted(iterator->biter, 1, iterator->cache);
         if (err) {
             if (err != -EADDRNOTAVAIL)
                 return err;
@@ -2051,6 +2115,17 @@ fuse_cache_iter_search(void *iter, const void *key)
         res = do_iter_search_be(biter, key, iterator->cache);
         if (res != 0)
             goto err2;
+        res = do_iter_next_non_deleted(biter, 0, iterator->cache);
+        if (res != 0) {
+            if (res != -EADDRNOTAVAIL)
+                goto err2;
+            if (citer == NULL) {
+                res = -EADDRNOTAVAIL;
+                goto err2;
+            }
+            (*(iterator->cache->ops->iter_free))(biter);
+            biter = NULL;
+        }
     }
 
     /* determine iterator referencing minimum element */
