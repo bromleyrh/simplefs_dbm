@@ -41,6 +41,8 @@ struct cache_obj {
     int                     in_cache;
     int                     lists;
     int                     refcnt;
+    int                     refcnt_group;
+    int                     refcnt_user;
     int                     chk_in_cache; /* used for consistency checking */
     int                     chk_lists;
     int                     chk_refcnt;
@@ -659,6 +661,16 @@ op_list_add(struct op_list *list, int which, enum op_type type,
     ++(list->len);
 
     obj->lists |= which;
+    switch (which) {
+    case TRANS:
+        ++(obj->refcnt_group);
+        break;
+    case USER_TRANS:
+        ++(obj->refcnt_user);
+        break;
+    default:
+        abort();
+    }
     ++(obj->refcnt);
 }
 
@@ -671,7 +683,7 @@ op_list_roll_back(struct op_list *list, int which, struct op_list *list_other,
 
     j = list_other->len;
     for (i = list->len - 1; i >= 0; i--) {
-        struct cache_obj *obj;
+        struct cache_obj *obj, *obj_other;
         struct op *op = &list->ops[i];
 
         obj = op->obj;
@@ -701,14 +713,27 @@ op_list_roll_back(struct op_list *list, int which, struct op_list *list_other,
             abort();
         }
 
-        if (j > 0) {
-            struct cache_obj *obj_other = list_other->ops[j-1].obj;
+        if (j == 0)
+            continue;
 
-            if (obj_other == obj) {
-                obj_other->lists &= ~which_other;
-                --(obj_other)->refcnt;
-                --j;
+        obj_other = list_other->ops[j-1].obj;
+        if (obj_other == obj) {
+            int list_refcnt;
+
+            switch (which_other) {
+            case TRANS:
+                list_refcnt = --(obj_other->refcnt_group);
+                break;
+            case USER_TRANS:
+                list_refcnt = --(obj_other->refcnt_user);
+                break;
+            default:
+                abort();
             }
+            if (list_refcnt == 0)
+                obj_other->lists &= ~which_other;
+            --(obj_other->refcnt);
+            --j;
         }
     }
 
@@ -1054,6 +1079,7 @@ init_cache_obj(struct cache_obj *o, const void *key, const void *data,
 
     o->in_cache = o->lists = 0;
     o->refcnt = o->chk_refcnt = 0;
+    o->refcnt_group = o->refcnt_user = 0;
 
     LIST_INSERT_HEAD(&cache->objs, o, e);
 
