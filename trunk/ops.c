@@ -942,7 +942,9 @@ remove_ulinked_nodes(struct back_end *be)
         ret = back_end_iter_search(iter, &k);
         if (ret < 0) {
             back_end_iter_free(iter);
-            return ret;
+            if (ret != -EADDRNOTAVAIL)
+                return ret;
+            break;
         }
 
         ret = back_end_iter_get(iter, &k, NULL, NULL);
@@ -2632,15 +2634,20 @@ do_read_entries(void *args)
     k.ino = odir->ino;
     strlcpy(k.name, odir->cur_name, sizeof(k.name));
 
-    ret = back_end_iter_search(iter, &k);
-    if (ret < 0)
-        goto err;
-
     off = opargs->op_data.readdir_data.off;
-    readdir_buf = opargs->op_data.readdir_data.buf;
+    buflen = 0;
     bufsize = opargs->op_data.readdir_data.bufsize;
 
-    for (buflen = 0; buflen <= bufsize; buflen += entsize) {
+    ret = back_end_iter_search(iter, &k);
+    if (ret < 0) {
+        if (ret != -EADDRNOTAVAIL)
+            goto err;
+        goto end2;
+    }
+
+    readdir_buf = opargs->op_data.readdir_data.buf;
+
+    while (buflen <= bufsize) {
         size_t remsize;
         struct stat s;
         union {
@@ -2667,7 +2674,7 @@ do_read_entries(void *args)
         entsize = fuse_add_direntry(opargs->req, readdir_buf + buflen, remsize,
                                     k.name, &s, off + 1);
         if (entsize > remsize)
-            goto end;
+            goto end1;
 
         ret = back_end_iter_next(iter);
         if (ret != 0) {
@@ -2677,11 +2684,12 @@ do_read_entries(void *args)
         }
 
         ++off;
+        buflen += entsize;
     }
 
+end2:
     odir->cur_name[0] = '\0';
-
-end:
+end1:
     back_end_iter_free(iter);
     opargs->op_data.readdir_data.off = off;
     opargs->op_data.readdir_data.buflen = buflen;
@@ -3028,12 +3036,16 @@ do_listxattr(void *args)
     k.ino = opargs->ino;
     k.name[0] = '\0';
 
-    ret = back_end_iter_search(iter, &k);
-    if (ret < 0)
-        goto err1;
-
     value = NULL;
     len = size = 0;
+
+    ret = back_end_iter_search(iter, &k);
+    if (ret < 0) {
+        if (ret != -EADDRNOTAVAIL)
+            goto err1;
+        goto end;
+    }
+
     for (;;) {
         ret = back_end_iter_get(iter, &k, NULL, NULL);
         if (ret != 0) {
@@ -3056,6 +3068,8 @@ do_listxattr(void *args)
             break;
         }
     }
+
+end:
 
     bufsize = opargs->op_data.xattr_data.size;
 
