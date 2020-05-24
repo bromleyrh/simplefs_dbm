@@ -1609,12 +1609,7 @@ fuse_cache_look_up(void *ctx, const void *key, void *retkey, void *retdata,
         cmp = (*(cache->key_cmp))(cache->key_ctx.last_key->key, key, NULL);
         if (cmp > 0) {
             o = cache->key_ctx.last_key;
-            res = avl_tree_search(cache->cache, &o, &o);
-            if (res == 1) {
-                assert(CACHE_OBJ_VALID(o));
-                res = 2;
-            } else
-                assert(res != 0);
+            assert(CACHE_OBJ_VALID(o));
             goto out_cache;
         }
         res = get_next_elem(retkey, retdata, retdatasize,
