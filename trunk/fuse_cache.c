@@ -47,6 +47,7 @@ struct cache_obj {
     int                     chk_lists;
     int                     chk_refcnt;
     LIST_ENTRY(cache_obj)   e;
+    struct avl_tree_node    *n;
 };
 
 enum op_type {
@@ -155,9 +156,10 @@ static int do_iter_search_cache(avl_tree_iter_t, const void *,
                                 struct fuse_cache *);
 static int do_iter_search_be(void *, const void *, struct fuse_cache *);
 
-static int init_cache_obj(struct cache_obj *, const void *, const void *,
-                          size_t, struct fuse_cache *);
-static int destroy_cache_obj(struct cache_obj *, int);
+static int init_cache_obj(struct cache_obj *, struct avl_tree_node *,
+                          const void *, const void *, size_t,
+                          struct fuse_cache *);
+static int destroy_cache_obj(struct cache_obj *, int, int, struct fuse_cache *);
 static int return_cache_obj(const struct cache_obj *, void *, void *, size_t *,
                             int, struct fuse_cache *);
 
@@ -331,12 +333,11 @@ static int
 obj_free_cb(const void *k, void *ctx)
 {
     struct cache_obj *o = *(struct cache_obj **)k;
-
-    (void)ctx;
+    struct fuse_cache *cache = (struct fuse_cache *)ctx;
 
     o->in_cache = 0;
 
-    destroy_cache_obj(o, 1);
+    destroy_cache_obj(o, 1, 1, cache);
     free(o);
 
     return 0;
@@ -692,15 +693,14 @@ op_list_roll_back(struct op_list *list, int which, struct op_list *list_other,
         switch (op->op) {
         case INSERT:
             /* delete key from cache */
-            err = avl_tree_delete(cache->cache, &obj);
-            if (err)
+            if (avl_tree_delete_node(cache->cache, &obj->n, &obj) != 0)
                 abort();
             obj->in_cache = 0;
             --(obj->refcnt);
             break;
         case DELETE:
             /* reinsert key into cache */
-            err = avl_tree_insert(cache->cache, &obj);
+            err = avl_tree_insert_node(cache->cache, obj->n, &obj);
             if (err) {
                 if (err != -EADDRINUSE)
                     abort();
@@ -798,13 +798,13 @@ op_list_clear(struct op_list *list, int which, int rem_from_cache,
         --(obj->refcnt);
 
         if (rem_from_cache && obj->in_cache) {
-            if (avl_tree_delete(cache->cache, &obj) != 0)
+            if (avl_tree_delete_node(cache->cache, &obj->n, &obj) != 0)
                 abort();
             obj->in_cache = 0;
             --(obj->refcnt);
         }
 
-        if (destroy_cache_obj(obj, 0))
+        if (destroy_cache_obj(obj, 0, 0, cache))
             free(obj);
     }
 
@@ -1067,31 +1067,41 @@ do_iter_search_be(void *iter, const void *key, struct fuse_cache *cache)
 }
 
 static int
-init_cache_obj(struct cache_obj *o, const void *key, const void *data,
-               size_t datasize, struct fuse_cache *cache)
+init_cache_obj(struct cache_obj *o, struct avl_tree_node *n, const void *key,
+               const void *data, size_t datasize, struct fuse_cache *cache)
 {
     int err;
+    struct avl_tree_node *node;
     struct data_ref *keyref, *dataref;
     void *k, *d;
 
+    if (n == NULL) {
+        err = avl_tree_new_node(&node, cache->cache);
+        if (err)
+            return err;
+    } else
+        node = n;
+
     keyref = do_malloc(sizeof(*keyref));
-    if (keyref == NULL)
-        return -errno;
+    if (keyref == NULL) {
+        err = -errno;
+        goto err1;
+    }
     dataref = do_malloc(sizeof(*dataref));
     if (dataref == NULL) {
         err = -errno;
-        goto err1;
+        goto err2;
     }
 
     k = do_malloc(cache->key_size);
     if (k == NULL) {
         err = -errno;
-        goto err2;
+        goto err3;
     }
     d = do_malloc(datasize);
     if (d == NULL) {
         err = -errno;
-        goto err3;
+        goto err4;
     }
 
     o->id = (cache->cur_id)++;
@@ -1117,17 +1127,21 @@ init_cache_obj(struct cache_obj *o, const void *key, const void *data,
     o->refcnt_group = o->refcnt_user = 0;
 
     LIST_INSERT_HEAD(&cache->objs, o, e);
+    o->n = node;
 
     o->magic = CACHE_OBJ_MAGIC;
 
     return 0;
 
-err3:
+err4:
     free(k);
-err2:
+err3:
     free(dataref);
-err1:
+err2:
     free(keyref);
+err1:
+    if (n == NULL)
+        avl_tree_free_node(node, cache->cache);
     return err;
 }
 
@@ -1152,12 +1166,15 @@ update_cache_obj(struct cache_obj *o, const void *key, const void *data,
 }
 
 static int
-destroy_cache_obj(struct cache_obj *o, int force)
+destroy_cache_obj(struct cache_obj *o, int force, int keep_node,
+                  struct fuse_cache *cache)
 {
     if (force || (o->refcnt == 0)) {
         assert(!(o->in_cache));
         assert(o->lists == 0);
         LIST_REMOVE(o, e);
+        if (!keep_node)
+            avl_tree_free_node(o->n, cache->cache);
         if (--(o->key->refcnt) == 0) {
             free((void *)(o->key->p));
             free(o->key);
@@ -1329,7 +1346,7 @@ fuse_cache_close(void *ctx)
     op_list_clear(&cache->ops_group, TRANS, 1, cache);
     op_list_clear(&cache->ops_user, USER_TRANS, 1, cache);
 
-    avl_tree_walk(cache->cache, NULL, &obj_free_cb, NULL, &wctx);
+    avl_tree_walk(cache->cache, NULL, &obj_free_cb, cache, &wctx);
 
     tmp = avl_tree_free(cache->cache);
     if (tmp != 0)
@@ -1371,11 +1388,11 @@ fuse_cache_insert(void *ctx, const void *key, const void *data, size_t datasize)
     if (o == NULL)
         return -errno;
 
-    res = init_cache_obj(o, key, data, datasize, cache);
+    res = init_cache_obj(o, NULL, key, data, datasize, cache);
     if (res != 0)
         goto err1;
 
-    res = avl_tree_insert(cache->cache, &o);
+    res = avl_tree_insert_node(cache->cache, o->n, &o);
     if (res != 0) {
         if (res != -EADDRINUSE)
             goto err2;
@@ -1393,7 +1410,7 @@ fuse_cache_insert(void *ctx, const void *key, const void *data, size_t datasize)
             goto err2;
         }
 
-        destroy_cache_obj(o, 1);
+        destroy_cache_obj(o, 1, 0, cache);
         free(o);
 
         res = update_cache_obj(o_old, key, data, datasize, cache);
@@ -1425,9 +1442,9 @@ end:
     return 0;
 
 err3:
-    avl_tree_delete(cache->cache, &o);
+    avl_tree_delete_node(cache->cache, &o->n, &o);
 err2:
-    destroy_cache_obj(o, 1);
+    destroy_cache_obj(o, 1, 0, cache);
 err1:
     free(o);
     return res;
@@ -1441,6 +1458,7 @@ fuse_cache_replace(void *ctx, const void *key, const void *data,
     int o_old_destroyed = 0;
     int res;
     int trans_state;
+    struct avl_tree_node *n;
     struct cache_obj *o, *o_old;
     struct data_ref keyref;
     struct fuse_cache *cache = (struct fuse_cache *)ctx;
@@ -1463,6 +1481,10 @@ fuse_cache_replace(void *ctx, const void *key, const void *data,
     if (o == NULL)
         return -errno;
 
+    res = avl_tree_new_node(&n, cache->cache);
+    if (res != 0)
+        goto err1;
+
     /* replace in cache */
     keyref.p = key;
     o->key = &keyref;
@@ -1471,32 +1493,32 @@ fuse_cache_replace(void *ctx, const void *key, const void *data,
         assert(CACHE_OBJ_VALID(o_old));
         if (o_old->deleted) {
             res = -EADDRNOTAVAIL;
-            goto err1;
+            goto err2;
         }
-        res = avl_tree_delete(cache->cache, &o_old);
+        res = avl_tree_delete_node(cache->cache, &o_old->n, &o_old);
         if (res != 0)
-            goto err1;
+            goto err2;
         o_old->in_cache = 0;
         if (--(o_old->refcnt) == 0)
             o_old->destroyed = o_old_destroyed = 1;
-        res = init_cache_obj(o, key, data, datasize, cache);
+        res = init_cache_obj(o, n, key, data, datasize, cache);
         if (res != 0)
-            goto err2;
-        if (avl_tree_insert(cache->cache, &o) != 0)
+            goto err3;
+        if (avl_tree_insert_node(cache->cache, o->n, &o) != 0)
             abort();
         in_cache = 1;
     } else if (res == 0) {
         /* key not in cache */
-        res = init_cache_obj(o, key, data, datasize, cache);
+        res = init_cache_obj(o, n, key, data, datasize, cache);
         if (res != 0)
-            goto err1;
-        res = avl_tree_insert(cache->cache, &o);
+            goto err2;
+        res = avl_tree_insert_node(cache->cache, o->n, &o);
         if (res != 0) {
-            destroy_cache_obj(o, 1);
-            goto err1;
+            destroy_cache_obj(o, 1, 0, cache);
+            goto err2;
         }
     } else
-        goto err1;
+        goto err2;
 
     o->replace = 1;
     o->in_cache = 1;
@@ -1506,12 +1528,13 @@ fuse_cache_replace(void *ctx, const void *key, const void *data,
     res = (*(cache->ops->replace))(cache->ctx, key, data, datasize);
     if (res != 0) {
         if (!in_cache) {
-            avl_tree_delete(cache->cache, &o);
-            destroy_cache_obj(o, 1);
-            goto err1;
+            avl_tree_delete_node(cache->cache, &o->n, &o);
+            destroy_cache_obj(o, 1, 0, cache);
+            goto err2;
         }
         if (res != -EADDRNOTAVAIL) {
-            destroy_cache_obj(o, 1);
+            avl_tree_delete_node(cache->cache, &o->n, &o);
+            destroy_cache_obj(o, 1, 0, cache);
             goto err3;
         }
         /* object in cache but not back end */
@@ -1539,7 +1562,7 @@ fuse_cache_replace(void *ctx, const void *key, const void *data,
     }
 
     if (in_cache && o_old_destroyed) {
-        destroy_cache_obj(o_old, 1);
+        destroy_cache_obj(o_old, 1, 0, cache);
         free(o_old);
     }
 
@@ -1547,12 +1570,11 @@ fuse_cache_replace(void *ctx, const void *key, const void *data,
     return 0;
 
 err3:
-    avl_tree_delete(cache->cache, &o);
-err2:
-    if (avl_tree_insert(cache->cache, &o_old) != 0)
-        abort();
+    avl_tree_insert_node(cache->cache, o_old->n, &o_old);
     o_old->in_cache = 1;
     ++(o_old->refcnt);
+err2:
+    avl_tree_free_node(n, cache->cache);
 err1:
     free(o);
     return res;
