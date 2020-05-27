@@ -11,7 +11,9 @@
 #include "back_end.h"
 #include "back_end_dbm.h"
 #include "common.h"
+#include "compat.h"
 #include "fuse_cache.h"
+#include "obj.h"
 #include "ops.h"
 #include "simplefs.h"
 #include "util.h"
@@ -80,72 +82,6 @@ struct ref_ino {
     uint64_t    nlookup;
     int         nodelete;
 };
-
-enum db_obj_type {
-    TYPE_HEADER = 1,
-    TYPE_FREE_INO,      /* look up by ino */
-    TYPE_DIRENT,        /* look up by ino, name */
-    TYPE_STAT,          /* look up by ino */
-    TYPE_PAGE,          /* look up by ino, pgno */
-    TYPE_XATTR,         /* look up by ino, name */
-    TYPE_ULINKED_INODE  /* loop up by ino */
-};
-
-#define MAX_NAME (NAME_MAX+1)
-
-struct db_key {
-    enum db_obj_type    type;
-    uint64_t            ino;
-    uint64_t            pgno;
-    char                name[MAX_NAME];
-} __attribute__((packed));
-
-struct disk_timespec {
-    int32_t tv_sec;
-    int32_t tv_nsec;
-} __attribute__((packed));
-
-struct db_obj_header {
-    uint64_t    version;
-    uint64_t    numinodes;
-    uint8_t     reserved[112];
-} __attribute__((packed));
-
-#define FREE_INO_RANGE_SZ 2048
-
-#define FREE_INO_LAST_USED 1 /* values in all following ranges are free */
-
-struct db_obj_free_ino {
-    uint64_t    used_ino[FREE_INO_RANGE_SZ/NBWD];
-    uint8_t     flags;
-} __attribute__((packed));
-
-struct db_obj_dirent {
-    uint64_t ino;
-} __attribute__((packed));
-
-struct db_obj_stat {
-    uint64_t                st_dev;
-    uint64_t                st_ino;
-    uint32_t                st_mode;
-    uint32_t                st_nlink;
-    uint32_t                st_uid;
-    uint32_t                st_gid;
-    uint64_t                st_rdev;
-    int64_t                 st_size;
-    int64_t                 st_blksize;
-    int64_t                 st_blocks;
-#ifdef HAVE_STRUCT_STAT_ST_MTIMESPEC
-    struct disk_timespec    st_atimespec;
-    struct disk_timespec    st_mtimespec;
-    struct disk_timespec    st_ctimespec;
-#else
-    struct disk_timespec    st_atim;
-    struct disk_timespec    st_mtim;
-    struct disk_timespec    st_ctim;
-#endif
-    uint32_t                num_ents;
-} __attribute__((packed));
 
 struct op_args {
     fuse_req_t              req;
@@ -238,19 +174,6 @@ struct free_ref_inodes_ctx {
 #define st_ctim st_ctimespec
 #endif
 
-/*
- * Format history:
- * - 1
- *   initial format
- * - 2
- *   changed page size from 128 kiB to 128 kiB - 64 B to reduce internal
- *   fragmentation
- * - 3
- *   modified I-node number allocation scheme to allow reusing I-node numbers
- *   by storing free I-node number information in bitmaps
- */
-#define FMT_VERSION 2
-
 #define DATA_BLOCK_MIN_SIZE 64
 #define PG_SIZE (128 * 1024 - DATA_BLOCK_MIN_SIZE)
 
@@ -304,7 +227,6 @@ static int dump_db(struct back_end *);
 
 static int ref_inode_cmp(const void *, const void *, void *);
 
-static void used_ino_set(uint64_t *, fuse_ino_t, fuse_ino_t, int);
 static fuse_ino_t free_ino_find(uint64_t *, fuse_ino_t);
 static int get_ino(struct back_end *, fuse_ino_t *);
 static int release_ino(struct back_end *, fuse_ino_t);
@@ -708,7 +630,7 @@ ref_inode_cmp(const void *k1, const void *k2, void *ctx)
     return uint64_cmp(ino1->ino, ino2->ino);
 }
 
-static void
+void
 used_ino_set(uint64_t *used_ino, fuse_ino_t base, fuse_ino_t ino, int val)
 {
     int idx, wordidx;
@@ -716,7 +638,7 @@ used_ino_set(uint64_t *used_ino, fuse_ino_t base, fuse_ino_t ino, int val)
 
     idx = ino - base;
     wordidx = idx / NBWD;
-    mask = 1 << (idx % NBWD);
+    mask = 1ull << (idx % NBWD);
 
     if (val)
         used_ino[wordidx] |= mask;
@@ -3516,10 +3438,9 @@ simplefs_init(void *userdata, struct fuse_conn_info *conn)
             goto err6;
         }
 
-        if (hdr.version != FMT_VERSION) {
-            ret = -EPROTONOSUPPORT;
+        ret = compat_init(priv->be, hdr.version, FMT_VERSION);
+        if (ret != 0)
             goto err6;
-        }
 
         if (!(dbargs.ro)) {
             ret = remove_ulinked_nodes(priv->be);
