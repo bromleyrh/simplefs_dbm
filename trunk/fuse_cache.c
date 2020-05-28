@@ -1015,6 +1015,8 @@ do_iter_search_cache(avl_tree_iter_t iter, const void *key,
     obj.key = key;
     o = &obj;
 
+    cache->key_ctx.last_key_valid = 0;
+
     res = avl_tree_iter_search(iter, &o);
     if (res != 0)
         return (res == 1) ? 0 : res;
