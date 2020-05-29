@@ -1209,6 +1209,8 @@ fuse_cache_create(void **ctx, size_t key_size, back_end_key_cmp_t key_cmp,
     if (err)
         goto err4;
 
+    (*(cache_args->disable_iter_commit))(ret->ctx);
+
     ret->ops = cache_args->ops;
 
     ret->sync_cb = cache_args->sync_cb;
@@ -1273,6 +1275,8 @@ fuse_cache_open(void **ctx, size_t key_size, back_end_key_cmp_t key_cmp,
                                      cache_args->args);
     if (err)
         goto err4;
+
+    (*(cache_args->disable_iter_commit))(ret->ctx);
 
     ret->ops = cache_args->ops;
 

@@ -20,6 +20,7 @@ struct fuse_cache_args {
                                                            int act, int status,
                                                            void *ctx),
                                                 void *ctx);
+    void                        (*disable_iter_commit)(void *ctx);
     void                        *args;
 };
 

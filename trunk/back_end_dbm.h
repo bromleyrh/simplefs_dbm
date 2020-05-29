@@ -27,6 +27,8 @@ struct db_key_ctx {
 extern const struct back_end_ops back_end_dbm_ops;
 #define BACK_END_DBM ((void *)&back_end_dbm_ops)
 
+void back_end_dbm_disable_iter_commit(void *ctx);
+
 #endif
 
 /* vi: set expandtab sw=4 ts=4: */

@@ -530,6 +530,14 @@ back_end_dbm_sync(void *ctx)
     return db_hl_sync(dbctx->dbh);
 }
 
+void
+back_end_dbm_disable_iter_commit(void *ctx)
+{
+    struct db_ctx *dbctx = (struct db_ctx *)ctx;
+
+    db_hl_set_iter_commit(dbctx->dbh, 0);
+}
+
 int
 back_end_dbm_get_trans_state(void *ctx)
 {

@@ -3269,6 +3269,7 @@ simplefs_init(void *userdata, struct fuse_conn_info *conn)
 
     args.ops = BACK_END_DBM;
     args.set_trans_cb = &set_trans_cb;
+    args.disable_iter_commit = &back_end_dbm_disable_iter_commit;
     args.sync_cb = &sync_cb;
     args.sync_ctx = priv;
     args.args = &dbargs;
