@@ -553,8 +553,6 @@ dump_db_obj(FILE *f, const void *key, const void *data, size_t datasize,
         fprintf(stderr, "Header: I-node count %" PRIu64 "\n", hdr->numinodes);
         break;
     case TYPE_FREE_INO:
-        assert(datasize == sizeof(*freeino));
-
         fprintf(f, "Free I-node number information: number %" PRIu64 " to %"
                    PRIu64 "\n",
                 (uint64_t)(k->ino), (uint64_t)(k->ino) + FREE_INO_RANGE_SZ - 1);
