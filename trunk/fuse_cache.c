@@ -2144,8 +2144,12 @@ fuse_cache_iter_search(void *iter, const void *key)
 
     if (citer != NULL) { /* look up in cache */
         res = do_iter_search_cache(citer, key, iterator->cache);
-        if (res != 0)
-            goto err2;
+        if (res != 0) {
+            if (res != -EADDRNOTAVAIL)
+                goto err2;
+            avl_tree_iter_free(citer);
+            citer = NULL;
+        }
     }
 
     if (biter != NULL) { /* look up in back end */
