@@ -1413,6 +1413,7 @@ end:
 
 err3:
     avl_tree_delete_node(cache->cache, &o->n, &o);
+    o->in_cache = 0;
 err2:
     destroy_cache_obj(o, 1, 0, cache);
 err1:
