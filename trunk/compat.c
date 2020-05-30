@@ -19,6 +19,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <syslog.h>
 
 int used_ino_set(uint64_t *, fuse_ino_t, fuse_ino_t, int);
 
@@ -29,7 +30,7 @@ int used_ino_set(uint64_t *, fuse_ino_t, fuse_ino_t, int);
  * 3. Set numinodes field in header object
  */
 static int
-init_ver_2_to_3(struct back_end *be)
+init_ver_2_to_3(struct back_end *be, int ro, int fmtconv)
 {
     int end;
     int res;
@@ -39,7 +40,12 @@ init_ver_2_to_3(struct back_end *be)
     struct db_obj_header hdr;
     uint64_t numinodes, tot_numinodes;
 
-    fputs("Notice: updating format from version 2 to 3\n", stderr);
+    if (ro)
+        return 0;
+    if (!fmtconv)
+        return -EPROTONOSUPPORT;
+
+    syslog(LOG_NOTICE, "Notice: updating format from version 2 to 3\n");
 
     res = back_end_trans_new(be);
     if (res != 0)
@@ -161,14 +167,15 @@ err1:
 }
 
 int
-compat_init(struct back_end *be, uint64_t user_ver, uint64_t fs_ver)
+compat_init(struct back_end *be, uint64_t user_ver, uint64_t fs_ver, int ro,
+            int fmtconv)
 {
     size_t i;
 
     static const struct {
         uint64_t    user_ver;
         uint64_t    fs_ver;
-        int         (*init)(struct back_end *);
+        int         (*init)(struct back_end *, int, int);
     } conv_fns[] = {
         {2, 3, &init_ver_2_to_3}
     }, *conv;
@@ -178,7 +185,7 @@ compat_init(struct back_end *be, uint64_t user_ver, uint64_t fs_ver)
             conv = &conv_fns[i];
 
             if ((conv->user_ver == user_ver) && (conv->fs_ver == fs_ver))
-                return (*(conv->init))(be);
+                return (*(conv->init))(be, ro, fmtconv);
         }
 
         return -EPROTONOSUPPORT;

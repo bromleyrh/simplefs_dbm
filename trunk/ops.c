@@ -538,7 +538,6 @@ dump_db_obj(FILE *f, const void *key, const void *data, size_t datasize,
 {
     struct db_key *k = (struct db_key *)key;
     struct db_obj_dirent *de;
-    struct db_obj_free_ino *freeino;
     struct db_obj_header *hdr;
     struct db_obj_stat *s;
 
@@ -551,11 +550,10 @@ dump_db_obj(FILE *f, const void *key, const void *data, size_t datasize,
         assert(datasize == sizeof(*hdr));
         hdr = (struct db_obj_header *)data;
 
-        fputs("Header\n", stderr);
+        fprintf(stderr, "Header: I-node count %" PRIu64 "\n", hdr->numinodes);
         break;
     case TYPE_FREE_INO:
         assert(datasize == sizeof(*freeino));
-        freeino = (struct db_obj_free_ino *)data;
 
         fprintf(f, "Free I-node number information: number %" PRIu64 " to %"
                    PRIu64 "\n",
@@ -3438,7 +3436,8 @@ simplefs_init(void *userdata, struct fuse_conn_info *conn)
             goto err6;
         }
 
-        ret = compat_init(priv->be, hdr.version, FMT_VERSION);
+        ret = compat_init(priv->be, hdr.version, FMT_VERSION, md->ro,
+                          md->fmtconv);
         if (ret != 0)
             goto err6;
 

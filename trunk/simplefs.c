@@ -151,8 +151,14 @@ opt_proc(void *data, const char *arg, int key, struct fuse_args *outargs)
             md->mountpoint = strdup(arg);
             return (md->mountpoint == NULL) ? -1 : 0;
         }
-    } else if ((key == FUSE_OPT_KEY_OPT) && (strcmp("ro", arg) == 0))
-        md->ro = 1;
+    } else if (key == FUSE_OPT_KEY_OPT) {
+        if (strcmp("ro", arg) == 0)
+            md->ro = 1;
+        else if (strcmp("fmtconv", arg) == 0) {
+            md->fmtconv = 1;
+            return 0;
+        }
+    }
 
     return 1;
 }

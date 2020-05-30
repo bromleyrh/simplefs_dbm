@@ -9,6 +9,7 @@ struct mount_data {
     const char  *db_pathname;
     const char  *mountpoint;
     unsigned    ro;
+    unsigned    fmtconv;
     void        *priv;
 };
 

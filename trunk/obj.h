@@ -12,6 +12,8 @@
 #include <limits.h>
 #include <stdint.h>
 
+#include <sys/stat.h>
+
 enum db_obj_type {
     TYPE_HEADER = 1,
     TYPE_DIRENT,        /* look up by ino, name */

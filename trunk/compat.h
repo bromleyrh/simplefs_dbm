@@ -9,7 +9,8 @@
 
 #include <stdint.h>
 
-int compat_init(struct back_end *be, uint64_t user_ver, uint64_t fs_ver);
+int compat_init(struct back_end *be, uint64_t user_ver, uint64_t fs_ver, int ro,
+                int fmtconv);
 
 #endif
 
