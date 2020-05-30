@@ -596,7 +596,7 @@ dump_cb(const void *key, const void *data, size_t datasize, void *ctx)
 {
     (void)ctx;
 
-    dump_db_obj(stderr, key, data, datasize, NULL);
+    dump_db_obj(stderr, key, data, datasize, "", NULL);
 
     return 0;
 }
