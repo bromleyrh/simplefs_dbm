@@ -23,6 +23,7 @@ stamp-h1
 
 .libs
 
+*.la
 *.lo
 *.loT
 *.o

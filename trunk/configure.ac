@@ -53,6 +53,12 @@ AC_SUBST([stack_protector])
 
 AC_CHECK_HEADERS([sys/xattr.h])
 
+AC_CHECK_TYPES([clockid_t], [], [],
+               [
+               #include <time.h>
+               ]
+               )
+
 AC_CHECK_MEMBERS([struct stat.st_atimespec, struct stat.st_mtimespec,
                   struct stat.st_ctimespec])
 
@@ -80,17 +86,23 @@ else
 fi
 
 fuse_cppflags=`eval $pkgcfg --cflags $fusepkg 2>/dev/null`
+libjson_cppflags=`eval $pkgcfg --cflags libjson`
+libtest_cppflags=`eval $pkgcfg --cflags libtest`
 libutil_cppflags=`eval $pkgcfg --cflags libutil`
 
 fuse_link_dep=`eval $pkgcfg --libs $fusepkg 2>/dev/null`
+libjson_link_dep=`eval $pkgcfg --libs libjson`
+libtest_link_dep=`eval $pkgcfg --libs libtest`
 libutil_link_dep=`eval $pkgcfg --libs libutil`
 
 AC_SUBST([fuse_cppflags])
 AC_SUBST([libjson_cppflags])
+AC_SUBST([libtest_cppflags])
 AC_SUBST([libutil_cppflags])
 
 AC_SUBST([fuse_link_dep])
 AC_SUBST([libjson_link_dep])
+AC_SUBST([libtest_link_dep])
 AC_SUBST([libutil_link_dep])
 
 req_priv="libjson libutil"
