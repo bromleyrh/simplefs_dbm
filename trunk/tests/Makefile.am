@@ -15,12 +15,13 @@ include tests/libutiltest/Makefile.am
 
 tests_fuse_cache_test_SOURCES = tests/fuse_cache_test.c
 tests_fuse_cache_test_CPPFLAGS = $(AM_CPPFLAGS) -Itests/libtestcont \
-	@libtest_cppflags@
+	-Itests/libutiltest @libtest_cppflags@
 tests_fuse_cache_test_CFLAGS = $(AM_CFLAGS)
 tests_fuse_cache_test_LDADD = $(testcont_link) $(testcont_link_dep) \
-	@libtest_link_dep@
+	$(utiltest_link) $(utiltest_link_dep) @libtest_link_dep@
 tests_fuse_cache_test_LDFLAGS = $(AM_LDFLAGS)
-tests_fuse_cache_test_DEPENDENCIES = tests/libtestcont/libtestcont.la
+tests_fuse_cache_test_DEPENDENCIES = tests/libtestcont/libtestcont.la \
+	tests/libutiltest/libutiltest.la
 
 tests_rem_dir_creat_test_SOURCES = tests/rem_dir_creat_test.c
 tests_rem_dir_creat_test_CPPFLAGS = $(AM_CPPFLAGS)
