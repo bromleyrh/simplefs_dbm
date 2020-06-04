@@ -115,20 +115,23 @@ struct cont_cb {
 #define SET_WALK_OP(contctx, prefix) \
     (contctx).ops.walk = (typeof((contctx).ops.walk))&(prefix ## _walk)
 
-#define SET_STD_ITER_OPS(contctx, prefix) \
+#define SET_STD_ITER_OPS_NO_PREV(contctx, prefix) \
     (contctx).ops.iter_new \
         = (typeof((contctx).ops.iter_new))&(prefix ## _iter_new); \
     (contctx).ops.iter_free \
         = (typeof((contctx).ops.iter_free))&(prefix ## _iter_free); \
     (contctx).ops.iter_get \
         = (typeof((contctx).ops.iter_get))&(prefix ## _iter_get); \
-    (contctx).ops.iter_prev \
-        = (typeof((contctx).ops.iter_prev))&(prefix ## _iter_prev); \
     (contctx).ops.iter_next \
         = (typeof((contctx).ops.iter_next))&(prefix ## _iter_next); \
     (contctx).ops.iter_search \
         = (typeof((contctx).ops.iter_search))&(prefix ## _iter_search); \
     (contctx).ops.iter_select = NULL
+
+#define SET_STD_ITER_OPS(contctx, prefix) \
+    SET_STD_ITER_OPS_NO_PREV(contctx, prefix); \
+    (contctx).ops.iter_prev \
+        = (typeof((contctx).ops.iter_prev))&(prefix ## _iter_prev)
 
 #define SET_ALL_ITER_OPS(contctx, prefix) \
     SET_STD_ITER_OPS(contctx, prefix); \

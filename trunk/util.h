@@ -72,6 +72,8 @@ uint32_t log_2_pow2(uint64_t n);
 
 int gettime(clockid_t clk_id, struct timespec *tm);
 
+#define INT_OUTPUT(num, e) num, ((num) == 1) ? "" : (e ? "es" : "s")
+
 #endif
 
 /* vi: set expandtab sw=4 ts=4: */

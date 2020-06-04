@@ -6,11 +6,14 @@
 #include "back_end_dbm.h"
 #include "fuse_cache.h"
 #include "test_util_cont.h"
+#include "util.h"
 #include "util_test_common.h"
 
 #define NO_ASSERT
 #include "common.h"
 #undef NO_ASSERT
+
+#include <bitmap.h>
 
 #include <files/acc_ctl.h>
 
@@ -18,6 +21,7 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <inttypes.h>
 #include <limits.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -26,6 +30,7 @@
 #include <string.h>
 #include <unistd.h>
 
+#include <sys/mman.h>
 #include <sys/param.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -55,7 +60,34 @@ struct fuse_cache_ctx {
     uint32_t        max_data_len;
 };
 
+struct cache_data {
+    size_t      len;
+    uint64_t    data[1];
+};
+
+struct fn2_ctx {
+    unsigned    key_size;
+    unsigned    keys_found;
+    int         prevkey;
+};
+
+struct fn3_ctx {
+    struct bitmap_data  *bmdata;
+    int                 bitmap_pos;
+    unsigned            key_size;
+    unsigned            keys_found;
+    int                 prevkey;
+};
+
+struct walk_ctx {
+    int                     (*fn)(const void *, void *);
+    void                    *ctx;
+    struct fuse_cache_ctx   *cachectx;
+};
+
 #define MAX_DATA_LEN (16 * 1024 * 1024)
+
+#define DATA_LEN(len) (offsetof(struct cache_data, data) + len)
 
 static int parse_test_opt(int, void *);
 static int parse_cmdline(int, char **, int *, struct params *, int *,
@@ -63,6 +95,11 @@ static int parse_cmdline(int, char **, int *, struct params *, int *,
 
 static void sync_cb(int, void *);
 static void set_trans_cb(void *, void (*)(int, int, int, void *), void *);
+
+static int check_increasing(int *, int);
+
+static int fn2(const void *, const void *, size_t, void *);
+static int fn3(const void *, const void *, size_t, void *);
 
 static int load_bitmap(const char *, struct cont_stats *, struct bitmap_data *);
 static int alloc_bitmap(const char *, struct bitmap_data *);
@@ -74,6 +111,33 @@ static int do_back_end_open(struct fuse_cache_ctx *, const char *);
 static int init_fuse_cache_ctx(struct fuse_cache_ctx *, const char *, uint32_t,
                                const char *, struct cache_bitmap_data *, int,
                                int);
+static int destroy_fuse_cache_ctx(struct fuse_cache_ctx *);
+
+static void set_int_array(int *, size_t, int);
+static int check_int_array(const int *, size_t, int);
+
+static int walk_cb(const void *, const void *, size_t, void *);
+
+static int test_insert(void *, void *);
+static int test_replace(void *, void *);
+static int test_search(void *, void *, void *);
+static int test_delete(void *, void *);
+static int test_walk(void *, void *, int (*)(const void *, void *), void *);
+static int test_iter_new(void **, void *);
+static int test_iter_free(void *);
+static int test_iter_get(void *, void *);
+static int test_iter_next(void *);
+static int test_iter_search(void *, const void *);
+static int test_dump(FILE *, void *);
+
+static int do_walk(void *, int (*)(const void *, const void *, size_t, void *),
+                   void *);
+
+static int walk_cache(struct fuse_cache_ctx *);
+
+static int verify_rand(struct cont_ctx *);
+static int print_stats(FILE *, struct cont_ctx *, int);
+static int do_end_test(struct cont_ctx *);
 
 static int run_automated_test(int, const struct params *);
 
@@ -129,6 +193,83 @@ set_trans_cb(void *args, void (*cb)(int, int, int, void *), void *ctx)
 
     dbargs->trans_cb = cb;
     dbargs->trans_ctx = ctx;
+}
+
+static int
+check_increasing(int *prev, int curr)
+{
+    if (curr <= *prev) {
+        error(0, 0, "curr <= prev during walk (%d <= %d)", curr, *prev);
+        return -1;
+    }
+
+    return 0;
+}
+
+static int
+fn2(const void *key, const void *data, size_t datalen, void *ctx)
+{
+    int curr;
+    struct cache_data *d = (struct cache_data *)data;
+    struct fn2_ctx *wctx = (struct fn2_ctx *)ctx;
+
+    curr = get_short_key((const int *)key, wctx->key_size);
+
+    if ((datalen != DATA_LEN(d->len))
+        || (check_int_array((const int *)(d->data), d->len / sizeof(int), curr)
+            != 0)) {
+        fprintf(stderr, "Data (length %zu) for key %d corrupt\n", datalen,
+                *(int *)key);
+        return -EIO;
+    }
+
+    ++(wctx->keys_found);
+    if (check_increasing(&wctx->prevkey, curr) == -1)
+        return -1;
+
+    printf("%d\n", curr);
+
+    return 0;
+}
+
+static int
+fn3(const void *key, const void *data, size_t datalen, void *ctx)
+{
+    int curr;
+    struct cache_data *d = (struct cache_data *)data;
+    struct fn3_ctx *wctx = (struct fn3_ctx *)ctx;
+
+    curr = get_short_key((const int *)key, wctx->key_size);
+
+    if ((datalen != DATA_LEN(d->len))
+        || (check_int_array((const int *)(d->data), d->len / sizeof(int), curr)
+            != 0)) {
+        fprintf(stderr, "Data (length %zu) for key %d corrupt\n", datalen,
+                *(int *)key);
+        return -EIO;
+    }
+
+    ++(wctx->keys_found);
+    if (check_increasing(&wctx->prevkey, curr) == -1) {
+        if (wctx->keys_found > 1)
+            fputc('\n', stderr);
+        return -EIO;
+    }
+
+    if ((bitmap_find_next_set(wctx->bmdata->bitmap, wctx->bmdata->bitmap_len,
+                              wctx->bitmap_pos, (unsigned *)(&wctx->bitmap_pos),
+                              1) == 0)
+        || (curr != wctx->bitmap_pos)) {
+        fprintf(stderr, "%sBitmap (%6d) and database (%6d) differ\n",
+                (wctx->keys_found > 1) ? "\n" : "", wctx->bitmap_pos, curr);
+        return -EIO;
+    }
+
+    fprintf(stderr, "\rBitmap and cache agree up to %6d", wctx->bitmap_pos);
+
+    ++(wctx->bitmap_pos);
+
+    return 0;
 }
 
 static int
@@ -369,7 +510,7 @@ init_fuse_cache_ctx(struct fuse_cache_ctx *cachectx, const char *file,
     cachectx->contctx.cont = cachectx;
 
     SET_STD_OPS(cachectx->contctx, test);
-    SET_STD_ITER_OPS(cachectx->contctx, test);
+    SET_STD_ITER_OPS_NO_PREV(cachectx->contctx, test);
     SET_REPLACE_OP(cachectx->contctx, test);
     SET_WALK_OP(cachectx->contctx, test);
     cachectx->contctx.cb.verify_rand = &verify_rand;
@@ -384,11 +525,313 @@ err:
 }
 
 static int
-destroy_cache_ctx(struct fuse_cache_ctx *cachectx)
+destroy_fuse_cache_ctx(struct fuse_cache_ctx *cachectx)
 {
     struct back_end *be = cachectx->be;
 
     back_end_close(be);
+
+    return 0;
+}
+
+static void
+set_int_array(int *arr, size_t len, int val)
+{
+    size_t i;
+
+    for (i = 0; i < len; i++)
+        arr[i] = val;
+}
+
+static int
+check_int_array(const int *arr, size_t len, int val)
+{
+    size_t i;
+
+    for (i = 0; i < len; i++) {
+        if (arr[i] != val)
+            return -1;
+    }
+
+    return 0;
+}
+
+static int
+walk_cb(const void *key, const void *data, size_t datasize, void *ctx)
+{
+    struct walk_ctx *walkctx = (struct walk_ctx *)ctx;
+
+    (void)data;
+    (void)datasize;
+
+    return (*(walkctx->fn))(key, walkctx->ctx);
+}
+
+static int
+test_insert(void *cont, void *key)
+{
+    int err;
+    int k;
+    size_t len, totlen;
+    struct cache_data *data;
+    struct fuse_cache_ctx *cachectx = (struct fuse_cache_ctx *)cont;
+
+    k = *(int *)key;
+
+    len = 1 + random() % (cachectx->max_data_len / sizeof(int));
+    totlen = len * sizeof(int);
+    data = do_malloc(DATA_LEN(totlen));
+    if (data == NULL)
+        return -errno;
+    data->len = totlen;
+    totlen = DATA_LEN(totlen);
+    set_int_array((int *)(data->data), len, k);
+
+    err = back_end_insert(cachectx->be, key, data, totlen);
+    free(data);
+
+    return err;
+}
+
+static int
+test_replace(void *cont, void *key)
+{
+    int k;
+    int ret;
+    size_t len, totlen;
+    struct cache_data *data;
+    struct fuse_cache_ctx *cachectx = (struct fuse_cache_ctx *)cont;
+
+    k = *(int *)key;
+
+    len = 1 + random() % (cachectx->max_data_len / sizeof(int));
+    totlen = len * sizeof(int);
+    data = do_malloc(DATA_LEN(totlen));
+    if (data == NULL)
+        return -errno;
+    data->len = totlen;
+    totlen = DATA_LEN(totlen);
+    set_int_array((int *)(data->data), len, k);
+
+    ret = back_end_replace(cachectx->be, key, data, totlen);
+    free(data);
+
+    return ret;
+}
+
+static int
+test_search(void *cont, void *key, void *res)
+{
+    int *data;
+    int ret;
+    size_t datalen;
+    struct fuse_cache_ctx *cachectx = (struct fuse_cache_ctx *)cont;
+
+    ret = back_end_look_up(cachectx->be, key, NULL, NULL, &datalen, 0);
+    if (ret != 1)
+        return ret;
+
+    data = do_malloc(datalen);
+    if (data == NULL)
+        return -errno;
+
+    ret = back_end_look_up(cachectx->be, key, res, data, &datalen, 0);
+    free(data);
+    if (ret != 1)
+        return (ret == 0) ? -EIO : ret;
+
+    return 1;
+}
+
+static int
+test_delete(void *cont, void *key)
+{
+    struct fuse_cache_ctx *cachectx = (struct fuse_cache_ctx *)cont;
+
+    return back_end_delete(cachectx->be, key);
+}
+
+static int
+test_walk(void *cont, void *startkey, int (*fn)(const void *, void *),
+          void *ctx)
+{
+    struct fuse_cache_ctx *cachectx = (struct fuse_cache_ctx *)cont;
+    struct walk_ctx walkctx;
+
+    (void)startkey;
+
+    walkctx.fn = fn;
+    walkctx.ctx = ctx;
+    walkctx.cachectx = cachectx;
+
+    return back_end_walk(cachectx->be, &walk_cb, &walkctx);
+}
+
+static int
+test_iter_new(void **iter, void *cont)
+{
+    struct fuse_cache_ctx *cachectx = (struct fuse_cache_ctx *)cont;
+
+    return back_end_iter_new((struct back_end_iter **)iter, cachectx->be);
+}
+
+static int
+test_iter_free(void *iter)
+{
+    return back_end_iter_free(iter);
+}
+
+static int
+test_iter_get(void *iter, void *ret)
+{
+    int *data;
+    int err;
+    size_t datalen;
+
+    err = back_end_iter_get(iter, NULL, NULL, &datalen);
+    if (err)
+        return err;
+
+    data = do_malloc(datalen);
+    if (data == NULL)
+        return -errno;
+
+    err = back_end_iter_get(iter, ret, data, &datalen);
+    free(data);
+    return err;
+}
+
+static int
+test_iter_next(void *iter)
+{
+    return back_end_iter_next(iter);
+}
+
+static int
+test_iter_search(void *iter, const void *key)
+{
+    return back_end_iter_search(iter, key);
+}
+
+static int
+test_dump(FILE *f, void *cont)
+{
+    (void)f;
+    (void)cont;
+
+    return 0;
+}
+
+static int
+do_walk(void *cont, int (*fn)(const void *, const void *, size_t, void *),
+        void *ctx)
+{
+    struct fuse_cache_ctx *cachectx = (struct fuse_cache_ctx *)cont;
+
+    return back_end_walk(cachectx->be, fn, ctx);
+}
+
+static int
+walk_cache(struct fuse_cache_ctx *cachectx)
+{
+    int ret;
+    struct fn2_ctx data = {
+        .key_size       = cachectx->contctx.key_size,
+        .prevkey        = -1,
+        .keys_found     = 0
+    };
+
+    while ((ret = do_walk(cachectx->contctx.cont, &fn2, &data)) == 1)
+        ;
+    /* XXX */
+    if (ret != 0)
+        error(0, -ret, "Error walking database");
+
+    return ret;
+}
+
+static int
+verify_rand(struct cont_ctx *contctx)
+{
+    int ret;
+    struct bitmap_data *bmdata = (struct bitmap_data *)(contctx->bmdata);
+    struct fuse_cache_ctx *cachectx;
+    struct fn3_ctx data;
+
+    cachectx = (struct fuse_cache_ctx *)(contctx->cont);
+
+    if (mprotect(bmdata->bitmap, bmdata->bitmap_len * sizeof(unsigned),
+                 PROT_READ) == -1) {
+        ret = -errno;
+        error(0, errno, "Couldn't set memory protection");
+        return ret;
+    }
+
+    data.bmdata = bmdata;
+    data.bitmap_pos = 0;
+    data.key_size = contctx->key_size;
+    data.keys_found = 0;
+    data.prevkey = -1;
+
+    while ((ret = do_walk(cachectx, &fn3, &data)) == 1)
+        ;
+    if (ret != 0) {
+        error(0, -ret, "Error walking database");
+        goto end;
+    }
+    if (data.keys_found > 0)
+        fputc('\n', stderr);
+
+    if (bitmap_find_next_set(data.bmdata->bitmap, data.bmdata->bitmap_len,
+                             data.bitmap_pos, (unsigned *)(&data.bitmap_pos), 1)
+        != 0) {
+        fputs("Bitmap and cache differ\n", stderr);
+        ret = -EIO;
+    }
+
+end:
+    mprotect(bmdata->bitmap, bmdata->bitmap_len * sizeof(unsigned),
+             PROT_READ | PROT_WRITE);
+    return ret;
+}
+
+static int
+print_stats(FILE *f, struct cont_ctx *contctx, int times)
+{
+    struct cont_stats *cstats;
+
+    (void)contctx;
+    (void)times;
+
+    cstats = &contctx->stats;
+
+    fprintf(f, "%12" PRIu64 " repeat insert%s\n"
+            "%12" PRIu64 " repeat delete%s\n"
+            "%12" PRIu64 " operation%s\n"
+            "%12" PRIu64 " out-of-range operation%s\n"
+            "%12" PRIu64 " key%s generated\n"
+            "%12" PRIu32 " key%s in database\n"
+            "key size %d bytes\n",
+            INT_OUTPUT(cstats->repeat_inserts, 0),
+            INT_OUTPUT(cstats->repeat_deletes, 0),
+            INT_OUTPUT(cstats->num_ops, 0),
+            INT_OUTPUT(cstats->num_ops_out_of_range, 0),
+            INT_OUTPUT(cstats->num_gen, 0),
+            INT_OUTPUT(cstats->num_keys, 0),
+            contctx->key_size);
+
+    return 0;
+}
+
+static int
+do_end_test(struct cont_ctx *contctx)
+{
+    struct fuse_cache_ctx *cachectx = (struct fuse_cache_ctx *)(contctx->cont);
+
+    if (cachectx->contctx.bmdata) {
+        return save_bitmap(cachectx->bitmap, &cachectx->contctx.stats,
+                           (struct bitmap_data *)(cachectx->contctx.bmdata));
+    }
 
     return 0;
 }
@@ -440,7 +883,7 @@ run_automated_test(int test_type, const struct params *p)
         if (contp->use_cont) {
             ret = contp->use_bitmap
                   ? verify_rand((struct cont_ctx *)&cachectx)
-                  : walk_be(&cachectx, 1);
+                  : walk_cache(&cachectx);
         } else if (contp->use_bitmap) {
             print_bitmap(stdout,
                          (struct bitmap_data *)&cachectx.contctx.bmdata);

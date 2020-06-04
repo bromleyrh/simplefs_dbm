@@ -767,7 +767,7 @@ do_test_iter(struct cont_ctx *contctx, void *iter, unsigned startkey,
     unsigned curkey;
 
     curkey = startkey;
-    dir = random() % 2;
+    dir = (contctx->ops.iter_prev == NULL) ? 1 : (random() % 2);
 
     for (;;) {
         int i;
