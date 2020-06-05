@@ -12,3 +12,5 @@ cscope.out
 core
 core.*
 vgcore.*
+
+test_data.txt

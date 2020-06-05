@@ -167,7 +167,7 @@ parse_cmdline(int argc, char **argv, int *seed, struct params *p,
     };
 
     static const char progusage[] = {
-        "    -K SIZE   generate data with length no greater than the given "
+        "    -K SIZE    generate data with length no greater than the given "
         "size in bytes\n"
     };
 
@@ -480,8 +480,8 @@ init_fuse_cache_ctx(struct fuse_cache_ctx *cachectx, const char *file,
             return -errno;
         bmdata->loaded = 1;
     }
-    if (access(bitmap, F_OK) == -1) {
-        if (errno != -ENOENT) {
+    if (access(file, F_OK) == -1) {
+        if (errno != ENOENT) {
             ret = -errno;
             error(0, errno, "Couldn't access database file");
             return ret;
@@ -622,9 +622,9 @@ test_replace(void *cont, void *key)
 static int
 test_search(void *cont, void *key, void *res)
 {
-    int *data;
     int ret;
     size_t datalen;
+    struct cache_data *data;
     struct fuse_cache_ctx *cachectx = (struct fuse_cache_ctx *)cont;
 
     ret = back_end_look_up(cachectx->be, key, NULL, NULL, &datalen, 0);
@@ -636,11 +636,16 @@ test_search(void *cont, void *key, void *res)
         return -errno;
 
     ret = back_end_look_up(cachectx->be, key, res, data, &datalen, 0);
-    free(data);
-    if (ret != 1)
-        return (ret == 0) ? -EIO : ret;
+    if (((ret == 1)
+         && (check_int_array((const int *)(data->data), data->len / sizeof(int),
+                             *(int *)res)
+             != 0))
+        || (ret == 0))
+        ret = -EIO;
 
-    return 1;
+    free(data);
+
+    return ret;
 }
 
 static int
@@ -684,9 +689,9 @@ test_iter_free(void *iter)
 static int
 test_iter_get(void *iter, void *ret)
 {
-    int *data;
     int err;
     size_t datalen;
+    struct cache_data *data;
 
     err = back_end_iter_get(iter, NULL, NULL, &datalen);
     if (err)
@@ -697,7 +702,14 @@ test_iter_get(void *iter, void *ret)
         return -errno;
 
     err = back_end_iter_get(iter, ret, data, &datalen);
+    if (!err
+        && (check_int_array((const int *)(data->data), data->len / sizeof(int),
+                            *(int *)ret)
+            != 0))
+        err = -EIO;
+
     free(data);
+
     return err;
 }
 
@@ -879,7 +891,6 @@ run_automated_test(int test_type, const struct params *p)
     switch (test_type) {
     case 3:
     case 4:
-        /* XXX */
         if (contp->use_cont) {
             ret = contp->use_bitmap
                   ? verify_rand((struct cont_ctx *)&cachectx)
