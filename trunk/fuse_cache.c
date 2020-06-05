@@ -1498,11 +1498,13 @@ fuse_cache_replace(void *ctx, const void *key, const void *data,
     if (res != 0) {
         if (!in_cache) {
             avl_tree_delete_node(cache->cache, &o->n, &o);
+            o->in_cache = 0;
             destroy_cache_obj(o, 1, 0, cache);
             goto err2;
         }
         if (res != -EADDRNOTAVAIL) {
             avl_tree_delete_node(cache->cache, &o->n, &o);
+            o->in_cache = 0;
             destroy_cache_obj(o, 1, 0, cache);
             goto err3;
         }
