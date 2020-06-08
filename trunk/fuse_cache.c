@@ -1783,7 +1783,7 @@ fuse_cache_walk(void *ctx, back_end_walk_cb_t fn, void *wctx)
         if (res != -ENOENT)
             goto err3;
         if (citer == NULL)
-            return -ENOENT;
+            return 0;
         biter = NULL;
     } else {
         assert(biter != NULL);
@@ -1792,7 +1792,7 @@ fuse_cache_walk(void *ctx, back_end_walk_cb_t fn, void *wctx)
             if (res != -EADDRNOTAVAIL)
                 goto err4;
             if (citer == NULL) {
-                res = -ENOENT;
+                res = 0;
                 goto err4;
             }
             (*(cache->ops->iter_free))(biter);
