@@ -962,8 +962,10 @@ do_iter_next_non_deleted(void *iter, int next, struct fuse_cache *cache)
         if (res != 1)
             goto end;
 
-        if (!(o->deleted))
+        if (!(o->deleted)) {
+            res = 0;
             break;
+        }
     }
 
 end:
