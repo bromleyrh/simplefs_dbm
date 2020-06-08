@@ -1484,6 +1484,7 @@ fuse_cache_replace(void *ctx, const void *key, const void *data,
         res = avl_tree_insert_node(cache->cache, o->n, &o);
         if (res != 0) {
             destroy_cache_obj(o, 1, 0, cache);
+            n = NULL;
             goto err2;
         }
     } else
@@ -1500,12 +1501,14 @@ fuse_cache_replace(void *ctx, const void *key, const void *data,
             avl_tree_delete_node(cache->cache, &o->n, &o);
             o->in_cache = 0;
             destroy_cache_obj(o, 1, 0, cache);
+            n = NULL;
             goto err2;
         }
         if (res != -EADDRNOTAVAIL) {
             avl_tree_delete_node(cache->cache, &o->n, &o);
             o->in_cache = 0;
             destroy_cache_obj(o, 1, 0, cache);
+            n = NULL;
             goto err3;
         }
         /* object in cache but not back end */
@@ -1545,7 +1548,8 @@ err3:
     o_old->in_cache = 1;
     ++(o_old->refcnt);
 err2:
-    avl_tree_free_node(n, cache->cache);
+    if (n != NULL)
+        avl_tree_free_node(n, cache->cache);
 err1:
     free(o);
     return res;
