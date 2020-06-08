@@ -85,13 +85,25 @@ struct walk_ctx {
     struct fuse_cache_ctx   *cachectx;
 };
 
+#define TMPDIR "/tmp"
+
+#define FUSE_CACHE_LOG_PREFIX TMPDIR "/fuse_cache_log_"
+
 #define MAX_DATA_LEN (16 * 1024 * 1024)
 
 #define DATA_LEN(len) (offsetof(struct cache_data, data) + len)
 
+static int fuse_cache_verbose_debug;
+
+static FILE *testlog;
+
+static int key_size;
+
 static int parse_test_opt(int, void *);
 static int parse_cmdline(int, char **, int *, struct params *, int *,
                          uint32_t *);
+
+static int int_cmp(const void *, const void *, void *);
 
 static void sync_cb(int, void *);
 static void set_trans_cb(void *, void (*)(int, int, int, void *), void *);
@@ -175,6 +187,14 @@ parse_cmdline(int argc, char **argv, int *seed, struct params *p,
                                    (struct cont_params *)p,
                                    (struct cont_test_opts *)&testopts, seed,
                                    NULL, NULL, NULL, 0);
+}
+
+static int
+int_cmp(const void *k1, const void *k2, void *ctx)
+{
+    (void)ctx;
+
+    return int_key_cmp(k1, k2, (void *)(intptr_t)key_size);
 }
 
 static void
@@ -413,6 +433,8 @@ do_back_end_create(struct fuse_cache_ctx *cachectx, const char *file)
     struct db_args dbargs;
     struct fuse_cache_args args;
 
+    key_size = cachectx->contctx.key_size;
+
     dbargs.db_pathname = file;
     dbargs.db_mode = ACC_MODE_DEFAULT;
     dbargs.ro = 0;
@@ -426,8 +448,8 @@ do_back_end_create(struct fuse_cache_ctx *cachectx, const char *file)
     args.sync_ctx = cachectx;
     args.args = &dbargs;
 
-    return back_end_create(&cachectx->be, cachectx->contctx.key_size,
-                           BACK_END_FUSE_CACHE, &int_key_cmp, &args);
+    return back_end_create(&cachectx->be, key_size, BACK_END_FUSE_CACHE,
+                           &int_cmp, &args);
 }
 
 static int
@@ -436,6 +458,8 @@ do_back_end_open(struct fuse_cache_ctx *cachectx, const char *file)
     struct db_args dbargs;
     struct fuse_cache_args args;
 
+    key_size = cachectx->contctx.key_size;
+
     dbargs.db_pathname = file;
     dbargs.db_mode = ACC_MODE_DEFAULT;
     dbargs.ro = 0;
@@ -449,8 +473,8 @@ do_back_end_open(struct fuse_cache_ctx *cachectx, const char *file)
     args.sync_ctx = cachectx;
     args.args = &dbargs;
 
-    return back_end_open(&cachectx->be, cachectx->contctx.key_size,
-                         BACK_END_FUSE_CACHE, &int_key_cmp, &args);
+    return back_end_open(&cachectx->be, key_size, BACK_END_FUSE_CACHE,
+                         &int_cmp, &args);
 }
 
 static int
@@ -866,27 +890,30 @@ run_automated_test(int test_type, const struct params *p)
     ret = init_fuse_cache_ctx(&cachectx, p->file, p->max_data_len, p->bitmap,
                               &bmdata, contp->key_size, contp->max_key);
     if (ret != 0)
-        goto end;
+        goto end1;
+
+    if (fuse_cache_verbose_debug && (open_log_file(0) == NULL))
+        goto end1;
 
     switch (test_type) {
     case 3:
         ret = cont_test_rand_repeat((struct cont_ctx *)&cachectx,
-                                    (const struct cont_params *)p, NULL);
+                                    (const struct cont_params *)p, testlog);
         break;
     case 4:
         ret = cont_test_sorted((struct cont_ctx *)&cachectx,
-                               (const struct cont_params *)p, NULL);
+                               (const struct cont_params *)p, testlog);
         break;
     case 5:
         ret = cont_test_rand_norepeat((struct cont_ctx *)&cachectx,
-                                      (const struct cont_params *)p, NULL);
+                                      (const struct cont_params *)p, testlog);
         break;
     default:
         ret = -EIO;
     }
 
     if (ret != 0)
-        goto end;
+        goto end2;
 
     switch (test_type) {
     case 3:
@@ -913,7 +940,9 @@ run_automated_test(int test_type, const struct params *p)
             ret = tmp;
     }
 
-end:
+end2:
+    close_log_file(NULL);
+end1:
     free_bitmap(&bmdata.bmdata);
     return ret ? -1 : 0;
 }
@@ -942,6 +971,11 @@ main(int argc, char **argv)
         .bitmap = "bitmap_fuse_cache_test",
         .file   = "fs.db_test"
     };
+
+    verbose_debug = &fuse_cache_verbose_debug;
+
+    logprefix = FUSE_CACHE_LOG_PREFIX;
+    testlogp = &testlog;
 
     ret = parse_cmdline(argc, argv, &seed, &p, &test_type, &p.max_data_len);
     if (ret != 0)

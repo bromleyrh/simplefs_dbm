@@ -13,4 +13,7 @@ core
 core.*
 vgcore.*
 
+bitmap_fuse_cache_test
+fs.db_test
+fs.db_test_journal
 test_data.txt
