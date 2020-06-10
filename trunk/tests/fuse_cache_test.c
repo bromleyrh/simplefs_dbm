@@ -89,7 +89,7 @@ struct walk_ctx {
 
 #define FUSE_CACHE_LOG_PREFIX TMPDIR "/fuse_cache_log_"
 
-#define MAX_DATA_LEN (16 * 1024 * 1024)
+#define MAX_DATA_LEN (128 * 1024)
 
 #define DATA_LEN(len) (offsetof(struct cache_data, data) + len)
 
@@ -190,9 +190,14 @@ parse_cmdline(int argc, char **argv, int *seed, struct params *p,
 }
 
 static int
-int_cmp(const void *k1, const void *k2, void *ctx)
+int_cmp(const void *k1, const void *k2, void *key_ctx)
 {
-    (void)ctx;
+    if (key_ctx != NULL) {
+        struct db_key_ctx *ctx = (struct db_key_ctx *)key_ctx;
+
+        memcpy(ctx->last_key, k2, sizeof(int));
+        ctx->last_key_valid = 1;
+    }
 
     return int_key_cmp(k1, k2, (void *)(intptr_t)key_size);
 }
@@ -535,6 +540,7 @@ init_fuse_cache_ctx(struct fuse_cache_ctx *cachectx, const char *file,
 
     SET_STD_OPS(cachectx->contctx, test);
     SET_STD_ITER_OPS_NO_PREV(cachectx->contctx, test);
+    cachectx->contctx.ops.iter_prev = NULL;
     SET_REPLACE_OP(cachectx->contctx, test);
     SET_WALK_OP(cachectx->contctx, test);
     cachectx->contctx.cb.verify_rand = &verify_rand;

@@ -8,6 +8,10 @@
 
 #include "util_test_common.h"
 
+#if !defined(HAVE_POSIX_FALLOCATE) && defined(__APPLE__)
+#include "common.h"
+#endif
+
 #include <strings_ext.h>
 
 #include <files/acc_ctl.h>
