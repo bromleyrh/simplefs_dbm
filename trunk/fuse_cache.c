@@ -96,6 +96,7 @@ struct fuse_cache_iter {
     struct cache_obj    *o;
     void                *key;
     void                *minkey;
+    int                 srch_status;
     struct fuse_cache   *cache;
 };
 
@@ -935,6 +936,7 @@ get_next_iter_elem(struct cache_obj *o, void *key, void **data, size_t *datalen,
 static int
 do_iter_next_non_deleted(void *iter, int next, struct fuse_cache *cache)
 {
+    int first;
     int res;
     void *key;
 
@@ -942,6 +944,7 @@ do_iter_next_non_deleted(void *iter, int next, struct fuse_cache *cache)
     if (key == NULL)
         return -errno;
 
+    first = 1;
     for (;;) {
         struct cache_obj obj, *o;
 
@@ -949,6 +952,7 @@ do_iter_next_non_deleted(void *iter, int next, struct fuse_cache *cache)
             res = (*(cache->ops->iter_next))(iter);
             if (res != 0)
                 goto end;
+            first = 0;
         } else
             next = 1;
 
@@ -963,7 +967,7 @@ do_iter_next_non_deleted(void *iter, int next, struct fuse_cache *cache)
             goto end;
 
         if (!(o->deleted)) {
-            res = 0;
+            res = !first;
             break;
         }
     }
@@ -1021,7 +1025,7 @@ do_iter_search_cache(avl_tree_iter_t iter, const void *key,
 
     res = avl_tree_iter_search(iter, &o);
     if (res != 0)
-        return (res == 1) ? 0 : res;
+        return res;
 
     o = cache->key_ctx.last_key;
 
@@ -1055,10 +1059,7 @@ do_iter_search_cache(avl_tree_iter_t iter, const void *key,
 static int
 do_iter_search_be(void *iter, const void *key, struct fuse_cache *cache)
 {
-    int res;
-
-    res = (*(cache->ops->iter_search))(iter, key);
-    return (res == 1) ? 0 : res;
+    return (*(cache->ops->iter_search))(iter, key);
 }
 
 static int
@@ -1788,7 +1789,7 @@ fuse_cache_walk(void *ctx, back_end_walk_cb_t fn, void *wctx)
     } else {
         assert(biter != NULL);
         res = do_iter_next_non_deleted(biter, 0, cache);
-        if (res != 0) {
+        if (res < 0) {
             if (res != -EADDRNOTAVAIL)
                 goto err4;
             if (citer == NULL) {
@@ -1866,7 +1867,7 @@ fuse_cache_walk(void *ctx, back_end_walk_cb_t fn, void *wctx)
             }
         } else {
             res = do_iter_next_non_deleted(biter, 1, cache);
-            if (res != 0) {
+            if (res < 0) {
                 if (res != -EADDRNOTAVAIL)
                     goto err4;
                 (*(cache->ops->iter_free))(biter);
@@ -1988,6 +1989,8 @@ fuse_cache_iter_new(void **iter, void *ctx)
             goto err4;
     }
 
+    ret->srch_status = -EINVAL;
+
     *iter = ret;
     return 0;
 
@@ -2032,6 +2035,9 @@ fuse_cache_iter_get(void *iter, void *retkey, void *retdata,
 {
     int err;
     struct fuse_cache_iter *iterator = (struct fuse_cache_iter *)iter;
+
+    if (iterator->srch_status == 2)
+        return -EADDRNOTAVAIL;
 
     if (iterator->minkey == NULL) {
         /* get element at new iterator position */
@@ -2088,7 +2094,7 @@ fuse_cache_iter_get(void *iter, void *retkey, void *retdata,
 static int
 fuse_cache_iter_next(void *iter)
 {
-    int err;
+    int res;
     struct fuse_cache_iter *iterator = (struct fuse_cache_iter *)iter;
 
     /* advance iterator associated with current element */
@@ -2096,41 +2102,51 @@ fuse_cache_iter_next(void *iter)
         for (;;) {
             struct cache_obj *o;
 
-            err = avl_tree_iter_next(iterator->citer);
-            if (err)
+            res = avl_tree_iter_next(iterator->citer);
+            if (res != 0)
                 break;
 
-            err = avl_tree_iter_get(iterator->citer, &o);
-            if (err || !(o->deleted))
+            res = avl_tree_iter_get(iterator->citer, &o);
+            if (res != 0)
                 break;
+            if (!(o->deleted))
+                goto end;
         }
-        if (err != -EADDRNOTAVAIL)
-            return err;
+        if (res != -EADDRNOTAVAIL)
+            goto err1;
         avl_tree_iter_free(iterator->citer);
         iterator->citer = NULL;
         if (iterator->biter == NULL)
-            return -EADDRNOTAVAIL;
+            goto err2;
         iterator->iter = iterator->biter;
     } else {
-        err = do_iter_next_non_deleted(iterator->biter, 1, iterator->cache);
-        if (err) {
-            if (err != -EADDRNOTAVAIL)
-                return err;
+        res = do_iter_next_non_deleted(iterator->biter, 1, iterator->cache);
+        if (res < 0) {
+            if (res != -EADDRNOTAVAIL)
+                goto err1;
             (*(iterator->cache->ops->iter_free))(iterator->biter);
             iterator->biter = NULL;
             if (iterator->citer == NULL)
-                return -EADDRNOTAVAIL;
+                goto err2;
             iterator->iter = iterator->citer;
         }
     }
 
+end:
+    iterator->srch_status = 1;
     return 0;
+
+err2:
+    res = -EADDRNOTAVAIL;
+err1:
+    return iterator->srch_status = res;
 }
 
 static int
 fuse_cache_iter_search(void *iter, const void *key)
 {
     avl_tree_iter_t citer;
+    int found_be, found_cache;
     int res;
     struct fuse_cache_iter *iterator = (struct fuse_cache_iter *)iter;
     void *biter;
@@ -2139,6 +2155,7 @@ fuse_cache_iter_search(void *iter, const void *key)
     if (res != 0) {
         if (res != -ENOENT)
             return res;
+        found_cache = 0;
         citer = NULL;
     }
 
@@ -2148,33 +2165,41 @@ fuse_cache_iter_search(void *iter, const void *key)
             goto err1;
         if (citer == NULL)
             return -ENOENT;
+        found_be = 0;
         biter = NULL;
     }
 
     if (citer != NULL) { /* look up in cache */
-        res = do_iter_search_cache(citer, key, iterator->cache);
-        if (res != 0) {
+        found_cache = do_iter_search_cache(citer, key, iterator->cache);
+        if (found_cache < 0) {
             if (res != -EADDRNOTAVAIL)
                 goto err2;
+            found_cache = 0;
             avl_tree_iter_free(citer);
             citer = NULL;
         }
     }
 
     if (biter != NULL) { /* look up in back end */
-        res = do_iter_search_be(biter, key, iterator->cache);
-        if (res != 0)
+        found_be = do_iter_search_be(biter, key, iterator->cache);
+        if (found_be < 0)
             goto err2;
         res = do_iter_next_non_deleted(biter, 0, iterator->cache);
-        if (res != 0) {
-            if (res != -EADDRNOTAVAIL)
-                goto err2;
-            if (citer == NULL) {
-                res = -EADDRNOTAVAIL;
-                goto err2;
-            }
+        switch (res) {
+        case 1:
+            found_be = 0;
+        case 0:
+            break;
+        case -EADDRNOTAVAIL:
             (*(iterator->cache->ops->iter_free))(biter);
+            if (citer == NULL) {
+                iterator->srch_status = 2;
+                return 0;
+            }
             biter = NULL;
+            break;
+        default:
+            goto err2;
         }
     }
 
@@ -2206,7 +2231,7 @@ fuse_cache_iter_search(void *iter, const void *key)
         (*(iterator->cache->ops->iter_free))(iterator->biter);
     iterator->biter = biter;
 
-    return 0;
+    return iterator->srch_status = found_cache || found_be;
 
 err2:
     if (biter != NULL)
@@ -2214,7 +2239,7 @@ err2:
 err1:
     if (citer != NULL)
         avl_tree_iter_free(citer);
-    return res;
+    return iterator->srch_status = res;
 }
 
 static int
