@@ -2134,6 +2134,7 @@ fuse_cache_iter_next(void *iter)
 
 end:
     iterator->srch_status = 1;
+    iterator->minkey = NULL;
     return 0;
 
 err2:
