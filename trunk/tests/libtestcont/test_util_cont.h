@@ -122,6 +122,7 @@ struct cont_cb {
         = (typeof((contctx).ops.iter_free))&(prefix ## _iter_free); \
     (contctx).ops.iter_get \
         = (typeof((contctx).ops.iter_get))&(prefix ## _iter_get); \
+    (contctx).ops.iter_prev = NULL; \
     (contctx).ops.iter_next \
         = (typeof((contctx).ops.iter_next))&(prefix ## _iter_next); \
     (contctx).ops.iter_search \

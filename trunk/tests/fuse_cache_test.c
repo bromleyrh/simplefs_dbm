@@ -85,6 +85,7 @@ struct walk_ctx {
     struct fuse_cache_ctx   *cachectx;
 };
 
+#define FUSE_CACHE_TEST_TMPDIR "fuse_cache_test_XXXXXX"
 #define TMPDIR "/tmp"
 
 #define FUSE_CACHE_LOG_PREFIX TMPDIR "/fuse_cache_log_"
@@ -520,6 +521,9 @@ init_fuse_cache_ctx(struct fuse_cache_ctx *cachectx, const char *file,
             error(0, 0, "Bitmap file present but database file missing");
             return ret;
         }
+        ret = change_to_tmpdir(FUSE_CACHE_TEST_TMPDIR);
+        if (ret != 0)
+            return ret;
         if (alloc_bitmap(bitmap, &bmdata->bmdata) == -1)
             return -errno;
         ret = do_back_end_create(cachectx, file);
@@ -540,7 +544,6 @@ init_fuse_cache_ctx(struct fuse_cache_ctx *cachectx, const char *file,
 
     SET_STD_OPS(cachectx->contctx, test);
     SET_STD_ITER_OPS_NO_PREV(cachectx->contctx, test);
-    cachectx->contctx.ops.iter_prev = NULL;
     SET_REPLACE_OP(cachectx->contctx, test);
     SET_WALK_OP(cachectx->contctx, test);
     cachectx->contctx.cb.verify_rand = &verify_rand;

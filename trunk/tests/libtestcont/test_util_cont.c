@@ -762,12 +762,13 @@ do_test_iter(struct cont_ctx *contctx, void *iter, unsigned startkey,
              uint64_t num_ops)
 {
     int dir, range_end = 0;
+    int no_prev = (contctx->ops.iter_prev == NULL);
     int ret;
     uint64_t nseeks = 0;
     unsigned curkey;
 
     curkey = startkey;
-    dir = (contctx->ops.iter_prev == NULL) ? 1 : (random() % 2);
+    dir = no_prev ? 1 : (random() % 2);
 
     for (;;) {
         int i;
@@ -803,7 +804,7 @@ do_test_iter(struct cont_ctx *contctx, void *iter, unsigned startkey,
             }
         }
 
-        if (!(random() % 8) || quit)
+        if (!(random() % 8) || no_prev || quit)
             break;
         dir = !dir;
     }
