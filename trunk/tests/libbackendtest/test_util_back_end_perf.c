@@ -1,10 +1,10 @@
 /*
- * test_util_cont_perf.c
+ * test_util_back_end_perf.c
  */
 
 #include "bitmap.h"
-#include "test_util_cont.h"
-#include "test_util_cont_util.h"
+#include "test_util_back_end.h"
+#include "test_util_back_end_util.h"
 #include "test_util_perf.h"
 
 #define NO_ASSERT
@@ -19,38 +19,38 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-struct cont_perf_test_args {
-    struct cont_ctx             *contctx;
-    const struct cont_params    *contp;
-    int                         (*reset_cont)(struct cont_ctx *);
-    unsigned                    nops;
-    unsigned                    n;
-    unsigned                    nelem;
-    unsigned                    epsilon;
-    unsigned                    limit_lower;
-    unsigned                    limit_upper;
+struct be_perf_test_args {
+    struct be_ctx           *bectx;
+    const struct be_params  *bep;
+    int                     (*reset_be)(struct be_ctx *);
+    unsigned                nops;
+    unsigned                n;
+    unsigned                nelem;
+    unsigned                epsilon;
+    unsigned                limit_lower;
+    unsigned                limit_upper;
 };
 
 #define EPSILON 8
 
 #define NUM_PERF_TEST_OPS (4 * 1024 * 1024)
 
-static int cont_perf_test_init_ctx(void **, void *);
-static int cont_perf_test_destroy_ctx(void *);
-static int cont_perf_test_prepare_test(void *, void *);
-static int cont_perf_test_do_op(void *);
-static int cont_perf_test_end_test(void *);
+static int be_perf_test_init_ctx(void **, void *);
+static int be_perf_test_destroy_ctx(void *);
+static int be_perf_test_prepare_test(void *, void *);
+static int be_perf_test_do_op(void *);
+static int be_perf_test_end_test(void *);
 
-static const struct perf_test_ops cont_perf_test_ops = {
-    .init_ctx       = cont_perf_test_init_ctx,
-    .destroy_ctx    = cont_perf_test_destroy_ctx,
-    .prepare_test   = cont_perf_test_prepare_test,
-    .do_op          = cont_perf_test_do_op,
-    .end_test       = cont_perf_test_end_test
+static const struct perf_test_ops be_perf_test_ops = {
+    .init_ctx       = be_perf_test_init_ctx,
+    .destroy_ctx    = be_perf_test_destroy_ctx,
+    .prepare_test   = be_perf_test_prepare_test,
+    .do_op          = be_perf_test_do_op,
+    .end_test       = be_perf_test_end_test
 };
 
 static int
-cont_perf_test_init_ctx(void **ctx, void *args)
+be_perf_test_init_ctx(void **ctx, void *args)
 {
     *ctx = args;
 
@@ -58,7 +58,7 @@ cont_perf_test_init_ctx(void **ctx, void *args)
 }
 
 static int
-cont_perf_test_destroy_ctx(void *ctx)
+be_perf_test_destroy_ctx(void *ctx)
 {
     (void)ctx;
 
@@ -66,25 +66,25 @@ cont_perf_test_destroy_ctx(void *ctx)
 }
 
 static int
-cont_perf_test_prepare_test(void *ctx, void *args)
+be_perf_test_prepare_test(void *ctx, void *args)
 {
-    const struct cont_params *contp;
+    const struct be_params *bep;
     int (*gen_key_fn)(int, int);
     int ret;
-    struct cont_ctx *contctx;
-    struct cont_perf_test_args *targs = (struct cont_perf_test_args *)ctx;
+    struct be_ctx *bectx;
+    struct be_perf_test_args *targs = (struct be_perf_test_args *)ctx;
     unsigned n;
 
-    contctx = targs->contctx;
-    contp = targs->contp;
+    bectx = targs->bectx;
+    bep = targs->bep;
 
-    gen_key_fn = contp->zero_keys ? &gen_key : &gen_key_no_zero;
+    gen_key_fn = bep->zero_keys ? &gen_key : &gen_key_no_zero;
 
     n = 0;
     while (n < (uintptr_t)args) {
-        int key = (*gen_key_fn)(contp->max_key, params.out_of_range_period);
+        int key = (*gen_key_fn)(bep->max_key, params.out_of_range_period);
 
-        ret = cont_insert(contctx, key, NULL, 1, 0, 0);
+        ret = be_insert(bectx, key, NULL, 1, 0, 0);
         if (ret != 0) {
             if (ret != -EADDRINUSE)
                 return ret;
@@ -103,9 +103,9 @@ cont_perf_test_prepare_test(void *ctx, void *args)
 }
 
 static int
-cont_perf_test_do_op(void *ctx)
+be_perf_test_do_op(void *ctx)
 {
-    const struct cont_params *contp;
+    const struct be_params *bep;
     enum {
         DELETE = 0,
         SEARCH = 1,
@@ -115,13 +115,13 @@ cont_perf_test_do_op(void *ctx)
     int key;
     int lower_bound, upper_bound;
     int ret;
-    struct cont_ctx *contctx;
-    struct cont_perf_test_args *targs = (struct cont_perf_test_args *)ctx;
+    struct be_ctx *bectx;
+    struct be_perf_test_args *targs = (struct be_perf_test_args *)ctx;
 
-    contctx = targs->contctx;
-    contp = targs->contp;
+    bectx = targs->bectx;
+    bep = targs->bep;
 
-    gen_key_fn = contp->zero_keys ? &gen_key : &gen_key_no_zero;
+    gen_key_fn = bep->zero_keys ? &gen_key : &gen_key_no_zero;
 
     lower_bound = targs->nelem <= targs->limit_lower;
     upper_bound = targs->nelem >= targs->limit_upper;
@@ -130,11 +130,11 @@ cont_perf_test_do_op(void *ctx)
          + random()
            % ((lower_bound || upper_bound) ? 2 : 3);
 
-    key = (*gen_key_fn)(contp->max_key, 0);
+    key = (*gen_key_fn)(bep->max_key, 0);
 
     switch (op) {
     case DELETE:
-        ret = cont_delete(contctx, key, NULL, 1, 0, 0);
+        ret = be_delete(bectx, key, NULL, 1, 0, 0);
         if (ret != 0) {
             if (ret != -EADDRNOTAVAIL)
                 return ret;
@@ -142,14 +142,14 @@ cont_perf_test_do_op(void *ctx)
             --(targs->nelem);
         break;
     case SEARCH:
-        ret = (contp->test_range_search && (random() % 2 == 0))
-              ? cont_range_find(contctx, key, NULL, 0, 0)
-              : cont_find(contctx, key, NULL, 0, 0);
+        ret = (bep->test_range_search && (random() % 2 == 0))
+              ? be_range_find(bectx, key, NULL, 0, 0)
+              : be_find(bectx, key, NULL, 0, 0);
         if (ret < 0)
             return ret;
         break;
     case INSERT:
-        ret = cont_insert(contctx, key, NULL, 1, 0, 0);
+        ret = be_insert(bectx, key, NULL, 1, 0, 0);
         if (ret != 0) {
             if (ret != -EADDRINUSE)
                 return ret;
@@ -166,22 +166,22 @@ cont_perf_test_do_op(void *ctx)
 }
 
 static int
-cont_perf_test_end_test(void *ctx)
+be_perf_test_end_test(void *ctx)
 {
-    struct cont_ctx *contctx;
-    struct cont_perf_test_args *targs = (struct cont_perf_test_args *)ctx;
+    struct be_ctx *bectx;
+    struct be_perf_test_args *targs = (struct be_perf_test_args *)ctx;
 
-    contctx = targs->contctx;
+    bectx = targs->bectx;
 
-    return (*(targs->reset_cont))(contctx);
+    return (*(targs->reset_be))(bectx);
 }
 
 int
-cont_test_perf(struct cont_ctx *contctx, const struct cont_params *contp,
-               int (*reset_cont)(struct cont_ctx *))
+be_test_perf(struct be_ctx *bectx, const struct be_params *bep,
+             int (*reset_be)(struct be_ctx *))
 {
     int ret;
-    struct cont_perf_test_args args;
+    struct be_perf_test_args args;
     struct perf_test_ctx *tctx;
     unsigned n;
 
@@ -194,10 +194,10 @@ cont_test_perf(struct cont_ctx *contctx, const struct cont_params *contp,
         return ret;
     }
 
-    args.contctx = contctx;
-    args.contp = contp;
-    args.reset_cont = reset_cont;
-    ret = init_perf_test(&tctx, &cont_perf_test_ops, &args);
+    args.bectx = bectx;
+    args.bep = bep;
+    args.reset_be = reset_be;
+    ret = init_perf_test(&tctx, &be_perf_test_ops, &args);
     if (ret != 0)
         goto err1;
 

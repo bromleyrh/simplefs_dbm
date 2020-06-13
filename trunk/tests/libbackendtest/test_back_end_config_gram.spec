@@ -1,5 +1,5 @@
 #
-# test_cont_config_gram.spec
+# test_back_end_config_gram.spec
 #
 
 <config> = {

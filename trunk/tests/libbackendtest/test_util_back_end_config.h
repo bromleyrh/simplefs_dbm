@@ -1,9 +1,9 @@
 /*
- * test_util_cont_config.h
+ * test_util_back_end_config.h
  */
 
-#ifndef _TEST_UTIL_CONT_CONFIG_H
-#define _TEST_UTIL_CONT_CONFIG_H
+#ifndef _TEST_UTIL_BACK_END_CONFIG_H
+#define _TEST_UTIL_BACK_END_CONFIG_H
 
 #include <stdio.h>
 

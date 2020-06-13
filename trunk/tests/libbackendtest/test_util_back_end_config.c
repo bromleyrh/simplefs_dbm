@@ -1,9 +1,9 @@
 /*
- * test_util_cont_config.c
+ * test_util_back_end_config.c
  */
 
-#include "test_cont_config_gram_spec.h"
-#include "test_util_cont_config.h"
+#include "test_back_end_config_gram_spec.h"
+#include "test_util_back_end_config.h"
 
 #define NO_ASSERT
 #include "common.h"
@@ -76,7 +76,7 @@ parse_config(const char *path, struct params *params)
     if (f == NULL)
         return -errno;
 
-    err = json_parser_init(TEST_CONT_CONFIG_GRAM, ROOT_RULE_ID, &parser);
+    err = json_parser_init(BACK_END_TEST_CONFIG_GRAM, ROOT_RULE_ID, &parser);
     if (err) {
         fclose(f);
         return err;

@@ -1,9 +1,9 @@
 /*
- * test_util_cont_util.c
+ * test_util_back_end_util.c
  */
 
-#include "test_util_cont.h"
-#include "test_util_cont_util.h"
+#include "test_util_back_end.h"
+#include "test_util_back_end_util.h"
 
 #define NO_ASSERT
 #include "common.h"
@@ -25,25 +25,24 @@ struct params params = {
 };
 
 int
-handle_usr_signals(struct cont_ctx *contctx1, struct cont_ctx *contctx2,
-                   void *ctx)
+handle_usr_signals(struct be_ctx *bectx1, struct be_ctx *bectx2, void *ctx)
 {
     int ret;
 
     if (stats_requested) {
         stats_requested = 0;
-        ret = (*(contctx1->cb.print_stats))(stderr, contctx1, 0);
+        ret = (*(bectx1->cb.print_stats))(stderr, bectx1, 0);
         if (ret != 0)
             return ret;
     }
 
     if (verification_requested) {
         verification_requested = 0;
-        ret = (*(contctx1->cb.verify_rand))(contctx1);
+        ret = (*(bectx1->cb.verify_rand))(bectx1);
         if (ret != 0)
             return ret;
-        if (contctx2 != NULL) {
-            ret = (*(contctx1->cb.verify_cmp))(contctx1, contctx2, ctx);
+        if (bectx2 != NULL) {
+            ret = (*(bectx1->cb.verify_cmp))(bectx1, bectx2, ctx);
             if (ret != 0)
                 return ret;
         }
@@ -53,11 +52,11 @@ handle_usr_signals(struct cont_ctx *contctx1, struct cont_ctx *contctx2,
 }
 
 int
-check_insert_ratio(const struct cont_params *contp)
+check_insert_ratio(const struct be_params *bep)
 {
-    if ((contp->insert_ratio < INT_MIN / 16)
-        || (contp->insert_ratio > INT_MAX / 16)) {
-        error(0, 0, "Invalid insertion ratio %d", contp->insert_ratio);
+    if ((bep->insert_ratio < INT_MIN / 16)
+        || (bep->insert_ratio > INT_MAX / 16)) {
+        error(0, 0, "Invalid insertion ratio %d", bep->insert_ratio);
         return -EINVAL;
     }
 
@@ -65,10 +64,10 @@ check_insert_ratio(const struct cont_params *contp)
 }
 
 int
-check_max_key(const struct cont_params *contp)
+check_max_key(const struct be_params *bep)
 {
-    if (contp->max_key < 0) {
-        error(0, 0, "Invalid maximum key value %d", contp->max_key);
+    if (bep->max_key < 0) {
+        error(0, 0, "Invalid maximum key value %d", bep->max_key);
         return -EINVAL;
     }
 
@@ -76,10 +75,10 @@ check_max_key(const struct cont_params *contp)
 }
 
 int
-check_order_stats(const struct cont_ctx *contctx)
+check_order_stats(const struct be_ctx *bectx)
 {
-    if ((contctx->ops.select == NULL) || (contctx->ops.get_index == NULL)) {
-        error(0, 0, "Container does not support order statistics operations");
+    if ((bectx->ops.select == NULL) || (bectx->ops.get_index == NULL)) {
+        error(0, 0, "Back end does not support order statistics operations");
         return -EINVAL;
     }
 
@@ -87,10 +86,10 @@ check_order_stats(const struct cont_ctx *contctx)
 }
 
 int
-check_search_period(const struct cont_params *contp)
+check_search_period(const struct be_params *bep)
 {
-    if (contp->search_period <= 0) {
-        error(0, 0, "Invalid search period %d", contp->search_period);
+    if (bep->search_period <= 0) {
+        error(0, 0, "Invalid search period %d", bep->search_period);
         return -EINVAL;
     }
 
@@ -161,71 +160,71 @@ bitmap_get_index(struct bitmap_data *bmdata, int key)
 }
 
 int
-auto_test_insert(struct cont_ctx *contctx, int key, int replace, int use_cont,
+auto_test_insert(struct be_ctx *bectx, int key, int replace, int use_be,
                  int use_bitmap, int nonexistent_allowed, int repeat_allowed,
                  int confirm)
 {
     int fault = 0;
     int ret;
 
-    if (use_cont) {
+    if (use_be) {
         ret = replace
-              ? cont_replace(contctx, key, NULL, nonexistent_allowed, 0, 1)
-              : cont_insert(contctx, key, NULL, repeat_allowed, 0, 1);
+              ? be_replace(bectx, key, NULL, nonexistent_allowed, 0, 1)
+              : be_insert(bectx, key, NULL, repeat_allowed, 0, 1);
         if (ret != 0)
             return ret;
         fault = (fault_test == NULL) ? 0 : (*fault_test == 2);
         if (confirm) {
-            ret = cont_find(contctx, key, NULL, 0, 1);
+            ret = be_find(bectx, key, NULL, 0, 1);
             if (ret == 0) {
                 error(0, 0, "%s confirmation failed",
                       replace ? "Replacement" : "Insertion");
                 return -EIO;
             }
             if (ret != 1) {
-                error(0, -ret, "Error looking up in container");
+                error(0, -ret, "Error looking up in back end");
                 return ret;
             }
         }
     }
 
     if (use_bitmap && !replace) {
-        struct bitmap_data *bmdata = (struct bitmap_data *)(contctx->bmdata);
+        struct bitmap_data *bmdata = (struct bitmap_data *)(bectx->bmdata);
 
         if (fault && (bitmap_get(bmdata->bitmap, key) == 0)) {
             error(0, 0, "Detectable %s fault generated",
                   replace ? "replacement" : "insertion");
             error(0, 0, "Verification before further operations should fail");
-            cont_bitmap_set(contctx, key, 1, 0);
+            be_bitmap_set(bectx, key, 1, 0);
             return 2;
         }
-        cont_bitmap_set(contctx, key, 1, !use_cont);
+        be_bitmap_set(bectx, key, 1, !use_be);
     }
 
     return 0;
 }
 
 int
-auto_test_delete(struct cont_ctx *contctx, int key, int use_cont,
-                 int use_bitmap, int repeat_allowed, int confirm)
+auto_test_delete(struct be_ctx *bectx, int key, int use_be, int use_bitmap,
+                 int repeat_allowed, int confirm)
 {
     int fault = 0;
     int ret;
-    struct bitmap_data *bmdata = (struct bitmap_data *)(contctx->bmdata);
+    struct bitmap_data *bmdata = (struct bitmap_data *)(bectx->bmdata);
 
-    if (use_cont) {
-        ret = cont_delete(contctx, key, NULL, repeat_allowed, 0, 1);
+    if (use_be) {
+        ret = be_delete(bectx, key, NULL, repeat_allowed, 0, 1);
         if (ret != 0)
             return ret;
         fault = (fault_test == NULL) ? 0 : (*fault_test == 2);
         if (confirm) {
-            ret = cont_find(contctx, key, NULL, 0, 1);
+            ret = be_find(bectx, key, NULL, 0, 1);
             if (ret == 1) {
                 error(0, 0, "Deletion confirmation failed");
                 return -EIO;
             }
             if (ret != 0) {
-                error(0, -ret, "Error looking up in container");
+                error(0, -ret, "Error looking up in back end");
                 return ret;
             }
         }
@@ -235,37 +234,36 @@ auto_test_delete(struct cont_ctx *contctx, int key, int use_cont,
         if (fault && (bitmap_get(bmdata->bitmap, key) == 1)) {
             error(0, 0, "Detectable deletion fault generated");
             error(0, 0, "Verification before further operations should fail");
-            cont_bitmap_set(contctx, key, 0, 0);
+            be_bitmap_set(bectx, key, 0, 0);
             return 2;
         }
-        cont_bitmap_set(contctx, key, 0, !use_cont);
+        be_bitmap_set(bectx, key, 0, !use_be);
     }
 
     return 0;
 }
 
 int
-auto_test_delete_from(struct cont_ctx *contctx, int node, int *key,
-                      int use_cont, int use_bitmap, int repeat_allowed,
-                      int confirm)
+auto_test_delete_from(struct be_ctx *bectx, int node, int *key, int use_be,
+                      int use_bitmap, int repeat_allowed, int confirm)
 {
     int fault = 0;
     int ret;
-    struct bitmap_data *bmdata = (struct bitmap_data *)(contctx->bmdata);
+    struct bitmap_data *bmdata = (struct bitmap_data *)(bectx->bmdata);
 
-    if (use_cont) {
-        ret = cont_delete_from(contctx, node, key, repeat_allowed, 0, 1);
+    if (use_be) {
+        ret = be_delete_from(bectx, node, key, repeat_allowed, 0, 1);
         if ((ret != 0) || (*key == -1))
             return ret;
         fault = (fault_test == NULL) ? 0 : (*fault_test == 2);
         if (confirm) {
-            ret = cont_find(contctx, *key, NULL, 0, 1);
+            ret = be_find(bectx, *key, NULL, 0, 1);
             if (ret == 1) {
                 error(0, 0, "Deletion confirmation failed");
                 return -EIO;
             }
             if (ret != 0) {
-                error(0, -ret, "Error looking up in container");
+                error(0, -ret, "Error looking up in back end");
                 return ret;
             }
         }
@@ -275,31 +273,30 @@ auto_test_delete_from(struct cont_ctx *contctx, int node, int *key,
         if (fault && (bitmap_get(bmdata->bitmap, *key) == 1)) {
             error(0, 0, "Detectable deletion fault generated");
             error(0, 0, "Verification before further operations should fail");
-            cont_bitmap_set(contctx, *key, 0, 0);
+            be_bitmap_set(bectx, *key, 0, 0);
             return 2;
         }
-        cont_bitmap_set(contctx, *key, 0, !use_cont);
+        be_bitmap_set(bectx, *key, 0, !use_be);
     }
 
     return 0;
 }
 
 int
-auto_test_search(struct cont_ctx *contctx, int key, int use_cont,
-                 int use_bitmap)
+auto_test_search(struct be_ctx *bectx, int key, int use_be, int use_bitmap)
 {
     int fault = 0;
     int ret = 0;
 
-    if (use_cont) {
-        ret = cont_find(contctx, key, NULL, 0, 1);
+    if (use_be) {
+        ret = be_find(bectx, key, NULL, 0, 1);
         if (ret < 0)
             return ret;
         fault = (fault_test == NULL) ? 0 : (*fault_test == 2);
     }
 
     if (use_bitmap) {
-        struct bitmap_data *bmdata = (struct bitmap_data *)(contctx->bmdata);
+        struct bitmap_data *bmdata = (struct bitmap_data *)(bectx->bmdata);
 
         int tmp = (key < (int)(bmdata->size))
                   ? bitmap_get(bmdata->bitmap, key) : 0;
@@ -309,34 +306,34 @@ auto_test_search(struct cont_ctx *contctx, int key, int use_cont,
             error(0, 0, "Test error should follow");
         }
 
-        if (use_cont && (tmp != ret)) {
-            error(0, 0, "Bitmap and container differ at %d (%d vs. %d)", key,
+        if (use_be && (tmp != ret)) {
+            error(0, 0, "Bitmap and back end differ at %d (%d vs. %d)", key,
                   !ret, ret);
             return -EIO;
         }
-        if (!use_cont)
-            ++(contctx->stats.num_ops);
+        if (!use_be)
+            ++(bectx->stats.num_ops);
     }
 
     return 0;
 }
 
 int
-auto_test_range_search(struct cont_ctx *contctx, int key, int use_cont,
+auto_test_range_search(struct be_ctx *bectx, int key, int use_be,
                        int use_bitmap)
 {
     int fault = 0;
     int ret = 0;
 
-    if (use_cont) {
-        ret = cont_range_find(contctx, key, NULL, 0, 1);
+    if (use_be) {
+        ret = be_range_find(bectx, key, NULL, 0, 1);
         if (ret < 0)
             return ret;
         fault = (fault_test == NULL) ? 0 : (*fault_test == 2);
     }
 
     if (use_bitmap) {
-        struct bitmap_data *bmdata = (struct bitmap_data *)(contctx->bmdata);
+        struct bitmap_data *bmdata = (struct bitmap_data *)(bectx->bmdata);
 
         int tmp = (key < (int)(bmdata->size))
                   ? bitmap_get(bmdata->bitmap, key) : 0;
@@ -346,29 +343,28 @@ auto_test_range_search(struct cont_ctx *contctx, int key, int use_cont,
             error(0, 0, "Test error should follow");
         }
 
-        if (use_cont && (tmp != ret)) {
-            error(0, 0, "Bitmap and container differ at %d (%d vs. %d)", key,
+        if (use_be && (tmp != ret)) {
+            error(0, 0, "Bitmap and back end differ at %d (%d vs. %d)", key,
                   !ret, ret);
             return -EIO;
         }
-        if (!use_cont)
-            ++(contctx->stats.num_ops);
+        if (!use_be)
+            ++(bectx->stats.num_ops);
     }
 
     return 0;
 }
 
 int
-auto_test_select(struct cont_ctx *contctx, int idx, int use_cont,
-                 int use_bitmap)
+auto_test_select(struct be_ctx *bectx, int idx, int use_be, int use_bitmap)
 {
     int fault = 0;
     int ret = 0;
 
-    if (use_cont) {
+    if (use_be) {
         int res;
 
-        ret = cont_select(contctx, idx, &res, 0, 1);
+        ret = be_select(bectx, idx, &res, 0, 1);
         if (ret < 0)
             return ret;
         ret = (ret == 0) ? -1 : res;
@@ -376,7 +372,7 @@ auto_test_select(struct cont_ctx *contctx, int idx, int use_cont,
     }
 
     if (use_bitmap) {
-        struct bitmap_data *bmdata = (struct bitmap_data *)(contctx->bmdata);
+        struct bitmap_data *bmdata = (struct bitmap_data *)(bectx->bmdata);
 
         int tmp = (idx < (int)(bmdata->size)) ? bitmap_select(bmdata, idx) : -1;
 
@@ -385,29 +381,28 @@ auto_test_select(struct cont_ctx *contctx, int idx, int use_cont,
             error(0, 0, "Test error should follow");
         }
 
-        if (use_cont && (tmp != ret)) {
-            error(0, 0, "Bitmap and container differ at index %d (%d vs. %d)",
+        if (use_be && (tmp != ret)) {
+            error(0, 0, "Bitmap and back end differ at index %d (%d vs. %d)",
                   idx, tmp, ret);
             return -EIO;
         }
-        if (!use_cont)
-            ++(contctx->stats.num_ops);
+        if (!use_be)
+            ++(bectx->stats.num_ops);
     }
 
     return 0;
 }
 
 int
-auto_test_get_index(struct cont_ctx *contctx, int key, int use_cont,
-                    int use_bitmap)
+auto_test_get_index(struct be_ctx *bectx, int key, int use_be, int use_bitmap)
 {
     int fault = 0;
     int ret = 0;
 
-    if (use_cont) {
+    if (use_be) {
         int res;
 
-        ret = cont_get_index(contctx, key, &res, 0, 1);
+        ret = be_get_index(bectx, key, &res, 0, 1);
         if (ret < 0)
             return ret;
         ret = (ret == 0) ? -1 : res;
@@ -415,7 +410,7 @@ auto_test_get_index(struct cont_ctx *contctx, int key, int use_cont,
     }
 
     if (use_bitmap) {
-        struct bitmap_data *bmdata = (struct bitmap_data *)(contctx->bmdata);
+        struct bitmap_data *bmdata = (struct bitmap_data *)(bectx->bmdata);
 
         int tmp = (key < (int)(bmdata->size))
                   ? bitmap_get_index(bmdata, key) : -1;
@@ -425,35 +420,35 @@ auto_test_get_index(struct cont_ctx *contctx, int key, int use_cont,
             error(0, 0, "Test error should follow");
         }
 
-        if (use_cont && (tmp != ret)) {
-            error(0, 0, "Bitmap and container differ in index of key %d (%d "
-                  "vs. %d)", key, tmp, ret);
+        if (use_be && (tmp != ret)) {
+            error(0, 0, "Bitmap and back end differ in index of key %d (%d vs. "
+                        "%d)", key, tmp, ret);
             return -EIO;
         }
-        if (!use_cont)
-            ++(contctx->stats.num_ops);
+        if (!use_be)
+            ++(bectx->stats.num_ops);
     }
 
     return 0;
 }
 
 int
-auto_test_walk(struct cont_ctx *contctx, int key, int use_cont, int use_bitmap)
+auto_test_walk(struct be_ctx *bectx, int key, int use_be, int use_bitmap)
 {
     int ret = 0;
 
     (void)use_bitmap;
 
-    if (use_cont) {
+    if (use_be) {
         int tmp;
 
-        ret = (*(contctx->cb.init_walk_data))(contctx, contctx->wctx);
+        ret = (*(bectx->cb.init_walk_data))(bectx, bectx->wctx);
         if (ret != 0)
             return ret;
 
-        ret = cont_walk(contctx, key, contctx->wfn, contctx->wctx, 0, 1);
+        ret = be_walk(bectx, key, bectx->wfn, bectx->wctx, 0, 1);
 
-        tmp = (*(contctx->cb.free_walk_data))(contctx, contctx->wctx, ret != 0);
+        tmp = (*(bectx->cb.free_walk_data))(bectx, bectx->wctx, ret != 0);
         if (ret == 0)
             ret = tmp;
     }

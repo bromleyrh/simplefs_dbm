@@ -1,9 +1,9 @@
 /*
- * test_util_cont_cmdline.c
+ * test_util_back_end_cmdline.c
  */
 
-#include "test_util_cont.h"
-#include "test_util_cont_cmdline.h"
+#include "test_util_back_end.h"
+#include "test_util_back_end_cmdline.h"
 
 #define NO_ASSERT
 #include "common.h"
@@ -17,7 +17,7 @@
 #include <unistd.h>
 
 const char *
-cont_test_usage(const char *progusage, int order_stats)
+be_test_usage(const char *progusage, int order_stats)
 {
     size_t i;
     size_t len;
@@ -38,9 +38,9 @@ cont_test_usage(const char *progusage, int order_stats)
         "    -P INTEGER if -v given, verify against bitmap every N operations\n"
         "    -p INTEGER perform search every N operations\n"
         "    -S         output statistics continuously to standard error\n"
-        "    -t         do not maintain container (see -b, -r, and -n "
+        "    -t         do not maintain back end (see -b, -r, and -n "
         "options)\n"
-        "    -v         verify container against bitmap periodically\n"
+        "    -v         verify back end against bitmap periodically\n"
         "    -w INTEGER use given key size in 4-byte words\n"
     };
 
@@ -67,7 +67,7 @@ end:
 }
 
 const char *
-cont_test_opt_str(const char *test_opt_str, int order_stats)
+be_test_opt_str(const char *test_opt_str, int order_stats)
 {
     static char buf[512];
 
@@ -81,60 +81,60 @@ cont_test_opt_str(const char *test_opt_str, int order_stats)
 }
 
 int
-parse_cont_test_opt(int opt, void *test_opts)
+parse_be_test_opt(int opt, void *test_opts)
 {
-    struct cont_params *contp;
-    struct cont_test_opts *testopts = (struct cont_test_opts *)test_opts;
+    struct be_params *bep;
+    struct be_test_opts *testopts = (struct be_test_opts *)test_opts;
 
-    contp = testopts->contp;
+    bep = testopts->bep;
 
     switch (opt) {
     case 'b':
-        contp->use_bitmap = 0;
+        bep->use_bitmap = 0;
         break;
     case 'c':
-        contp->confirm = 1;
+        bep->confirm = 1;
         break;
     case 'd':
-        contp->dump = 1;
+        bep->dump = 1;
         *verbose_debug = 1;
         break;
     case 'F':
         *fault_test = 1;
         break;
     case 'i':
-        contp->insert_ratio = atoi(optarg);
+        bep->insert_ratio = atoi(optarg);
         break;
     case 'k':
-        contp->max_key = atoi(optarg);
+        bep->max_key = atoi(optarg);
         break;
     case 'M':
         *mem_test = 1;
         break;
     case 'n':
-        contp->num_ops = strtoull(optarg, NULL, 10);
+        bep->num_ops = strtoull(optarg, NULL, 10);
         break;
     case 'O':
         if (testopts->order_stats)
-            contp->test_order_stats = 1;
+            bep->test_order_stats = 1;
         break;
     case 'P':
-        contp->verification_period = atoi(optarg);
+        bep->verification_period = atoi(optarg);
         break;
     case 'p':
-        contp->search_period = atoi(optarg);
+        bep->search_period = atoi(optarg);
         break;
     case 'S':
-        contp->verbose_stats = 1;
+        bep->verbose_stats = 1;
         break;
     case 't':
-        contp->use_cont = 0;
+        bep->use_be = 0;
         break;
     case 'v':
-        contp->verify = 1;
+        bep->verify = 1;
         break;
     case 'w':
-        contp->key_size = 4 * atoi(optarg);
+        bep->key_size = 4 * atoi(optarg);
         break;
     default:
         return (*(testopts->parse_test_opt))(opt, testopts->test_opts);

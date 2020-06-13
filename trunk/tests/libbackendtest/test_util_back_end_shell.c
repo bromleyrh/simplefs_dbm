@@ -1,9 +1,9 @@
 /*
- * test_util_cont_shell.c
+ * test_util_back_end_shell.c
  */
 
-#include "test_util_cont.h"
-#include "test_util_cont_shell.h"
+#include "test_util_back_end.h"
+#include "test_util_back_end_shell.h"
 #include "test_util_shell.h"
 
 #define NO_ASSERT
@@ -18,21 +18,21 @@
 #include <unistd.h>
 
 #define CMD_ARGS(cmdctx, cmdargs) \
-    struct cont_cmd_args *args = (struct cont_cmd_args *)cmdargs; \
+    struct be_cmd_args *args = (struct be_cmd_args *)cmdargs; \
     struct cmd_ctx *ctx = (struct cmd_ctx *)cmdctx; \
-    struct cont_cmd_data *cmddata = (struct cont_cmd_data *)(ctx->cmddata)
+    struct be_cmd_data *cmddata = (struct be_cmd_data *)(ctx->cmddata)
 
-static int shell_check_assertion(void *, int (*)(struct cont_ctx *, int, int *),
+static int shell_check_assertion(void *, int (*)(struct be_ctx *, int, int *),
                                  int);
 
 static int
 shell_check_assertion(void *ctx,
-                      int (*search_container)(struct cont_ctx *, int, int *),
+                      int (*search_back_end)(struct be_ctx *, int, int *),
                       int assert_key)
 {
     int res, ret;
 
-    ret = (*search_container)(ctx, assert_key, &res);
+    ret = (*search_back_end)(ctx, assert_key, &res);
     if (ret == 1)
         fprintf(stderr, "Assertion succeeded: key %d found\n", assert_key);
     else if (ret == 0) {
@@ -41,7 +41,7 @@ shell_check_assertion(void *ctx,
             pause();
         quit = 0;
     } else {
-        error(0, -ret, "Error looking up in container");
+        error(0, -ret, "Error looking up in back end");
         return ret;
     }
 
@@ -53,8 +53,8 @@ ins_cmd(void *cmdctx, void *cmdargs)
 {
     CMD_ARGS(cmdctx, cmdargs);
 
-    return cont_insert((struct cont_ctx *)(cmddata->ctx), args->key, NULL, 1,
-                       cmddata->verbose, 1);
+    return be_insert((struct be_ctx *)(cmddata->ctx), args->key, NULL, 1,
+                     cmddata->verbose, 1);
 }
 
 int
@@ -62,8 +62,8 @@ del_cmd(void *cmdctx, void *cmdargs)
 {
     CMD_ARGS(cmdctx, cmdargs);
 
-    return cont_delete((struct cont_ctx *)(cmddata->ctx), args->key, NULL, 1,
-                       cmddata->verbose, 1);
+    return be_delete((struct be_ctx *)(cmddata->ctx), args->key, NULL, 1,
+                     cmddata->verbose, 1);
 }
 
 int
@@ -71,8 +71,8 @@ find_cmd(void *cmdctx, void *cmdargs)
 {
     CMD_ARGS(cmdctx, cmdargs);
 
-    return cont_find((struct cont_ctx *)(cmddata->ctx), args->key, NULL,
-                     cmddata->verbose, 1);
+    return be_find((struct be_ctx *)(cmddata->ctx), args->key, NULL,
+                   cmddata->verbose, 1);
 }
 
 int
@@ -80,8 +80,8 @@ select_cmd(void *cmdctx, void *cmdargs)
 {
     CMD_ARGS(cmdctx, cmdargs);
 
-    return cont_select((struct cont_ctx *)(cmddata->ctx), args->key, NULL,
-                       cmddata->verbose, 1);
+    return be_select((struct be_ctx *)(cmddata->ctx), args->key, NULL,
+                     cmddata->verbose, 1);
 }
 
 int
@@ -89,8 +89,8 @@ rank_cmd(void *cmdctx, void *cmdargs)
 {
     CMD_ARGS(cmdctx, cmdargs);
 
-    return cont_get_index((struct cont_ctx *)(cmddata->ctx), args->key, NULL,
-                          cmddata->verbose, 1);
+    return be_get_index((struct be_ctx *)(cmddata->ctx), args->key, NULL,
+                        cmddata->verbose, 1);
 }
 
 int
@@ -118,9 +118,9 @@ dump_cmd(void *cmdctx, void *cmdargs)
         return ret;
     }
 
-    ret = (*(cmddata->dump_container))(f, cmddata->ctx);
+    ret = (*(cmddata->dump_back_end))(f, cmddata->ctx);
     if (ret != 0)
-        error(0, -ret, "Error dumping container");
+        error(0, -ret, "Error dumping back end");
     fclose(f);
 
     return ret;
@@ -144,7 +144,7 @@ walk_cmd(void *cmdctx, void *cmdargs)
 
     (void)args;
 
-    return (*(cmddata->walk_container))(cmddata->ctx);
+    return (*(cmddata->walk_back_end))(cmddata->ctx);
 }
 
 int
@@ -272,14 +272,14 @@ reset_cmd(void *cmdctx, void *cmdargs)
 }
 
 int
-cmd_listen_cb_cont(const char *cmd, void *ctx)
+cmd_listen_cb_be(const char *cmd, void *ctx)
 {
-    struct cont_cmd_data *cmddata = ((struct cmd_ctx *)ctx)->cmddata;
+    struct be_cmd_data *cmddata = ((struct cmd_ctx *)ctx)->cmddata;
 
     (void)cmd;
 
     if ((cmddata->assert_key >= 0)
-        && (shell_check_assertion(cmddata->ctx, cmddata->search_container,
+        && (shell_check_assertion(cmddata->ctx, cmddata->search_back_end,
                                   cmddata->assert_key) == -1))
         return -1;
 

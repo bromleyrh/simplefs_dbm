@@ -1,11 +1,11 @@
 /*
- * test_util_cont.c
+ * test_util_back_end.c
  */
 
-#include "test_util_cont.h"
-#include "test_util_cont_cmdline.h"
-#include "test_util_cont_config.h"
-#include "test_util_cont_util.h"
+#include "test_util_back_end.h"
+#include "test_util_back_end_cmdline.h"
+#include "test_util_back_end_config.h"
+#include "test_util_back_end_util.h"
 #include "util.h"
 
 #define NO_ASSERT
@@ -32,7 +32,7 @@
 #include <sys/param.h>
 #include <sys/time.h>
 
-struct empty_cont_ctx {
+struct empty_be_ctx {
     struct dynamic_array    *key_list;
     int                     key_size;
 };
@@ -48,7 +48,7 @@ extern __thread int btree_mem_err;
 
 void (*term_handler)(int);
 
-#define PERFORM_REPLACE(contp) (((contp)->test_replace) ? random() % 2 : 0)
+#define PERFORM_REPLACE(bep) (((bep)->test_replace) ? random() % 2 : 0)
 
 #define RESET_ERR_TEST() \
     do { \
@@ -73,59 +73,58 @@ static void init_shuffle(long *, size_t);
 
 static inline int negate_insert_ratio(int);
 
-static int do_iter_seek_single(struct cont_ctx *, void *, unsigned *, int, int,
+static int do_iter_seek_single(struct be_ctx *, void *, unsigned *, int, int,
                                int,
-                               int (*)(struct cont_ctx *, void *, int, int),
+                               int (*)(struct be_ctx *, void *, int, int),
                                int (*)(const unsigned *, size_t, unsigned,
                                        unsigned *, int));
-static int do_test_iter(struct cont_ctx *, void *, unsigned, int, int, int,
+static int do_test_iter(struct be_ctx *, void *, unsigned, int, int, int,
                         uint64_t *, uint64_t);
 
-static int test_iter_funcs(struct cont_ctx *, int, uint64_t, int (*)(int, int),
+static int test_iter_funcs(struct be_ctx *, int, uint64_t, int (*)(int, int),
                            int, int, int, int);
 
-static int empty_cont_cb(const void *, void *);
+static int empty_be_cb(const void *, void *);
 #ifndef NDEBUG
 static int cmp_nonzero_unsigned(const void *, const void *);
 #endif
 
-static int empty_container(struct cont_ctx *);
+static int empty_back_end(struct be_ctx *);
 
 int
-parse_cont_test_cmdline(int argc, char **argv, const char *progusage,
-                        const char *test_opt_str,
-                        int (*parse_test_opt)(int, void *),
-                        struct cont_params *contp, void *test_opts, int *seed,
-                        int *enable_mtrace, int *run_gdb, int *shell,
-                        int order_stats)
+parse_be_test_cmdline(int argc, char **argv, const char *progusage,
+                      const char *test_opt_str,
+                      int (*parse_test_opt)(int, void *), struct be_params *bep,
+                      void *test_opts, int *seed, int *enable_mtrace,
+                      int *run_gdb, int *shell, int order_stats)
 {
-    struct cont_test_opts *testopts = (struct cont_test_opts *)test_opts;
+    struct be_test_opts *testopts = (struct be_test_opts *)test_opts;
 
-    testopts->contp = contp;
+    testopts->bep = bep;
     testopts->order_stats = order_stats;
     testopts->parse_test_opt = parse_test_opt;
     testopts->test_opts = test_opts;
 
     return parse_test_cmdline(argc, argv,
-                              cont_test_usage(progusage, order_stats),
-                              cont_test_opt_str(test_opt_str, order_stats),
-                              parse_cont_test_opt, test_opts, seed,
+                              be_test_usage(progusage, order_stats),
+                              be_test_opt_str(test_opt_str, order_stats),
+                              parse_be_test_opt, test_opts, seed,
                               enable_mtrace, run_gdb, shell);
 }
 
 int
-parse_cont_test_config(const char *path)
+parse_be_test_config(const char *path)
 {
     return parse_config(path, &params);
 }
 
 void
-init_cont_ctx(struct cont_ctx *contctx, void *bmdata, int key_size, int max_key)
+init_be_ctx(struct be_ctx *bectx, void *bmdata, int key_size, int max_key)
 {
-    struct cont_stats *stats = &contctx->stats;
+    struct be_stats *stats = &bectx->stats;
 
-    contctx->key_size = key_size;
-    contctx->max_key = max_key;
+    bectx->key_size = key_size;
+    bectx->max_key = max_key;
 
     stats->num_gen = 0;
     stats->num_ops = stats->num_ops_start = stats->num_ops_out_of_range = 0;
@@ -133,7 +132,7 @@ init_cont_ctx(struct cont_ctx *contctx, void *bmdata, int key_size, int max_key)
     stats->invalid_replacements = 0;
     stats->num_keys = 0;
 
-    contctx->bmdata = bmdata;
+    bectx->bmdata = bmdata;
 }
 
 static void
@@ -235,19 +234,19 @@ int_key_to_str(const void *k, void *ctx)
 }
 
 void
-cont_bitmap_set(struct cont_ctx *contctx, int key, int val, int record_stats)
+be_bitmap_set(struct be_ctx *bectx, int key, int val, int record_stats)
 {
-    struct bitmap_data *bmdata = (struct bitmap_data *)(contctx->bmdata);
+    struct bitmap_data *bmdata = (struct bitmap_data *)(bectx->bmdata);
 
     bitmap_set(bmdata->bitmap, key, val);
 
     if (record_stats)
-        ++(contctx->stats.num_ops);
+        ++(bectx->stats.num_ops);
 }
 
 int
-cont_insert(struct cont_ctx *contctx, int key, int *result, int repeat_allowed,
-            int verbose, int record_stats)
+be_insert(struct be_ctx *bectx, int key, int *result, int repeat_allowed,
+          int verbose, int record_stats)
 {
     int buf[MAX_KEY_SIZE / sizeof(int)];
     int *full_key;
@@ -255,39 +254,39 @@ cont_insert(struct cont_ctx *contctx, int key, int *result, int repeat_allowed,
 
     (void)result;
 
-    full_key = get_full_key(key, contctx->key_size, buf);
+    full_key = get_full_key(key, bectx->key_size, buf);
 
-    ret = (*(contctx->ops.insert))(contctx->cont, (void *)full_key);
+    ret = (*(bectx->ops.insert))(bectx->be, (void *)full_key);
     if (ret == 0) {
         if (verbose > 1)
             fprintf(stderr, "Inserted %d\n", key);
         if (record_stats)
-            ++(contctx->stats.num_keys);
+            ++(bectx->stats.num_keys);
     } else {
         if ((ret == -EADDRINUSE) && repeat_allowed) {
             if (verbose > 0)
-                error(0, -ret, "Error inserting in container");
+                error(0, -ret, "Error inserting in back end");
             if (record_stats)
-                ++(contctx->stats.repeat_inserts);
+                ++(bectx->stats.repeat_inserts);
         } else {
-            error(0, -ret, "Error inserting in container");
+            error(0, -ret, "Error inserting in back end");
             return ret;
         }
     }
 
     if (record_stats) {
-        ++(contctx->stats.num_gen);
-        ++(contctx->stats.num_ops);
-        if ((contctx->max_key != -1) && (key > contctx->max_key))
-            ++(contctx->stats.num_ops_out_of_range);
+        ++(bectx->stats.num_gen);
+        ++(bectx->stats.num_ops);
+        if ((bectx->max_key != -1) && (key > bectx->max_key))
+            ++(bectx->stats.num_ops_out_of_range);
     }
 
     return 0;
 }
 
 int
-cont_replace(struct cont_ctx *contctx, int key, int *result,
-             int nonexistent_allowed, int verbose, int record_stats)
+be_replace(struct be_ctx *bectx, int key, int *result, int nonexistent_allowed,
+           int verbose, int record_stats)
 {
     int buf[MAX_KEY_SIZE / sizeof(int)];
     int *full_key;
@@ -295,37 +294,37 @@ cont_replace(struct cont_ctx *contctx, int key, int *result,
 
     (void)result;
 
-    full_key = get_full_key(key, contctx->key_size, buf);
+    full_key = get_full_key(key, bectx->key_size, buf);
 
-    ret = (*(contctx->ops.replace))(contctx->cont, (void *)full_key);
+    ret = (*(bectx->ops.replace))(bectx->be, (void *)full_key);
     if (ret == 0) {
         if (verbose > 1)
             fprintf(stderr, "Replaced %d\n", key);
     } else {
         if ((ret == -EADDRNOTAVAIL) && nonexistent_allowed) {
             if (verbose > 0)
-                error(0, -ret, "Error replacing data in container");
+                error(0, -ret, "Error replacing data in back end");
             if (record_stats)
-                ++(contctx->stats.invalid_replacements);
+                ++(bectx->stats.invalid_replacements);
         } else {
-            error(0, -ret, "Error replacing data in container");
+            error(0, -ret, "Error replacing data in back end");
             return ret;
         }
     }
 
     if (record_stats) {
-        ++(contctx->stats.num_gen);
-        ++(contctx->stats.num_ops);
-        if ((contctx->max_key != -1) && (key > contctx->max_key))
-            ++(contctx->stats.num_ops_out_of_range);
+        ++(bectx->stats.num_gen);
+        ++(bectx->stats.num_ops);
+        if ((bectx->max_key != -1) && (key > bectx->max_key))
+            ++(bectx->stats.num_ops_out_of_range);
     }
 
     return 0;
 }
 
 int
-cont_delete(struct cont_ctx *contctx, int key, int *result, int repeat_allowed,
-            int verbose, int record_stats)
+be_delete(struct be_ctx *bectx, int key, int *result, int repeat_allowed,
+          int verbose, int record_stats)
 {
     int buf[MAX_KEY_SIZE / sizeof(int)];
     int *full_key;
@@ -333,69 +332,69 @@ cont_delete(struct cont_ctx *contctx, int key, int *result, int repeat_allowed,
 
     (void)result;
 
-    full_key = get_full_key(key, contctx->key_size, buf);
+    full_key = get_full_key(key, bectx->key_size, buf);
 
-    ret = (*(contctx->ops.delete))(contctx->cont, (void *)full_key);
+    ret = (*(bectx->ops.delete))(bectx->be, (void *)full_key);
     if (ret == 0) {
         if (verbose > 1)
             fprintf(stderr, "Deleted %d\n", key);
         if (record_stats)
-            --(contctx->stats.num_keys);
+            --(bectx->stats.num_keys);
     } else {
         if ((ret == -EADDRNOTAVAIL) && repeat_allowed) {
             if (verbose > 0)
-                error(0, -ret, "Error deleting from container");
+                error(0, -ret, "Error deleting from back end");
             if (record_stats)
-                ++(contctx->stats.repeat_deletes);
+                ++(bectx->stats.repeat_deletes);
         } else {
-            error(0, -ret, "Error deleting from container");
+            error(0, -ret, "Error deleting from back end");
             return ret;
         }
     }
 
     if (record_stats) {
-        ++(contctx->stats.num_ops);
-        if ((contctx->max_key != -1) && (key > contctx->max_key))
-            ++(contctx->stats.num_ops_out_of_range);
+        ++(bectx->stats.num_ops);
+        if ((bectx->max_key != -1) && (key > bectx->max_key))
+            ++(bectx->stats.num_ops_out_of_range);
     }
 
     return 0;
 }
 
 int
-cont_delete_from(struct cont_ctx *contctx, int node, int *result,
-                 int repeat_allowed, int verbose, int record_stats)
+be_delete_from(struct be_ctx *bectx, int node, int *result, int repeat_allowed,
+               int verbose, int record_stats)
 {
     int ret;
 
-    ret = (*(contctx->ops.delete_from))(contctx->cont, node, result);
+    ret = (*(bectx->ops.delete_from))(bectx->be, node, result);
     if (ret == 0) {
         if (verbose > 1)
             fprintf(stderr, "Deleted %d from node\n", *result);
         if (record_stats)
-            --(contctx->stats.num_keys);
+            --(bectx->stats.num_keys);
     } else {
         if ((ret == -EADDRNOTAVAIL) && repeat_allowed) {
             if (verbose > 0)
-                error(0, -ret, "Error deleting from container");
+                error(0, -ret, "Error deleting from back end");
             if (record_stats)
-                ++(contctx->stats.repeat_deletes);
+                ++(bectx->stats.repeat_deletes);
             *result = -1;
         } else {
-            error(0, -ret, "Error deleting from container");
+            error(0, -ret, "Error deleting from back end");
             return ret;
         }
     }
 
     if (record_stats)
-        ++(contctx->stats.num_ops);
+        ++(bectx->stats.num_ops);
 
     return 0;
 }
 
 int
-cont_find(struct cont_ctx *contctx, int key, int *result, int verbose,
-          int record_stats)
+be_find(struct be_ctx *bectx, int key, int *result, int verbose,
+        int record_stats)
 {
     int buf[MAX_KEY_SIZE / sizeof(int)];
     int *full_key;
@@ -404,9 +403,9 @@ cont_find(struct cont_ctx *contctx, int key, int *result, int verbose,
 
     (void)result;
 
-    full_key = get_full_key(key, contctx->key_size, buf);
+    full_key = get_full_key(key, bectx->key_size, buf);
 
-    ret = (*(contctx->ops.search))(contctx->cont, (void *)full_key, res);
+    ret = (*(bectx->ops.search))(bectx->be, (void *)full_key, res);
     if (ret == 1) {
         if (verbose)
             fprintf(stderr, "Key %d found\n", key);
@@ -414,22 +413,22 @@ cont_find(struct cont_ctx *contctx, int key, int *result, int verbose,
         if (verbose)
             fprintf(stderr, "Key %d not found\n", key);
     } else {
-        error(0, -ret, "Error looking up in container");
+        error(0, -ret, "Error looking up in back end");
         return ret;
     }
 
     if (record_stats) {
-        ++(contctx->stats.num_ops);
-        if ((contctx->max_key != -1) && (key > contctx->max_key))
-            ++(contctx->stats.num_ops_out_of_range);
+        ++(bectx->stats.num_ops);
+        if ((bectx->max_key != -1) && (key > bectx->max_key))
+            ++(bectx->stats.num_ops_out_of_range);
     }
 
     return ret;
 }
 
 int
-cont_range_find(struct cont_ctx *contctx, int key, int *result, int verbose,
-                int record_stats)
+be_range_find(struct be_ctx *bectx, int key, int *result, int verbose,
+              int record_stats)
 {
     int buf[MAX_KEY_SIZE / sizeof(int)];
     int *full_key;
@@ -439,33 +438,33 @@ cont_range_find(struct cont_ctx *contctx, int key, int *result, int verbose,
     (void)result;
     (void)verbose;
 
-    full_key = get_full_key(key, contctx->key_size, buf);
+    full_key = get_full_key(key, bectx->key_size, buf);
 
-    ret = (*(contctx->ops.range_search))(contctx->cont, (void *)full_key, res);
+    ret = (*(bectx->ops.range_search))(bectx->be, (void *)full_key, res);
     if ((ret != 0) && (ret != 1)) {
-        error(0, -ret, "Error looking up in container");
+        error(0, -ret, "Error looking up in back end");
         return ret;
     }
 
     if (record_stats) {
-        ++(contctx->stats.num_ops);
-        if ((contctx->max_key != -1) && (key > contctx->max_key))
-            ++(contctx->stats.num_ops_out_of_range);
+        ++(bectx->stats.num_ops);
+        if ((bectx->max_key != -1) && (key > bectx->max_key))
+            ++(bectx->stats.num_ops_out_of_range);
     }
 
     return ret;
 }
 
 int
-cont_select(struct cont_ctx *contctx, int idx, int *result, int verbose,
-            int record_stats)
+be_select(struct be_ctx *bectx, int idx, int *result, int verbose,
+          int record_stats)
 {
     int res[MAX_KEY_SIZE / sizeof(int)];
     int ret, short_res;
 
-    ret = (*(contctx->ops.select))(contctx->cont, idx, res);
+    ret = (*(bectx->ops.select))(bectx->be, idx, res);
     if (ret == 1) {
-        short_res = get_short_key(res, contctx->key_size);
+        short_res = get_short_key(res, bectx->key_size);
         if (result != NULL)
             *result = short_res;
         if (verbose)
@@ -475,30 +474,30 @@ cont_select(struct cont_ctx *contctx, int idx, int *result, int verbose,
             fprintf(stderr, "Key at index %d not found\n", idx);
     } else {
         assert(ret < 0);
-        error(0, -ret, "Error looking up in container");
+        error(0, -ret, "Error looking up in back end");
         return ret;
     }
 
     if (record_stats) {
-        ++(contctx->stats.num_ops);
-        if ((contctx->max_key != -1) && (idx > contctx->max_key))
-            ++(contctx->stats.num_ops_out_of_range);
+        ++(bectx->stats.num_ops);
+        if ((bectx->max_key != -1) && (idx > bectx->max_key))
+            ++(bectx->stats.num_ops_out_of_range);
     }
 
     return ret;
 }
 
 int
-cont_get_index(struct cont_ctx *contctx, int key, int *result, int verbose,
-               int record_stats)
+be_get_index(struct be_ctx *bectx, int key, int *result, int verbose,
+             int record_stats)
 {
     int buf[MAX_KEY_SIZE / sizeof(int)];
     int *full_key;
     int res, ret;
 
-    full_key = get_full_key(key, contctx->key_size, buf);
+    full_key = get_full_key(key, bectx->key_size, buf);
 
-    ret = (*(contctx->ops.get_index))(contctx->cont, (void *)full_key, &res);
+    ret = (*(bectx->ops.get_index))(bectx->be, (void *)full_key, &res);
     if (ret == 1) {
         if (result != NULL)
             *result = res;
@@ -509,23 +508,23 @@ cont_get_index(struct cont_ctx *contctx, int key, int *result, int verbose,
             fprintf(stderr, "Key %d not found\n", key);
     } else {
         assert(ret < 0);
-        error(0, -ret, "Error looking up in container");
+        error(0, -ret, "Error looking up in back end");
         return ret;
     }
 
     if (record_stats) {
-        ++(contctx->stats.num_ops);
-        if ((contctx->max_key != -1) && (key > contctx->max_key))
-            ++(contctx->stats.num_ops_out_of_range);
+        ++(bectx->stats.num_ops);
+        if ((bectx->max_key != -1) && (key > bectx->max_key))
+            ++(bectx->stats.num_ops_out_of_range);
     }
 
     return ret;
 }
 
 int
-cont_walk(struct cont_ctx *contctx, int startkey,
-          int (*fn)(const void *, void *), void *ctx, int verbose,
-          int record_stats)
+be_walk(struct be_ctx *bectx, int startkey,
+        int (*fn)(const void *, void *), void *ctx, int verbose,
+        int record_stats)
 {
     int buf[MAX_KEY_SIZE / sizeof(int)];
     int *full_key;
@@ -534,20 +533,19 @@ cont_walk(struct cont_ctx *contctx, int startkey,
     (void)verbose;
     (void)record_stats;
 
-    full_key = get_full_key(startkey, contctx->key_size, buf);
+    full_key = get_full_key(startkey, bectx->key_size, buf);
 
-    while ((ret = (*(contctx->ops.walk))(contctx->cont, (void *)full_key, fn,
-                                         ctx)) == 1)
+    while ((ret = (*(bectx->ops.walk))(bectx->be, (void *)full_key, fn, ctx))
+           == 1)
         ;
     if (ret != 0)
-        error(0, -ret, "Error walking container");
+        error(0, -ret, "Error walking back end");
 
     return ret;
 }
 
 int
-cont_iter_new(struct cont_ctx *contctx, void **result, int verbose,
-              int record_stats)
+be_iter_new(struct be_ctx *bectx, void **result, int verbose, int record_stats)
 {
     int ret;
     void *res;
@@ -555,7 +553,7 @@ cont_iter_new(struct cont_ctx *contctx, void **result, int verbose,
     (void)verbose;
     (void)record_stats;
 
-    ret = (*(contctx->ops.iter_new))(&res, contctx->cont);
+    ret = (*(bectx->ops.iter_new))(&res, bectx->be);
     if (ret == 0) {
         if (result != NULL)
             *result = res;
@@ -566,15 +564,14 @@ cont_iter_new(struct cont_ctx *contctx, void **result, int verbose,
 }
 
 int
-cont_iter_free(struct cont_ctx *contctx, void *iter, int verbose,
-               int record_stats)
+be_iter_free(struct be_ctx *bectx, void *iter, int verbose, int record_stats)
 {
     int ret;
 
     (void)verbose;
     (void)record_stats;
 
-    ret = (*(contctx->ops.iter_free))(iter);
+    ret = (*(bectx->ops.iter_free))(iter);
     if (ret != 0)
         error(0, -ret, "Error freeing iterator");
 
@@ -582,37 +579,36 @@ cont_iter_free(struct cont_ctx *contctx, void *iter, int verbose,
 }
 
 int
-cont_iter_get(struct cont_ctx *contctx, void *iter, int *result, int verbose,
-              int record_stats)
+be_iter_get(struct be_ctx *bectx, void *iter, int *result, int verbose,
+            int record_stats)
 {
     int res[MAX_KEY_SIZE / sizeof(int)];
     int ret, short_res;
 
     (void)record_stats;
 
-    ret = (*(contctx->ops.iter_get))(iter, res);
+    ret = (*(bectx->ops.iter_get))(iter, res);
     if (ret == 0) {
-        short_res = get_short_key(res, contctx->key_size);
+        short_res = get_short_key(res, bectx->key_size);
         if (result != NULL)
             *result = short_res;
         if (verbose)
             fprintf(stderr, "Key at iterator position is %d\n", short_res);
     } else
-        error(0, -ret, "Error accessing container element");
+        error(0, -ret, "Error accessing back end element");
 
     return ret;
 }
 
 int
-cont_iter_prev(struct cont_ctx *contctx, void *iter, int verbose,
-               int record_stats)
+be_iter_prev(struct be_ctx *bectx, void *iter, int verbose, int record_stats)
 {
     int ret;
 
     (void)verbose;
     (void)record_stats;
 
-    ret = (*(contctx->ops.iter_prev))(iter);
+    ret = (*(bectx->ops.iter_prev))(iter);
     if ((ret != 0) && (ret != -EADDRNOTAVAIL))
         error(0, -ret, "Error decrementing iterator");
 
@@ -620,15 +616,14 @@ cont_iter_prev(struct cont_ctx *contctx, void *iter, int verbose,
 }
 
 int
-cont_iter_next(struct cont_ctx *contctx, void *iter, int verbose,
-               int record_stats)
+be_iter_next(struct be_ctx *bectx, void *iter, int verbose, int record_stats)
 {
     int ret;
 
     (void)verbose;
     (void)record_stats;
 
-    ret = (*(contctx->ops.iter_next))(iter);
+    ret = (*(bectx->ops.iter_next))(iter);
     if ((ret != 0) && (ret != -EADDRNOTAVAIL))
         error(0, -ret, "Error incrementing iterator");
 
@@ -636,8 +631,8 @@ cont_iter_next(struct cont_ctx *contctx, void *iter, int verbose,
 }
 
 int
-cont_iter_search(struct cont_ctx *contctx, void *iter, int key, int verbose,
-                 int record_stats)
+be_iter_search(struct be_ctx *bectx, void *iter, int key, int verbose,
+               int record_stats)
 {
     int buf[MAX_KEY_SIZE / sizeof(int)];
     int *full_key;
@@ -645,9 +640,9 @@ cont_iter_search(struct cont_ctx *contctx, void *iter, int key, int verbose,
 
     (void)record_stats;
 
-    full_key = get_full_key(key, contctx->key_size, buf);
+    full_key = get_full_key(key, bectx->key_size, buf);
 
-    ret = (*(contctx->ops.iter_search))(iter, full_key);
+    ret = (*(bectx->ops.iter_search))(iter, full_key);
     if (ret == 1) {
         if (verbose)
             fprintf(stderr, "Key %d found\n", key);
@@ -663,14 +658,14 @@ cont_iter_search(struct cont_ctx *contctx, void *iter, int key, int verbose,
 }
 
 int
-cont_iter_select(struct cont_ctx *contctx, void *iter, int idx, int verbose,
-                 int record_stats)
+be_iter_select(struct be_ctx *bectx, void *iter, int idx, int verbose,
+               int record_stats)
 {
     int ret;
 
     (void)record_stats;
 
-    ret = (*(contctx->ops.iter_select))(iter, idx);
+    ret = (*(bectx->ops.iter_select))(iter, idx);
     if (ret == 1) {
         if (verbose)
             fprintf(stderr, "Key at index %d found\n", idx);
@@ -686,9 +681,9 @@ cont_iter_select(struct cont_ctx *contctx, void *iter, int idx, int verbose,
 }
 
 static int
-do_iter_seek_single(struct cont_ctx *contctx, void *iter, unsigned *curkey,
-                    int dir, int use_cont, int use_bitmap,
-                    int (*contseekfn)(struct cont_ctx *, void *, int, int),
+do_iter_seek_single(struct be_ctx *bectx, void *iter, unsigned *curkey, int dir,
+                    int use_be, int use_bitmap,
+                    int (*beseekfn)(struct be_ctx *, void *, int, int),
                     int (*bmseekfn)(const unsigned *, size_t, unsigned,
                                     unsigned *, int))
 {
@@ -696,12 +691,12 @@ do_iter_seek_single(struct cont_ctx *contctx, void *iter, unsigned *curkey,
     struct bitmap_data *bmdata;
     unsigned oldkey = 0;
 
-    if (use_cont) {
-        ret = (*contseekfn)(contctx, iter, 0, 1);
+    if (use_be) {
+        ret = (*beseekfn)(bectx, iter, 0, 1);
         RESET_ERR_TEST();
         if (ret == 0) {
             for (;;) {
-                ret = cont_iter_get(contctx, iter, &res, 0, 1);
+                ret = be_iter_get(bectx, iter, &res, 0, 1);
                 RESET_ERR_TEST();
                 if (ret == 0) {
                     ret = 1;
@@ -721,7 +716,7 @@ do_iter_seek_single(struct cont_ctx *contctx, void *iter, unsigned *curkey,
     if (use_bitmap) {
         int tmp;
 
-        bmdata = (struct bitmap_data *)(contctx->bmdata);
+        bmdata = (struct bitmap_data *)(bectx->bmdata);
 
         oldkey = *curkey;
         if ((dir == 0) && (*curkey == 0))
@@ -733,14 +728,14 @@ do_iter_seek_single(struct cont_ctx *contctx, void *iter, unsigned *curkey,
             if (tmp == 0)
                 *curkey = oldkey;
         }
-        if (use_cont && (tmp != ret)) {
+        if (use_be && (tmp != ret)) {
             error(0, 0, "Bitmap and iterator differ seeking %s from %u (%d "
                   "vs. %d)", (dir == 0) ? "left" : "right", oldkey, !ret, ret);
             return -EIO;
         }
     }
 
-    if (use_cont && use_bitmap && (ret == 1)) {
+    if (use_be && use_bitmap && (ret == 1)) {
         if ((unsigned)res == *curkey)
             fprintf(stderr, "\rBitmap and iterator agree up to %9d", res);
         else {
@@ -757,12 +752,11 @@ err:
 }
 
 static int
-do_test_iter(struct cont_ctx *contctx, void *iter, unsigned startkey,
-             int max_key, int use_cont, int use_bitmap, uint64_t *n,
-             uint64_t num_ops)
+do_test_iter(struct be_ctx *bectx, void *iter, unsigned startkey, int max_key,
+             int use_be, int use_bitmap, uint64_t *n, uint64_t num_ops)
 {
     int dir, range_end = 0;
-    int no_prev = (contctx->ops.iter_prev == NULL);
+    int no_prev = (bectx->ops.iter_prev == NULL);
     int ret;
     uint64_t nseeks = 0;
     unsigned curkey;
@@ -773,22 +767,22 @@ do_test_iter(struct cont_ctx *contctx, void *iter, unsigned startkey,
     for (;;) {
         int i;
         int (*bmseekfn)(const unsigned *, size_t, unsigned, unsigned *, int);
-        int (*contseekfn)(struct cont_ctx *, void *, int, int);
+        int (*beseekfn)(struct be_ctx *, void *, int, int);
         int seeklen;
 
         if (dir == 0) {
-            contseekfn = &cont_iter_prev;
+            beseekfn = &be_iter_prev;
             bmseekfn = &bitmap_find_prev_set;
         } else {
-            contseekfn = &cont_iter_next;
+            beseekfn = &be_iter_next;
             bmseekfn = &bitmap_find_next_set;
         }
 
         i = 0;
         seeklen = random() % (max_key/2);
         while (i < seeklen) {
-            ret = do_iter_seek_single(contctx, iter, &curkey, dir, use_cont,
-                                      use_bitmap, contseekfn, bmseekfn);
+            ret = do_iter_seek_single(bectx, iter, &curkey, dir, use_be,
+                                      use_bitmap, beseekfn, bmseekfn);
             if (ERROR_FATAL(ret))
                 return ret;
             if (++(*n) == num_ops)
@@ -816,18 +810,18 @@ end:
 }
 
 static int
-test_iter_funcs(struct cont_ctx *contctx, int test_iter_only, uint64_t num_ops,
+test_iter_funcs(struct be_ctx *bectx, int test_iter_only, uint64_t num_ops,
                 int (*gen_key_fn)(int, int), int max_key,
-                int out_of_range_interval, int use_cont, int use_bitmap)
+                int out_of_range_interval, int use_be, int use_bitmap)
 {
     int ret;
     struct bitmap_data *bmdata;
     uint64_t n;
     void *iter = NULL;
 
-    if (use_cont) {
+    if (use_be) {
         for (;;) {
-            ret = cont_iter_new(contctx, &iter, 0, 1);
+            ret = be_iter_new(bectx, &iter, 0, 1);
             RESET_ERR_TEST();
             if (ret == 0)
                 break;
@@ -835,15 +829,15 @@ test_iter_funcs(struct cont_ctx *contctx, int test_iter_only, uint64_t num_ops,
                 continue;
             if (ret != -ENOENT)
                 goto err1;
-            if (contctx->stats.num_keys != 0) {
-                error(0, 0, "Bitmap and container differ");
+            if (bectx->stats.num_keys != 0) {
+                error(0, 0, "Bitmap and back end differ");
                 ret = -EIO;
                 goto err1;
             }
             return 0;
         }
     }
-    bmdata = (struct bitmap_data *)(contctx->bmdata);
+    bmdata = (struct bitmap_data *)(bectx->bmdata);
 
     n = 0;
     while (n < num_ops) {
@@ -858,9 +852,9 @@ test_iter_funcs(struct cont_ctx *contctx, int test_iter_only, uint64_t num_ops,
         else
             key = (*gen_key_fn)(max_key, out_of_range_interval);
 
-        if (use_cont) {
+        if (use_be) {
             for (;;) {
-                ret = cont_iter_search(contctx, iter, key, 0, 1);
+                ret = be_iter_search(bectx, iter, key, 0, 1);
                 RESET_ERR_TEST();
                 if (ret >= 0)
                     break;
@@ -874,9 +868,9 @@ test_iter_funcs(struct cont_ctx *contctx, int test_iter_only, uint64_t num_ops,
             tmp = (key < (int)(bmdata->size))
                   ? bitmap_get(bmdata->bitmap, key) : 0;
 
-            if ((tmp != ret) && use_cont) {
-                error(0, 0, "Bitmap and container differ at %d (%d vs. %d)",
-                      key, !ret, ret);
+            if ((tmp != ret) && use_be) {
+                error(0, 0, "Bitmap and back end differ at %d (%d vs. %d)", key,
+                      !ret, ret);
                 ret = -EIO;
                 goto err2;
             }
@@ -884,7 +878,7 @@ test_iter_funcs(struct cont_ctx *contctx, int test_iter_only, uint64_t num_ops,
             tmp = 0;
 
         if ((ret == 1) || (tmp == 1)) {
-            ret = do_test_iter(contctx, iter, (unsigned)key, max_key, use_cont,
+            ret = do_test_iter(bectx, iter, (unsigned)key, max_key, use_be,
                                use_bitmap, &n, num_ops);
             if (ret != 0)
                 goto err2;
@@ -894,11 +888,11 @@ test_iter_funcs(struct cont_ctx *contctx, int test_iter_only, uint64_t num_ops,
             break;
     }
 
-    if (!use_cont)
+    if (!use_be)
         return 0;
 
     for (;;) {
-        ret = cont_iter_free(contctx, iter, 0, 1);
+        ret = be_iter_free(bectx, iter, 0, 1);
         RESET_ERR_TEST();
         if ((ret == 0) || ERROR_FATAL(ret))
             break;
@@ -906,17 +900,17 @@ test_iter_funcs(struct cont_ctx *contctx, int test_iter_only, uint64_t num_ops,
     return ret;
 
 err2:
-    if (use_cont)
-        cont_iter_free(contctx, iter, 0, 0);
+    if (use_be)
+        be_iter_free(bectx, iter, 0, 0);
 err1:
     return ret;
 }
 
 static int
-empty_cont_cb(const void *k, void *ctx)
+empty_be_cb(const void *k, void *ctx)
 {
     int key;
-    struct empty_cont_ctx *wctx = (struct empty_cont_ctx *)ctx;
+    struct empty_be_ctx *wctx = (struct empty_be_ctx *)ctx;
 
     key = get_short_key((int *)k, wctx->key_size);
 
@@ -936,17 +930,17 @@ cmp_nonzero_unsigned(const void *k, const void *e)
 
 #endif
 static int
-empty_container(struct cont_ctx *contctx)
+empty_back_end(struct be_ctx *bectx)
 {
     int err;
     int err_test_old;
     int *keys;
     size_t i, n;
-    struct bitmap_data *bmdata = (struct bitmap_data *)(contctx->bmdata);
+    struct bitmap_data *bmdata = (struct bitmap_data *)(bectx->bmdata);
     struct dynamic_array *key_list;
-    struct empty_cont_ctx wctx;
+    struct empty_be_ctx wctx;
 
-    fputs("Emptying container\n", stderr);
+    fputs("Emptying back end\n", stderr);
 
     err = dynamic_array_new(&key_list, 1024, sizeof(int));
     if (err) {
@@ -955,12 +949,12 @@ empty_container(struct cont_ctx *contctx)
     }
 
     wctx.key_list = key_list;
-    wctx.key_size = contctx->key_size;
+    wctx.key_size = bectx->key_size;
     DISABLE_ERR_TEST(err_test_old);
-    err = (*(contctx->ops.walk))(contctx->cont, NULL, &empty_cont_cb, &wctx);
+    err = (*(bectx->ops.walk))(bectx->be, NULL, &empty_be_cb, &wctx);
     ENABLE_ERR_TEST(err_test_old);
     if (err) {
-        error(0, -err, "Error walking container");
+        error(0, -err, "Error walking back end");
         goto err;
     }
 
@@ -973,21 +967,20 @@ empty_container(struct cont_ctx *contctx)
         int buf[MAX_KEY_SIZE / sizeof(int)];
 
         for (;;) {
-            err = (*(contctx->ops.delete))(contctx->cont,
-                                           get_full_key(keys[i],
-                                                        contctx->key_size,
-                                                        buf));
+            err = (*(bectx->ops.delete))(bectx->be,
+                                         get_full_key(keys[i], bectx->key_size,
+                                                      buf));
             RESET_ERR_TEST();
             if (!err)
                 break;
             if (!db_err_test
                 || ((err != -ENOMEM) && (err != -EIO) && (err != -EBADF))) {
-                error(0, -err, "Error removing from container");
+                error(0, -err, "Error removing from back end");
                 goto err;
             }
         }
         bitmap_set(bmdata->bitmap, keys[i], 0);
-        --(contctx->stats.num_keys);
+        --(bectx->stats.num_keys);
         fprintf(stderr, "\rRemoved %6d (%6zu/%6zu)", keys[i], i + 1, n);
     }
     if (i > 0)
@@ -1011,7 +1004,7 @@ err:
 }
 
 int
-cont_test_quick(struct cont_ctx *contctx, const struct cont_params *contp)
+be_test_quick(struct be_ctx *bectx, const struct be_params *bep)
 {
     const int testvals[] = {1, 2, 3, 4, 5, 6, 7};
     const int numtestvals = ARRAY_SIZE(testvals);
@@ -1019,13 +1012,13 @@ cont_test_quick(struct cont_ctx *contctx, const struct cont_params *contp)
     int ret;
 
     for (i = 0; i < numtestvals; i++) {
-        ret = cont_insert(contctx, testvals[i], NULL, 0, 1, 1);
+        ret = be_insert(bectx, testvals[i], NULL, 0, 1, 1);
         if (ERROR_FATAL(ret))
             return ret;
-        if (contp->dump) {
-            ret = (*(contctx->ops.dump))(stdout, contctx->cont);
+        if (bep->dump) {
+            ret = (*(bectx->ops.dump))(stdout, bectx->be);
             if (ret != 0) {
-                error(0, -ret, "Error dumping container");
+                error(0, -ret, "Error dumping back end");
                 return ret;
             }
             fputs("--------------------------------------------------\n",
@@ -1034,13 +1027,13 @@ cont_test_quick(struct cont_ctx *contctx, const struct cont_params *contp)
     }
 
     for (i = i - 1; i >= 0; i--) {
-        ret = cont_delete(contctx, testvals[i], NULL, 0, 1, 1);
+        ret = be_delete(bectx, testvals[i], NULL, 0, 1, 1);
         if (ERROR_FATAL(ret))
             return ret;
-        if (contp->dump) {
-            ret = (*(contctx->ops.dump))(stdout, contctx->cont);
+        if (bep->dump) {
+            ret = (*(bectx->ops.dump))(stdout, bectx->be);
             if (ret != 0) {
-                error(0, -ret, "Error dumping container");
+                error(0, -ret, "Error dumping back end");
                 return ret;
             }
             fputs("--------------------------------------------------\n",
@@ -1052,8 +1045,7 @@ cont_test_quick(struct cont_ctx *contctx, const struct cont_params *contp)
 }
 
 int
-cont_test_insertion(struct cont_ctx *contctx, const struct cont_params *contp,
-                    FILE *log)
+be_test_insertion(struct be_ctx *bectx, const struct be_params *bep, FILE *log)
 {
     int i;
     int ret = 0, tmp;
@@ -1070,26 +1062,26 @@ cont_test_insertion(struct cont_ctx *contctx, const struct cont_params *contp,
     for (i = 0; !quit; i++) {
         int key = random();
 
-        ret = cont_insert(contctx, key, NULL, 1, 0, 1);
+        ret = be_insert(bectx, key, NULL, 1, 0, 1);
         if (ERROR_FATAL(ret))
             break;
-        if (contp->dump) {
-            ret = (*(contctx->ops.dump))(stdout, contctx->cont);
+        if (bep->dump) {
+            ret = (*(bectx->ops.dump))(stdout, bectx->be);
             if (ret != 0) {
-                error(0, -ret, "Error dumping container");
+                error(0, -ret, "Error dumping back end");
                 break;
             }
         }
-        if (contp->verify && !(random() % contp->verification_period)) {
-            ret = (*(contctx->cb.verify_insertion))(contctx);
+        if (bep->verify && !(random() % bep->verification_period)) {
+            ret = (*(bectx->cb.verify_insertion))(bectx);
             if (ret != 0)
                 break;
         }
         VERBOSE_LOG(log, "ins %d\n", key);
     }
 
-    if (contctx->cb.end_test != NULL) {
-        tmp = (*(contctx->cb.end_test))(contctx);
+    if (bectx->cb.end_test != NULL) {
+        tmp = (*(bectx->cb.end_test))(bectx);
         if (tmp != 0)
             ret = tmp;
     }
@@ -1101,8 +1093,8 @@ cont_test_insertion(struct cont_ctx *contctx, const struct cont_params *contp,
 }
 
 int
-cont_test_rand_repeat(struct cont_ctx *contctx, const struct cont_params *contp,
-                      FILE *log)
+be_test_rand_repeat(struct be_ctx *bectx, const struct be_params *bep,
+                    FILE *log)
 {
     int (*gen_key_fn)(int, int);
     int delete_from_root = 0;
@@ -1112,9 +1104,9 @@ cont_test_rand_repeat(struct cont_ctx *contctx, const struct cont_params *contp,
     int test_iter_only;
     struct perf_cmp_hdl *perf_cmp_hdl = NULL;
 
-    if ((check_insert_ratio(contp) != 0) || (check_search_period(contp) != 0)
-        || (check_max_key(contp) != 0)
-        || (contp->test_order_stats && (check_order_stats(contctx) != 0)))
+    if ((check_insert_ratio(bep) != 0) || (check_search_period(bep) != 0)
+        || (check_max_key(bep) != 0)
+        || (bep->test_order_stats && (check_order_stats(bectx) != 0)))
         return -EINVAL;
 
     if ((set_signal_handler(SIGINT, &lib_term_handler) == -1)
@@ -1128,33 +1120,33 @@ cont_test_rand_repeat(struct cont_ctx *contctx, const struct cont_params *contp,
         return ret;
     }
 
-    test_iter_only = (contp->test_iter == 2);
+    test_iter_only = (bep->test_iter == 2);
 
-    gen_key_fn = contp->zero_keys ? &gen_key : &gen_key_no_zero;
-    insert_ratio = contp->insert_ratio;
+    gen_key_fn = bep->zero_keys ? &gen_key : &gen_key_no_zero;
+    insert_ratio = bep->insert_ratio;
 
     perf_cmp_wait(&perf_cmp_hdl);
 
-    while (!quit && (NUM_OPS(contctx) < contp->num_ops)) {
+    while (!quit && (NUM_OPS(bectx) < bep->num_ops)) {
         int key;
         int delete, search;
         int verify = -1;
 
-        ret = handle_usr_signals(contctx, NULL, NULL);
+        ret = handle_usr_signals(bectx, NULL, NULL);
         if (ret != 0)
             break;
 
         if (test_iter_only)
             delete_from_root = 0;
-        else if (contp->delete_from_root) {
+        else if (bep->delete_from_root) {
             if (!delete_from_root)
                 delete_from_root = !(random() % 4096);
             else
                 delete_from_root = !!(random() % 16384);
         }
         if (delete_from_root) {
-            ret = auto_test_delete_from(contctx, 0, &key, contp->use_cont,
-                                        contp->use_bitmap, 1, contp->confirm);
+            ret = auto_test_delete_from(bectx, 0, &key, bep->use_be,
+                                        bep->use_bitmap, 1, bep->confirm);
             if (ERROR_FATAL(ret))
                 break;
             if (ret == 2)
@@ -1164,35 +1156,34 @@ cont_test_rand_repeat(struct cont_ctx *contctx, const struct cont_params *contp,
                         "\n",
                         key);
         } else {
-            search = test_iter_only ? 0 : !(random() % contp->search_period);
+            search = test_iter_only ? 0 : !(random() % bep->search_period);
             if (search) {
-                key = (*gen_key_fn)(contp->max_key, params.out_of_range_period);
-                if (contp->test_walk)
-                    search = random() % (contp->test_order_stats ? 4 : 2);
+                key = (*gen_key_fn)(bep->max_key, params.out_of_range_period);
+                if (bep->test_walk)
+                    search = random() % (bep->test_order_stats ? 4 : 2);
                 else
-                    search = 1 + random() % (contp->test_order_stats ? 3 : 1);
+                    search = 1 + random() % (bep->test_order_stats ? 3 : 1);
                 switch (search) {
                 case 0:
-                    ret = auto_test_walk(contctx, key, contp->use_cont,
-                                         contp->use_bitmap);
+                    ret = auto_test_walk(bectx, key, bep->use_be,
+                                         bep->use_bitmap);
                     break;
                 case 1:
-                    if (contp->test_range_search && (random() % 2 == 0)) {
-                        ret = auto_test_range_search(contctx, key,
-                                                     contp->use_cont,
-                                                     contp->use_bitmap);
+                    if (bep->test_range_search && (random() % 2 == 0)) {
+                        ret = auto_test_range_search(bectx, key, bep->use_be,
+                                                     bep->use_bitmap);
                     } else {
-                        ret = auto_test_search(contctx, key, contp->use_cont,
-                                               contp->use_bitmap);
+                        ret = auto_test_search(bectx, key, bep->use_be,
+                                               bep->use_bitmap);
                     }
                     break;
                 case 2:
-                    ret = auto_test_select(contctx, key, contp->use_cont,
-                                           contp->use_bitmap);
+                    ret = auto_test_select(bectx, key, bep->use_be,
+                                           bep->use_bitmap);
                     break;
                 case 3:
-                    ret = auto_test_get_index(contctx, key, contp->use_cont,
-                                              contp->use_bitmap);
+                    ret = auto_test_get_index(bectx, key, bep->use_be,
+                                              bep->use_bitmap);
                     break;
                 default:
                     ret = -EIO;
@@ -1200,22 +1191,22 @@ cont_test_rand_repeat(struct cont_ctx *contctx, const struct cont_params *contp,
                 }
                 if (ERROR_FATAL(ret))
                     break;
-                if (!(contp->verify_after_search))
+                if (!(bep->verify_after_search))
                     verify = 0;
             } else if (test_iter_only
-                       || (contp->test_iter
+                       || (bep->test_iter
                            && !(random() % params.iter_test_period))) {
-                ret = test_iter_funcs(contctx, test_iter_only,
+                ret = test_iter_funcs(bectx, test_iter_only,
                                       test_iter_only
-                                      ? contp->num_ops : UINT64_MAX,
-                                      gen_key_fn, contp->max_key,
+                                      ? bep->num_ops : UINT64_MAX,
+                                      gen_key_fn, bep->max_key,
                                       params.iter_test_out_of_range_period,
-                                      contp->use_cont, contp->use_bitmap);
+                                      bep->use_be, bep->use_bitmap);
                 if (ret != 0)
                     break;
                 if (test_iter_only)
                     quit = 1;
-                if (!(contp->verify_after_search))
+                if (!(bep->verify_after_search))
                     verify = 0;
             } else {
                 if (!purge) {
@@ -1237,18 +1228,17 @@ cont_test_rand_repeat(struct cont_ctx *contctx, const struct cont_params *contp,
                          : !!(random() % -(insert_ratio+1));
 
                 if (!delete) {
-                    int replace = PERFORM_REPLACE(contp);
+                    int replace = PERFORM_REPLACE(bep);
 
-                    key = (*gen_key_fn)(contp->max_key, 0);
+                    key = (*gen_key_fn)(bep->max_key, 0);
                     VERBOSE_LOG(log, "%s %d\n", replace ? "upd" : "ins", key);
-                    ret = auto_test_insert(contctx, key, replace,
-                                           contp->use_cont, contp->use_bitmap,
-                                           1, 1, contp->confirm);
+                    ret = auto_test_insert(bectx, key, replace, bep->use_be,
+                                           bep->use_bitmap, 1, 1, bep->confirm);
                     if (ERROR_FATAL(ret))
                         break;
                     if (ret == -ENOSPC) {
-                        if (contp->empty_on_fill) {
-                            ret = empty_container(contctx);
+                        if (bep->empty_on_fill) {
+                            ret = empty_back_end(bectx);
                             if (ret != 0)
                                 break;
                         } else {
@@ -1262,12 +1252,11 @@ cont_test_rand_repeat(struct cont_ctx *contctx, const struct cont_params *contp,
                         "\n",
                         replace ? "replaced" : "inserted", key);
                 } else {
-                    key = (*gen_key_fn)(contp->max_key,
+                    key = (*gen_key_fn)(bep->max_key,
                                         params.out_of_range_period);
                     VERBOSE_LOG(log, "del %d\n", key);
-                    ret = auto_test_delete(contctx, key, contp->use_cont,
-                                           contp->use_bitmap, 1,
-                                           contp->confirm);
+                    ret = auto_test_delete(bectx, key, bep->use_be,
+                                           bep->use_bitmap, 1, bep->confirm);
                     if (ERROR_FATAL(ret))
                         break;
                     if (ret == 2)
@@ -1280,18 +1269,18 @@ cont_test_rand_repeat(struct cont_ctx *contctx, const struct cont_params *contp,
             }
         }
 
-        if (contp->verify
+        if (bep->verify
             && ((verify == 1)
                 || ((verify != 0)
-                    && !(random() % contp->verification_period)))) {
-            ret = (*(contctx->cb.verify_rand))(contctx);
+                    && !(random() % bep->verification_period)))) {
+            ret = (*(bectx->cb.verify_rand))(bectx);
             if (ret != 0)
                 break;
         } else
             ret = 0;
 
-        if (contp->verbose_stats)
-            refresh_stat_output(contctx);
+        if (bep->verbose_stats)
+            refresh_stat_output(bectx);
     }
 
 end:
@@ -1299,8 +1288,8 @@ end:
     if (perf_cmp_hdl != NULL)
         perf_cmp_finish(perf_cmp_hdl);
 
-    if (contctx->cb.end_test != NULL) {
-        tmp = (*(contctx->cb.end_test))(contctx);
+    if (bectx->cb.end_test != NULL) {
+        tmp = (*(bectx->cb.end_test))(bectx);
         if (tmp != 0)
             ret = tmp;
     }
@@ -1314,8 +1303,7 @@ end:
 }
 
 int
-cont_test_sorted(struct cont_ctx *contctx, const struct cont_params *contp,
-                 FILE *log)
+be_test_sorted(struct be_ctx *bectx, const struct be_params *bep, FILE *log)
 {
     int delete = 0, direction = 1;
     int (*gen_key_fn)(int, int);
@@ -1323,8 +1311,8 @@ cont_test_sorted(struct cont_ctx *contctx, const struct cont_params *contp,
     int ret = 0, tmp;
     struct perf_cmp_hdl *perf_cmp_hdl = NULL;
 
-    if ((check_search_period(contp) != 0) || (check_max_key(contp) != 0)
-        || (contp->test_order_stats && (check_order_stats(contctx) != 0)))
+    if ((check_search_period(bep) != 0) || (check_max_key(bep) != 0)
+        || (bep->test_order_stats && (check_order_stats(bectx) != 0)))
         return -EINVAL;
 
     if ((set_signal_handler(SIGINT, &lib_term_handler) == -1)
@@ -1338,54 +1326,53 @@ cont_test_sorted(struct cont_ctx *contctx, const struct cont_params *contp,
         return ret;
     }
 
-    gen_key_fn = contp->zero_keys ? &gen_key : &gen_key_no_zero;
+    gen_key_fn = bep->zero_keys ? &gen_key : &gen_key_no_zero;
 
     perf_cmp_wait(&perf_cmp_hdl);
 
-    key = (*gen_key_fn)(contp->max_key, 0);
-    while (!quit && (NUM_OPS(contctx) < contp->num_ops)) {
+    key = (*gen_key_fn)(bep->max_key, 0);
+    while (!quit && (NUM_OPS(bectx) < bep->num_ops)) {
         int search;
         int verify = -1;
 
-        ret = handle_usr_signals(contctx, NULL, NULL);
+        ret = handle_usr_signals(bectx, NULL, NULL);
         if (ret != 0)
             break;
 
         if (direction) {
-            if ((key < contp->max_key) || delete)
+            if ((key < bep->max_key) || delete)
                 ++key;
         } else {
-            if (key > !(contp->zero_keys))
+            if (key > !(bep->zero_keys))
                 --key;
         }
 
-        search = !(random() % contp->search_period);
+        search = !(random() % bep->search_period);
         if (search) {
-            if (contp->test_walk)
-                search = random() % (contp->test_order_stats ? 4 : 2);
+            if (bep->test_walk)
+                search = random() % (bep->test_order_stats ? 4 : 2);
             else
-                search = 1 + random() % (contp->test_order_stats ? 3 : 1);
+                search = 1 + random() % (bep->test_order_stats ? 3 : 1);
             switch (search) {
             case 0:
-                ret = auto_test_walk(contctx, key, contp->use_cont,
-                                     contp->use_bitmap);
+                ret = auto_test_walk(bectx, key, bep->use_be, bep->use_bitmap);
                 break;
             case 1:
-                if (contp->test_range_search && (random() % 2 == 0)) {
-                    ret = auto_test_range_search(contctx, key, contp->use_cont,
-                                                 contp->use_bitmap);
+                if (bep->test_range_search && (random() % 2 == 0)) {
+                    ret = auto_test_range_search(bectx, key, bep->use_be,
+                                                 bep->use_bitmap);
                 } else {
-                    ret = auto_test_search(contctx, key, contp->use_cont,
-                                           contp->use_bitmap);
+                    ret = auto_test_search(bectx, key, bep->use_be,
+                                           bep->use_bitmap);
                 }
                 break;
             case 2:
-                ret = auto_test_select(contctx, key, contp->use_cont,
-                                       contp->use_bitmap);
+                ret = auto_test_select(bectx, key, bep->use_be,
+                                       bep->use_bitmap);
                 break;
             case 3:
-                ret = auto_test_get_index(contctx, key, contp->use_cont,
-                                          contp->use_bitmap);
+                ret = auto_test_get_index(bectx, key, bep->use_be,
+                                          bep->use_bitmap);
                 break;
             default:
                 ret = -EIO;
@@ -1393,25 +1380,25 @@ cont_test_sorted(struct cont_ctx *contctx, const struct cont_params *contp,
             }
             if (ERROR_FATAL(ret))
                 break;
-            if (!(contp->verify_after_search))
+            if (!(bep->verify_after_search))
                 verify = 0;
         } else {
             if (!(random() % params.sorted_test_period)) {
                 delete = random() % 2;
                 direction = random() % 2;
-                key = (*gen_key_fn)(contp->max_key,
+                key = (*gen_key_fn)(bep->max_key,
                                     delete ? params.out_of_range_period : 0);
             }
             if (!delete) {
-                int replace = PERFORM_REPLACE(contp);
+                int replace = PERFORM_REPLACE(bep);
 
                 VERBOSE_LOG(log, "%s %d\n", replace ? "upd" : "ins", key);
-                ret = auto_test_insert(contctx, key, replace, contp->use_cont,
-                                       contp->use_bitmap, 1, 1, contp->confirm);
+                ret = auto_test_insert(bectx, key, replace, bep->use_be,
+                                       bep->use_bitmap, 1, 1, bep->confirm);
                 if (ERROR_FATAL(ret))
                     break;
-                if ((ret == -ENOSPC) && contp->empty_on_fill) {
-                    ret = empty_container(contctx);
+                if ((ret == -ENOSPC) && bep->empty_on_fill) {
+                    ret = empty_back_end(bectx);
                     if (ret != 0)
                         break;
                 } else if (ret == 2)
@@ -1422,8 +1409,8 @@ cont_test_sorted(struct cont_ctx *contctx, const struct cont_params *contp,
                             replace ? "replaced" : "inserted", key);
             } else {
                 VERBOSE_LOG(log, "del %d\n", key);
-                ret = auto_test_delete(contctx, key, contp->use_cont,
-                                       contp->use_bitmap, 1, contp->confirm);
+                ret = auto_test_delete(bectx, key, bep->use_be,
+                                       bep->use_bitmap, 1, bep->confirm);
                 if (ERROR_FATAL(ret))
                     break;
                 if (ret == 2)
@@ -1435,18 +1422,18 @@ cont_test_sorted(struct cont_ctx *contctx, const struct cont_params *contp,
             }
         }
 
-        if (contp->verify
+        if (bep->verify
             && ((verify == 1)
                 || ((verify != 0)
-                    && !(random() % contp->verification_period)))) {
-            ret = (*(contctx->cb.verify_rand))(contctx);
+                    && !(random() % bep->verification_period)))) {
+            ret = (*(bectx->cb.verify_rand))(bectx);
             if (ret != 0)
                 break;
         } else
             ret = 0;
 
-        if (contp->verbose_stats)
-            refresh_stat_output(contctx);
+        if (bep->verbose_stats)
+            refresh_stat_output(bectx);
     }
 
 end:
@@ -1454,8 +1441,8 @@ end:
     if (perf_cmp_hdl != NULL)
         perf_cmp_finish(perf_cmp_hdl);
 
-    if (contctx->cb.end_test != NULL) {
-        tmp = (*(contctx->cb.end_test))(contctx);
+    if (bectx->cb.end_test != NULL) {
+        tmp = (*(bectx->cb.end_test))(bectx);
         if (tmp != 0)
             ret = tmp;
     }
@@ -1469,8 +1456,8 @@ end:
 }
 
 int
-cont_test_rand_norepeat(struct cont_ctx *contctx,
-                        const struct cont_params *contp, FILE *log)
+be_test_rand_norepeat(struct be_ctx *bectx, const struct be_params *bep,
+                      FILE *log)
 {
     int delete_from_root = 0;
     int (*gen_key_fn)(int, int);
@@ -1478,8 +1465,8 @@ cont_test_rand_norepeat(struct cont_ctx *contctx,
     struct bitmap_data *bmdata;
     struct perf_cmp_hdl *perf_cmp_hdl = NULL;
 
-    if ((check_search_period(contp) != 0) || (check_max_key(contp) != 0)
-        || (contp->test_order_stats && (check_order_stats(contctx) != 0)))
+    if ((check_search_period(bep) != 0) || (check_max_key(bep) != 0)
+        || (bep->test_order_stats && (check_order_stats(bectx) != 0)))
         return -EINVAL;
 
     if ((set_signal_handler(SIGINT, &lib_term_handler) == -1)
@@ -1493,29 +1480,29 @@ cont_test_rand_norepeat(struct cont_ctx *contctx,
         return ret;
     }
 
-    bmdata = (struct bitmap_data *)(contctx->bmdata);
-    gen_key_fn = contp->zero_keys ? &gen_key : &gen_key_no_zero;
+    bmdata = (struct bitmap_data *)(bectx->bmdata);
+    gen_key_fn = bep->zero_keys ? &gen_key : &gen_key_no_zero;
 
     perf_cmp_wait(&perf_cmp_hdl);
 
-    while (!quit && (NUM_OPS(contctx) < contp->num_ops)) {
+    while (!quit && (NUM_OPS(bectx) < bep->num_ops)) {
         int key;
         int delete, search;
         int verify = -1;
 
-        ret = handle_usr_signals(contctx, NULL, NULL);
+        ret = handle_usr_signals(bectx, NULL, NULL);
         if (ret != 0)
             break;
 
-        if (contp->delete_from_root) {
+        if (bep->delete_from_root) {
             if (!delete_from_root)
                 delete_from_root = !(random() % 4096);
             else
                 delete_from_root = !!(random() % 16384);
         }
         if (delete_from_root) {
-            ret = auto_test_delete_from(contctx, 0, &key, contp->use_cont,
-                                        contp->use_bitmap, 1, contp->confirm);
+            ret = auto_test_delete_from(bectx, 0, &key, bep->use_be,
+                                        bep->use_bitmap, 1, bep->confirm);
             if (ERROR_FATAL(ret))
                 break;
             if (ret == 2)
@@ -1525,29 +1512,29 @@ cont_test_rand_norepeat(struct cont_ctx *contctx,
                         "\n",
                         key);
         } else {
-            key = (*gen_key_fn)(contp->max_key, 0);
+            key = (*gen_key_fn)(bep->max_key, 0);
 
-            search = !(random() % contp->search_period);
+            search = !(random() % bep->search_period);
             if (search) {
-                if (contp->test_walk)
-                    search = random() % (contp->test_order_stats ? 4 : 2);
+                if (bep->test_walk)
+                    search = random() % (bep->test_order_stats ? 4 : 2);
                 else
-                    search = 1 + random() % (contp->test_order_stats ? 3 : 1);
+                    search = 1 + random() % (bep->test_order_stats ? 3 : 1);
                 switch (search) {
                 case 0:
-                    ret = auto_test_walk(contctx, key, 1, 1);
+                    ret = auto_test_walk(bectx, key, 1, 1);
                     break;
                 case 1:
-                    if (contp->test_range_search && (random() % 2 == 0))
-                        ret = auto_test_range_search(contctx, key, 1, 1);
+                    if (bep->test_range_search && (random() % 2 == 0))
+                        ret = auto_test_range_search(bectx, key, 1, 1);
                     else
-                        ret = auto_test_search(contctx, key, 1, 1);
+                        ret = auto_test_search(bectx, key, 1, 1);
                     break;
                 case 2:
-                    ret = auto_test_select(contctx, key, 1, 1);
+                    ret = auto_test_select(bectx, key, 1, 1);
                     break;
                 case 3:
-                    ret = auto_test_get_index(contctx, key, 1, 1);
+                    ret = auto_test_get_index(bectx, key, 1, 1);
                     break;
                 default:
                     ret = -EIO;
@@ -1555,18 +1542,18 @@ cont_test_rand_norepeat(struct cont_ctx *contctx,
                 }
                 if (ERROR_FATAL(ret))
                     break;
-                if (!(contp->verify_after_search))
+                if (!(bep->verify_after_search))
                     verify = 0;
             } else {
                 delete = bitmap_get(bmdata->bitmap, key);
                 if (!delete) {
                     VERBOSE_LOG(log, "ins %d\n", key);
-                    ret = auto_test_insert(contctx, key, 0, 1, 1, 0, 0,
-                                           contp->confirm);
+                    ret = auto_test_insert(bectx, key, 0, 1, 1, 0, 0,
+                                           bep->confirm);
                     if (ERROR_FATAL(ret))
                         break;
-                    if ((ret == -ENOSPC) && contp->empty_on_fill) {
-                        ret = empty_container(contctx);
+                    if ((ret == -ENOSPC) && bep->empty_on_fill) {
+                        ret = empty_back_end(bectx);
                         if (ret != 0)
                             break;
                     } else if (ret == 2)
@@ -1574,14 +1561,14 @@ cont_test_rand_norepeat(struct cont_ctx *contctx,
                     VERBOSE_LOG(stderr, "inserted %d\n"
                         "--------------------------------------------------"
                         "\n", key);
-                } else if (PERFORM_REPLACE(contp)) {
+                } else if (PERFORM_REPLACE(bep)) {
                     VERBOSE_LOG(log, "upd %d\n", key);
-                    ret = auto_test_insert(contctx, key, 1, 1, 1, 0, 0,
-                                           contp->confirm);
+                    ret = auto_test_insert(bectx, key, 1, 1, 1, 0, 0,
+                                           bep->confirm);
                     if (ERROR_FATAL(ret))
                         break;
-                    if ((ret == -ENOSPC) && contp->empty_on_fill) {
-                        ret = empty_container(contctx);
+                    if ((ret == -ENOSPC) && bep->empty_on_fill) {
+                        ret = empty_back_end(bectx);
                         if (ret != 0)
                             break;
                     } else if (ret == 2)
@@ -1591,8 +1578,7 @@ cont_test_rand_norepeat(struct cont_ctx *contctx,
                         "\n", key);
                 } else {
                     VERBOSE_LOG(log, "del %d\n", key);
-                    ret = auto_test_delete(contctx, key, 1, 1, 0,
-                                           contp->confirm);
+                    ret = auto_test_delete(bectx, key, 1, 1, 0, bep->confirm);
                     if (ERROR_FATAL(ret))
                         break;
                     if (ret == 2)
@@ -1605,16 +1591,16 @@ cont_test_rand_norepeat(struct cont_ctx *contctx,
             }
         }
 
-        if (contp->verify
-            && ((verify == 1) || !(random() % contp->verification_period))) {
-            ret = (*(contctx->cb.verify_rand))(contctx);
+        if (bep->verify
+            && ((verify == 1) || !(random() % bep->verification_period))) {
+            ret = (*(bectx->cb.verify_rand))(bectx);
             if (ret != 0)
                 break;
         } else
             ret = 0;
 
-        if (contp->verbose_stats)
-            refresh_stat_output(contctx);
+        if (bep->verbose_stats)
+            refresh_stat_output(bectx);
     }
 
 end:
@@ -1622,8 +1608,8 @@ end:
     if (perf_cmp_hdl != NULL)
         perf_cmp_finish(perf_cmp_hdl);
 
-    if (contctx->cb.end_test != NULL) {
-        tmp = (*(contctx->cb.end_test))(contctx);
+    if (bectx->cb.end_test != NULL) {
+        tmp = (*(bectx->cb.end_test))(bectx);
         if (tmp != 0)
             ret = tmp;
     }
@@ -1637,8 +1623,7 @@ end:
 }
 
 int
-cont_test_fill_drain(struct cont_ctx *contctx,
-                     const struct cont_params *contp, FILE *log)
+be_test_fill_drain(struct be_ctx *bectx, const struct be_params *bep, FILE *log)
 {
     int drain = 0;
     int err_test_old;
@@ -1669,16 +1654,16 @@ cont_test_fill_drain(struct cont_ctx *contctx,
 
     init_shuffle((long *)seed, sizeof(seed));
 
-    while (!quit && (NUM_OPS(contctx) < contp->num_ops)) {
+    while (!quit && (NUM_OPS(bectx) < bep->num_ops)) {
         int key;
         int verify = -1;
 
-        ret = handle_usr_signals(contctx, NULL, NULL);
+        ret = handle_usr_signals(bectx, NULL, NULL);
         if (ret != 0)
             break;
 
         if (!drain) {
-            key = (int)shuffle(log_2_pow2(contp->max_key), n, seed,
+            key = (int)shuffle(log_2_pow2(bep->max_key), n, seed,
                                ARRAY_SIZE(seed));
             if (key == -1) {
                 error(0, 0, "Key range must be an even power of 2");
@@ -1686,7 +1671,7 @@ cont_test_fill_drain(struct cont_ctx *contctx,
                 break;
             }
             VERBOSE_LOG(log, "ins %d\n", key);
-            ret = auto_test_insert(contctx, key, 0, 1, 1, 0, 1, contp->confirm);
+            ret = auto_test_insert(bectx, key, 0, 1, 1, 0, 1, bep->confirm);
             if (ERROR_FATAL(ret))
                 break;
             if (ret == 0) {
@@ -1696,7 +1681,7 @@ cont_test_fill_drain(struct cont_ctx *contctx,
                 if (ret != 0)
                     break;
                 ++n;
-                if (n == contp->max_key)
+                if (n == bep->max_key)
                     drain = 1;
             } else if ((ret == -ENOSPC) && (n > 0))
                 drain = 1;
@@ -1713,7 +1698,7 @@ cont_test_fill_drain(struct cont_ctx *contctx,
             if (ret != 1)
                 break;
             VERBOSE_LOG(log, "del %d\n", key);
-            ret = auto_test_delete(contctx, key, 1, 1, 1, contp->confirm);
+            ret = auto_test_delete(bectx, key, 1, 1, 1, bep->confirm);
             if (ERROR_FATAL(ret))
                 break;
             if (ret == 0) {
@@ -1733,31 +1718,31 @@ cont_test_fill_drain(struct cont_ctx *contctx,
                 key);
         }
 
-        if (contp->dump) {
-            ret = (*(contctx->ops.dump))(stdout, contctx->cont);
+        if (bep->dump) {
+            ret = (*(bectx->ops.dump))(stdout, bectx->be);
             if (ret != 0) {
-                error(0, -ret, "Error dumping container");
+                error(0, -ret, "Error dumping back end");
                 goto end2;
             }
         }
 
-        if (contp->verify
-            && ((verify == 1) || !(random() % contp->verification_period))) {
-            ret = (*(contctx->cb.verify_rand))(contctx);
+        if (bep->verify
+            && ((verify == 1) || !(random() % bep->verification_period))) {
+            ret = (*(bectx->cb.verify_rand))(bectx);
             if (ret != 0)
                 break;
         } else
             ret = 0;
 
-        if (contp->verbose_stats)
-            refresh_stat_output(contctx);
+        if (bep->verbose_stats)
+            refresh_stat_output(bectx);
     }
 
     avl_tree_free(key_set);
 
 end2:
-    if (contctx->cb.end_test != NULL) {
-        tmp = (*(contctx->cb.end_test))(contctx);
+    if (bectx->cb.end_test != NULL) {
+        tmp = (*(bectx->cb.end_test))(bectx);
         if (tmp != 0)
             ret = tmp;
     }
@@ -1770,8 +1755,8 @@ end1:
 }
 
 int
-cont_test_fill_drain_sorted(struct cont_ctx *contctx,
-                            const struct cont_params *contp, FILE *log)
+be_test_fill_drain_sorted(struct be_ctx *bectx, const struct be_params *bep,
+                          FILE *log)
 {
     int drain = 0;
     int n = 0;
@@ -1788,23 +1773,23 @@ cont_test_fill_drain_sorted(struct cont_ctx *contctx,
         return ret;
     }
 
-    while (!quit && (NUM_OPS(contctx) < contp->num_ops)) {
+    while (!quit && (NUM_OPS(bectx) < bep->num_ops)) {
         int key;
         int verify = -1;
 
-        ret = handle_usr_signals(contctx, NULL, NULL);
+        ret = handle_usr_signals(bectx, NULL, NULL);
         if (ret != 0)
             break;
 
         if (!drain) {
             key = n;
             VERBOSE_LOG(log, "ins %d\n", key);
-            ret = auto_test_insert(contctx, key, 0, 1, 1, 0, 1, contp->confirm);
+            ret = auto_test_insert(bectx, key, 0, 1, 1, 0, 1, bep->confirm);
             if (ERROR_FATAL(ret))
                 break;
             if (ret == 0) {
                 ++n;
-                if (n == contp->max_key)
+                if (n == bep->max_key)
                     drain = 1;
             } else if ((ret == -ENOSPC) && (n > 0))
                 drain = 1;
@@ -1817,7 +1802,7 @@ cont_test_fill_drain_sorted(struct cont_ctx *contctx,
         } else {
             key = n;
             VERBOSE_LOG(log, "del %d\n", key);
-            ret = auto_test_delete(contctx, key, 1, 1, 1, contp->confirm);
+            ret = auto_test_delete(bectx, key, 1, 1, 1, bep->confirm);
             if (ERROR_FATAL(ret))
                 break;
             if (ret == 0) {
@@ -1833,29 +1818,29 @@ cont_test_fill_drain_sorted(struct cont_ctx *contctx,
                 key);
         }
 
-        if (contp->dump) {
-            ret = (*(contctx->ops.dump))(stdout, contctx->cont);
+        if (bep->dump) {
+            ret = (*(bectx->ops.dump))(stdout, bectx->be);
             if (ret != 0) {
-                error(0, -ret, "Error dumping container");
+                error(0, -ret, "Error dumping back end");
                 goto end;
             }
         }
 
-        if (contp->verify
-            && ((verify == 1) || !(random() % contp->verification_period))) {
-            ret = (*(contctx->cb.verify_rand))(contctx);
+        if (bep->verify
+            && ((verify == 1) || !(random() % bep->verification_period))) {
+            ret = (*(bectx->cb.verify_rand))(bectx);
             if (ret != 0)
                 break;
         } else
             ret = 0;
 
-        if (contp->verbose_stats)
-            refresh_stat_output(contctx);
+        if (bep->verbose_stats)
+            refresh_stat_output(bectx);
     }
 
 end:
-    if (contctx->cb.end_test != NULL) {
-        tmp = (*(contctx->cb.end_test))(contctx);
+    if (bectx->cb.end_test != NULL) {
+        tmp = (*(bectx->cb.end_test))(bectx);
         if (tmp != 0)
             ret = tmp;
     }

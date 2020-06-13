@@ -1,9 +1,9 @@
 /*
- * test_util_cont_ordered.c
+ * test_util_back_end_ordered.c
  */
 
-#include "test_util_cont.h"
-#include "test_util_cont_ordered.h"
+#include "test_util_back_end.h"
+#include "test_util_back_end_ordered.h"
 #include "util_test_common.h"
 
 #define NO_ASSERT
@@ -98,7 +98,7 @@ walk_fn3(const void *kv, void *ctx)
                               1) == 0)
         || (curr != data->bitmap_pos)) {
         snprintf(output, sizeof(output),
-                 "Bitmap (%6d) and container (%6d) differ\n",
+                 "Bitmap (%6d) and back end (%6d) differ\n",
                  data->bitmap_pos, curr);
         if (data->keys_found > 1)
             fputc('\n', stderr);
@@ -108,7 +108,7 @@ walk_fn3(const void *kv, void *ctx)
         return -EIO;
     }
 
-    snprintf(output, sizeof(output), "Bitmap and container agree up to %6d",
+    snprintf(output, sizeof(output), "Bitmap and back end agree up to %6d",
              data->bitmap_pos);
     fputc('\r', stderr);
     fputs(output, stderr);
@@ -125,37 +125,37 @@ walk_fn3(const void *kv, void *ctx)
 }
 
 int
-verify_insertion_ordered(struct cont_ctx *contctx)
+verify_insertion_ordered(struct be_ctx *bectx)
 {
     int ret;
-    struct cont_ctx_ordered *ctx = (struct cont_ctx_ordered *)(contctx->ctx);
-    struct cont_stats *cstats = &contctx->stats;
-    void *cont = (struct avl_tree *)(contctx->cont);
+    struct be_ctx_ordered *ctx = (struct be_ctx_ordered *)(bectx->ctx);
+    struct be_stats *cstats = &bectx->stats;
+    void *be = (struct avl_tree *)(bectx->be);
     void *wctx = NULL;
 
     struct fn1_ctx data = {
-        .key_size   = contctx->key_size,
+        .key_size   = bectx->key_size,
         .prevkey    = -1,
         .keys_found = 0
     };
 
-    ret = (*(ctx->test_walk))(cont, NULL, fn1, &data, &wctx);
+    ret = (*(ctx->test_walk))(be, NULL, fn1, &data, &wctx);
     if (ret != 0) {
-        error(0, -ret, "Error walking container");
+        error(0, -ret, "Error walking back end");
         return ret;
     }
 
     if (ctx->test_stats != NULL) {
-        struct cont_stats_ordered stats;
+        struct be_stats_ordered stats;
 
-        ret = (*(ctx->test_stats))(cont, &stats);
+        ret = (*(ctx->test_stats))(be, &stats);
         if (ret != 0) {
-            error(0, -ret, "Error getting container stats");
+            error(0, -ret, "Error getting back end stats");
             return ret;
         }
 
         if (stats.num_keys != cstats->num_keys) {
-            error(0, 0, "num_keys in container (%u) != number of keys counted "
+            error(0, 0, "num_keys in back end (%u) != number of keys counted "
                   "(%" PRIu32 ")", stats.num_keys, cstats->num_keys);
             return -EIO;
         }
@@ -165,7 +165,7 @@ verify_insertion_ordered(struct cont_ctx *contctx)
 
         if (data.keys_found != stats.num_keys) {
             error(0, 0, "Number of keys returned by walk (%u) != num_keys in "
-                  "container (%u)", data.keys_found, stats.num_keys);
+                  "back end (%u)", data.keys_found, stats.num_keys);
             return -EIO;
         }
     } else {
@@ -181,15 +181,15 @@ verify_insertion_ordered(struct cont_ctx *contctx)
 }
 
 int
-verify_rand_ordered(struct cont_ctx *contctx)
+verify_rand_ordered(struct be_ctx *bectx)
 {
     int ret;
+    struct be_ctx_ordered *ctx = (struct be_ctx_ordered *)(bectx->ctx);
     struct bitmap_data *bmdata;
-    struct cont_ctx_ordered *ctx = (struct cont_ctx_ordered *)(contctx->ctx);
     struct fn3_ctx data;
     void *wctx = NULL;
 
-    bmdata = (struct bitmap_data *)(contctx->bmdata);
+    bmdata = (struct bitmap_data *)(bectx->bmdata);
 
     data.checklog = open_log_file(1);
     if (data.checklog == NULL)
@@ -204,17 +204,17 @@ verify_rand_ordered(struct cont_ctx *contctx)
 
     data.bmdata = bmdata;
     data.bitmap_pos = 0;
-    data.key_size = contctx->key_size;
+    data.key_size = bectx->key_size;
     data.keys_found = 0;
     data.prevkey = -1;
     data.walk_resume_test = 1;
     data.walk_resume_retval = ctx->walk_resume_retval;
 
-    while ((ret = (*(ctx->test_walk))(contctx->cont, NULL, fn3, &data, &wctx))
+    while ((ret = (*(ctx->test_walk))(bectx->be, NULL, fn3, &data, &wctx))
            == 1)
         ;
     if (ret != 0) {
-        error(0, -ret, "Error walking container");
+        error(0, -ret, "Error walking back end");
         goto end2;
     }
     if (data.keys_found > 0)
@@ -223,8 +223,8 @@ verify_rand_ordered(struct cont_ctx *contctx)
     if (bitmap_find_next_set(data.bmdata->bitmap, data.bmdata->bitmap_len,
                              data.bitmap_pos, (unsigned *)(&data.bitmap_pos), 1)
         != 0) {
-        fputs("Bitmap and container differ\n", stderr);
-        fputs("Bitmap and container differ\n", data.checklog);
+        fputs("Bitmap and back end differ\n", stderr);
+        fputs("Bitmap and back end differ\n", data.checklog);
         ret = -EIO;
     }
 
