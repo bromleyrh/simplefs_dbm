@@ -160,8 +160,14 @@ parse_test_opt(int opt, void *test_opts)
     struct test_opts *testopts = (struct test_opts *)test_opts;
 
     switch (opt) {
+    case 'B':
+        *(testopts->test_type) = 5;
+        break;
     case 'K':
         *(testopts->max_data_len) = strtoul(optarg, NULL, 10);
+        break;
+    case 'z':
+        *(testopts->test_type) = 4;
         break;
     default:
         return -1;
@@ -180,12 +186,16 @@ parse_cmdline(int argc, char **argv, int *seed, struct params *p,
     };
 
     static const char progusage[] = {
+        "    -B         delete only inserted keys and vice versa (consult "
+        "bitmap when\n"
+        "               choosing keys)\n"
         "    -K SIZE    generate data with length no greater than the given "
         "size in bytes\n"
+        "    -z         run test with sorted insertions and deletions\n"
     };
 
-    return parse_cont_test_cmdline(argc, argv, progusage, "K:", &parse_test_opt,
-                                   (struct cont_params *)p,
+    return parse_cont_test_cmdline(argc, argv, progusage, "BK:z",
+                                   &parse_test_opt, (struct cont_params *)p,
                                    (struct cont_test_opts *)&testopts, seed,
                                    NULL, NULL, NULL, 0);
 }
