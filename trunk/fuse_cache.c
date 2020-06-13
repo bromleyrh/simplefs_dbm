@@ -2182,7 +2182,7 @@ fuse_cache_iter_search(void *iter, const void *key)
     if (citer != NULL) { /* look up in cache */
         found_cache = do_iter_search_cache(citer, key, iterator->cache);
         if (found_cache < 0) {
-            if (res != -EADDRNOTAVAIL)
+            if (found_cache != -EADDRNOTAVAIL) {
                 goto err2;
             found_cache = 0;
             avl_tree_iter_free(citer);
