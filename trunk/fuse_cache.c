@@ -1686,7 +1686,7 @@ out_cache:
 static int
 fuse_cache_delete(void *ctx, const void *key)
 {
-    int in_cache = 0;
+    int in_cache = 0, in_list = 0;
     int res;
     int trans_state;
     struct cache_obj *o;
@@ -1718,6 +1718,7 @@ fuse_cache_delete(void *ctx, const void *key)
         if (o->deleted)
             return -EADDRNOTAVAIL;
         in_cache = 1;
+        in_list = !!(o->lists);
     }
 
     /* delete from back end */
@@ -1727,15 +1728,23 @@ fuse_cache_delete(void *ctx, const void *key)
 
     trans_state = cache->trans_state;
 
-    if (trans_state && in_cache) {
-        /* delete from cache */
-        o->deleted = 1;
+    if (in_cache) {
+        if (trans_state) {
+            /* delete from cache */
+            o->deleted = 1;
 
-        /* add delete operation to appropriate operation lists */
-        if (trans_state & TRANS)
-            op_list_add(&cache->ops_group, TRANS, DELETE, o);
-        if (trans_state & USER_TRANS)
-            op_list_add(&cache->ops_user, USER_TRANS, DELETE, o);
+            /* add delete operation to appropriate operation lists */
+            if (trans_state & TRANS)
+                op_list_add(&cache->ops_group, TRANS, DELETE, o);
+            if (trans_state & USER_TRANS)
+                op_list_add(&cache->ops_user, USER_TRANS, DELETE, o);
+        } else if (!in_list) { /* object was not deleted from cache by commit */
+            res = avl_tree_delete_node(cache->cache, &o->n, &o);
+            if (res != 0)
+                abort();
+            o->in_cache = 0;
+            destroy_cache_obj(o, 1, 0, cache);
+        }
     }
 
     check_consistency(cache);
