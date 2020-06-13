@@ -2183,7 +2183,9 @@ fuse_cache_iter_search(void *iter, const void *key)
         found_cache = do_iter_search_cache(citer, key, iterator->cache);
         if (found_cache < 0) {
             if (found_cache != -EADDRNOTAVAIL) {
+                res = found_cache;
                 goto err2;
+            }
             found_cache = 0;
             avl_tree_iter_free(citer);
             citer = NULL;
@@ -2192,8 +2194,10 @@ fuse_cache_iter_search(void *iter, const void *key)
 
     if (biter != NULL) { /* look up in back end */
         found_be = do_iter_search_be(biter, key, iterator->cache);
-        if (found_be < 0)
+        if (found_be < 0) {
+            res = found_be;
             goto err2;
+        }
         res = do_iter_next_non_deleted(biter, 0, iterator->cache);
         switch (res) {
         case 1:
