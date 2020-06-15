@@ -9,7 +9,7 @@ EXTRA_DIST = build-aux
 noinst_HEADERS = back_end.h back_end_dbm.h common.h compat.h fuse_cache.h \
 	obj.h ops.h simplefs.h util.h
 
-bin_PROGRAMS = mount.simplefs simplefs
+bin_PROGRAMS = mount.simplefs simplefs simplefs_dbg
 
 ##if DEBUG
 ##AM_CPPFLAGS =
@@ -50,6 +50,11 @@ simplefs_LDADD = @fuse_link_dep@ @libutil_link_dep@
 mount_simplefs_SOURCES = mount.simplefs.c
 mount_simplefs_CPPFLAGS = $(AM_CPPFLAGS)
 mount_simplefs_CFLAGS = $(AM_CFLAGS)
+
+simplefs_dbg_SOURCES = simplefs_dbg.c
+simplefs_dbg_CPPFLAGS = $(AM_CPPFLAGS) @libutil_cppflags@
+simplefs_dbg_CFLAGS = $(AM_CFLAGS)
+simplefs_dbg_LDADD = -lreadline @libutil_link_dep@
 
 include scripts/Makefile.am
 include tests/Makefile.am
