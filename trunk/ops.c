@@ -536,21 +536,24 @@ static void
 dump_db_obj(FILE *f, const void *key, const void *data, size_t datasize,
             const char *prefix, void *ctx)
 {
+    const union {
+        struct db_obj_dirent    de;
+        struct db_obj_header    hdr;
+        struct db_obj_stat      s;
+    } *d;
     struct db_key *k = (struct db_key *)key;
-    struct db_obj_dirent *de;
-    struct db_obj_header *hdr;
-    struct db_obj_stat *s;
 
     (void)ctx;
 
     fputs(prefix, f);
 
+    d = data;
+
     switch (k->type) {
     case TYPE_HEADER:
-        assert(datasize == sizeof(*hdr));
-        hdr = (struct db_obj_header *)data;
+        assert(datasize == sizeof(d->hdr));
 
-        fprintf(f, "Header: I-node count %" PRIu64 "\n", hdr->numinodes);
+        fprintf(f, "Header: I-node count %" PRIu64 "\n", d->hdr.numinodes);
         break;
     case TYPE_FREE_INO:
         fprintf(f, "Free I-node number information: number %" PRIu64 " to %"
@@ -558,19 +561,17 @@ dump_db_obj(FILE *f, const void *key, const void *data, size_t datasize,
                 (uint64_t)(k->ino), (uint64_t)(k->ino) + FREE_INO_RANGE_SZ - 1);
         break;
     case TYPE_DIRENT:
-        assert(datasize == sizeof(*de));
-        de = (struct db_obj_dirent *)data;
+        assert(datasize == sizeof(d->de));
 
         fprintf(f, "Directory entry: directory %" PRIu64 ", name %s -> node %"
                    PRIu64 "\n",
-                (uint64_t)(k->ino), k->name, (uint64_t)(de->ino));
+                (uint64_t)(k->ino), k->name, (uint64_t)(d->de.ino));
         break;
     case TYPE_STAT:
-        assert(datasize == sizeof(*s));
-        s = (struct db_obj_stat *)data;
+        assert(datasize == sizeof(d->s));
 
         fprintf(f, "I-node entry: node %" PRIu64 " -> st_ino %" PRIu64 "\n",
-                (uint64_t)(k->ino), (uint64_t)(s->st_ino));
+                (uint64_t)(k->ino), (uint64_t)(d->s.st_ino));
         break;
     case TYPE_PAGE:
         fprintf(f, "Page: node %" PRIu64 ", page %" PRIu64 ", size %zu\n",
