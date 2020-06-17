@@ -51,7 +51,7 @@ mount_simplefs_SOURCES = mount.simplefs.c
 mount_simplefs_CPPFLAGS = $(AM_CPPFLAGS)
 mount_simplefs_CFLAGS = $(AM_CFLAGS)
 
-simplefs_dbg_SOURCES = simplefs_dbg.c
+simplefs_dbg_SOURCES = simplefs_dbg.c util.c
 simplefs_dbg_CPPFLAGS = $(AM_CPPFLAGS) @libutil_cppflags@
 simplefs_dbg_CFLAGS = $(AM_CFLAGS)
 simplefs_dbg_LDADD = -lreadline @libutil_link_dep@
