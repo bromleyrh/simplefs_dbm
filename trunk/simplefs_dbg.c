@@ -54,6 +54,7 @@ static void int_handler(int);
 static int uint64_cmp(uint64_t, uint64_t);
 static int db_key_cmp(const void *, const void *, void *);
 
+static int confirm_del_hdr(struct db_key *);
 static int get_key_ino(struct db_key *);
 static int get_key_ino_name(struct db_key *);
 static int get_key_ino_pgno(struct db_key *);
@@ -179,6 +180,26 @@ db_key_cmp(const void *k1, const void *k2, void *key_ctx)
     }
 
     return cmp;
+}
+
+static int
+confirm_del_hdr(struct db_key *k)
+{
+    char *arg;
+    int ret;
+
+    (void)k;
+
+    arg = readline("Warning: Deleting file system header object. "
+                   "Proceed with operation? (y/n) ");
+    if (arg == NULL)
+        return 2;
+
+    ret = ((arg[0] == 'y') || (arg[0] == 'Y')) ? 0 : 2;
+
+    free(arg);
+
+    return ret;
 }
 
 static int
@@ -664,9 +685,78 @@ cmd_quit(struct dbh *dbh)
 static int
 cmd_remove(struct dbh *dbh)
 {
-    (void)dbh;
+    char *arg;
+    enum db_obj_type type;
+    int ret;
+    size_t i;
+    struct db_key k;
+
+    static const struct {
+        const char          *nm;
+        int                 (*get_args)(struct db_key *);
+    } typemap[] = {
+        [TYPE_HEADER]           = {"TYPE_HEADER",           &confirm_del_hdr},
+        [TYPE_DIRENT]           = {"TYPE_DIRENT",           &get_key_ino_name},
+        [TYPE_STAT]             = {"TYPE_STAT",             &get_key_ino},
+        [TYPE_PAGE]             = {"TYPE_PAGE",             &get_key_ino_pgno},
+        [TYPE_XATTR]            = {"TYPE_XATTR",            &get_key_ino_name},
+        [TYPE_ULINKED_INODE]    = {"TYPE_ULINKED_INODE",    &get_key_ino},
+        [TYPE_FREE_INO]         = {"TYPE_FREE_INO",         &get_key_ino}
+    }, *typep;
+
+    for (i = 0; i < ARRAY_SIZE(typemap); i++) {
+        typep = &typemap[i];
+
+        if (typep->nm != NULL)
+            fprintf(stderr, "%zu: %s\n", i, typep->nm);
+    }
+
+    arg = readline("Type: ");
+    if (arg == NULL)
+        return 1;
+    type = atoi(arg);
+    free(arg);
+
+    if (type >= ARRAY_SIZE(typemap))
+        goto type_err;
+
+    typep = &typemap[type];
+    if (typep->get_args == NULL)
+        goto type_err;
+
+    if (typep->get_args != NULL) {
+        ret = (*(typep->get_args))(&k);
+        if (ret != 0)
+            return ret;
+    }
+    k.type = type;
+
+    ret = db_hl_trans_new(dbh);
+    if (ret != 0)
+        goto delete_err;
+
+    ret = db_hl_delete(dbh, &k);
+    if (ret != 0) {
+        if (ret != -EADDRNOTAVAIL)
+            goto delete_err;
+        return 2;
+    }
+
+    ret = db_hl_sync(dbh);
+    if (ret != 0) {
+        db_hl_trans_abort(dbh);
+        goto delete_err;
+    }
 
     return 0;
+
+delete_err:
+    error(0, -ret, "Error deleting");
+    return ret;
+
+type_err:
+    error(0, 0, "Invalid object type %d", type);
+    return 2;
 }
 
 static int
