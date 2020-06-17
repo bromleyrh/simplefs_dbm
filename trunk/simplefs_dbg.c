@@ -3,6 +3,7 @@
  */
 
 #define _GNU_SOURCE
+#define _XOPEN_SOURCE
 
 #include "config.h"
 
@@ -28,6 +29,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 
 #ifdef HAVE_STRUCT_STAT_ST_MTIMESPEC
@@ -58,6 +60,17 @@ static int confirm_del_hdr(struct db_key *);
 static int get_key_ino(struct db_key *);
 static int get_key_ino_name(struct db_key *);
 static int get_key_ino_pgno(struct db_key *);
+
+static int scan_int(char *, void *, size_t, int, int, int);
+static int scan_time(char *, void *, size_t, int, int, int);
+
+static int set_header(const struct db_key *, void **, size_t *);
+static int set_free_ino(const struct db_key *, void **, size_t *);
+static int set_dirent(const struct db_key *, void **, size_t *);
+static int set_stat(const struct db_key *, void **, size_t *);
+static int set_page(const struct db_key *, void **, size_t *);
+static int set_xattr(const struct db_key *, void **, size_t *);
+static int set_ulinked_inode(const struct db_key *, void **, size_t *);
 
 static void disp_header(FILE *, const struct db_key *, const void *, size_t);
 static void disp_header_full(FILE *, const struct db_key *, const void *,
@@ -256,6 +269,205 @@ get_key_ino_pgno(struct db_key *k)
     k->pgno = strtoull(arg, NULL, 10);
 
     free(arg);
+
+    return 0;
+}
+
+static int
+scan_int(char *str, void *data, size_t off, int is_signed, int width, int base)
+{
+    char convspec, typemod;
+    char fmt[16];
+    size_t i;
+
+    static const struct {
+        size_t  size_signed;
+        size_t  size_unsigned;
+        char    typemod;
+    } sizeinfo[] = {
+        {sizeof(int),       sizeof(unsigned),           '\0'},
+        {sizeof(long long), sizeof(unsigned long long), 'L'}
+    }, *sizeinfop;
+
+    switch (base) {
+    case 8:
+        convspec = 'o';
+        break;
+    case 10:
+        convspec = is_signed ? 'd' : 'u';
+        break;
+    default:
+        return -EINVAL;
+    }
+
+    for (i = 0;; i++) {
+        if (i == ARRAY_SIZE(sizeinfo))
+            return -EINVAL;
+        sizeinfop = &sizeinfo[i];
+
+        if (width == (int)(is_signed
+                           ? sizeinfop->size_signed
+                           : sizeinfop->size_unsigned)) {
+            typemod = sizeinfop->typemod;
+            break;
+        }
+    }
+
+    i = 1;
+    fmt[0] = '%';
+    if (typemod != '\0')
+        fmt[i++] = typemod;
+    fmt[i] = convspec;
+    fmt[i+1] = '\0';
+
+    return (sscanf(str, fmt, (char *)data + off) == 1) ? 0 : 2;
+}
+
+static int
+scan_time(char *str, void *data, size_t off, int is_signed, int width, int base)
+{
+    struct disk_timespec *ts;
+    struct tm tm;
+
+    (void)is_signed;
+    (void)width;
+    (void)base;
+
+    memset(&tm, 0, sizeof(tm));
+    if (strptime(str, "%Y-%m-%d %H:%M:%S", &tm) == NULL)
+        return 2;
+    tm.tm_isdst = -1;
+
+    ts = (struct disk_timespec *)((char *)data + off);
+    ts->tv_sec = mktime(&tm);
+    ts->tv_nsec = 0;
+
+    return 0;
+}
+
+static int
+set_header(const struct db_key *key, void **data, size_t *datasize)
+{
+    (void)key;
+    (void)data;
+    (void)datasize;
+
+    return 0;
+}
+
+static int
+set_free_ino(const struct db_key *key, void **data, size_t *datasize)
+{
+    (void)key;
+    (void)data;
+    (void)datasize;
+
+    return 0;
+}
+
+static int
+set_dirent(const struct db_key *key, void **data, size_t *datasize)
+{
+    (void)key;
+    (void)data;
+    (void)datasize;
+
+    return 0;
+}
+
+#define STATOFF(field) offsetof(struct db_obj_stat, field)
+
+static int
+set_stat(const struct db_key *key, void **data, size_t *datasize)
+{
+    char *arg;
+    int ret;
+    size_t i;
+    struct db_obj_stat *s = *(struct db_obj_stat **)data;
+
+    static const struct {
+        const char  *nm;
+        size_t      statoff;
+        int         (*scan_field)(char *, void *, size_t, int, int, int);
+        int         is_signed;
+        int         width;
+        int         base;
+    } scandescs[] = {
+        {"st_dev",      STATOFF(st_dev),        &scan_int,  0, 8, 10},
+        {"st_ino",      STATOFF(st_ino),        &scan_int,  0, 8, 10},
+        {"st_mode",     STATOFF(st_mode),       &scan_int,  0, 4,  8},
+        {"st_nlink",    STATOFF(st_nlink),      &scan_int,  0, 4, 10},
+        {"st_uid",      STATOFF(st_uid),        &scan_int,  0, 4, 10},
+        {"st_gid",      STATOFF(st_gid),        &scan_int,  0, 4, 10},
+        {"st_rdev",     STATOFF(st_rdev),       &scan_int,  0, 8, 10},
+        {"st_size",     STATOFF(st_size),       &scan_int,  1, 8, 10},
+        {"st_blksize",  STATOFF(st_blksize),    &scan_int,  1, 8, 10},
+        {"st_blocks",   STATOFF(st_blocks),     &scan_int,  1, 8, 10},
+        {"st_atim",     STATOFF(st_atim),       &scan_time, 0, 0,  0},
+        {"st_mtim",     STATOFF(st_mtim),       &scan_time, 0, 0,  0},
+        {"st_ctim",     STATOFF(st_ctim),       &scan_time, 0, 0,  0},
+        {"num_ents",    STATOFF(num_ents),      &scan_int,  0, 4, 10}
+    }, *scandescp;
+
+    (void)key;
+    (void)datasize;
+
+    for (i = 0; i < ARRAY_SIZE(scandescs); i++) {
+        char prompt[32];
+
+        scandescp = &scandescs[i];
+
+        snprintf(prompt, sizeof(prompt), "%s: ", scandescp->nm);
+        arg = readline(prompt);
+        if (arg == NULL)
+            return 2;
+
+        if (arg[strspn(arg, " ")] == '\0') {
+            free(arg);
+            continue;
+        }
+
+        ret = (*(scandescp->scan_field))(arg, s, scandescp->statoff,
+                                         scandescp->is_signed,
+                                         scandescp->width, scandescp->base);
+
+        free(arg);
+
+        if (ret != 0)
+            return ret;
+    }
+
+    return 0;
+}
+
+#undef STATOFF
+
+static int
+set_page(const struct db_key *key, void **data, size_t *datasize)
+{
+    (void)key;
+    (void)data;
+    (void)datasize;
+
+    return 0;
+}
+
+static int
+set_xattr(const struct db_key *key, void **data, size_t *datasize)
+{
+    (void)key;
+    (void)data;
+    (void)datasize;
+
+    return 0;
+}
+
+static int
+set_ulinked_inode(const struct db_key *key, void **data, size_t *datasize)
+{
+    (void)key;
+    (void)data;
+    (void)datasize;
 
     return 0;
 }
@@ -669,9 +881,121 @@ cmd_help(struct dbh *dbh)
 static int
 cmd_insert(struct dbh *dbh)
 {
-    (void)dbh;
+    char *arg;
+    enum db_obj_type type;
+    int res;
+    size_t datasize;
+    size_t i;
+    struct db_key k;
+    union {
+        struct db_obj_header    hdr;
+        struct db_obj_dirent    de;
+        struct db_obj_stat      s;
+        struct db_obj_free_ino  freeino;
+    } data;
+    void *d;
 
-    return 0;
+    static const struct {
+        const char          *nm;
+        size_t              datasize;
+        int                 (*get_args)(struct db_key *);
+        int                 (*set_data)(const struct db_key *, void **,
+                                        size_t *);
+    } typemap[] = {
+        [TYPE_HEADER]           = {"TYPE_HEADER",           OBJSZ(header),
+                                   NULL,
+                                   &set_header},
+        [TYPE_DIRENT]           = {"TYPE_DIRENT",           OBJSZ(dirent),
+                                   &get_key_ino_name,
+                                   &set_dirent},
+        [TYPE_STAT]             = {"TYPE_STAT",             OBJSZ(stat),
+                                   &get_key_ino,
+                                   &set_stat},
+        [TYPE_PAGE]             = {"TYPE_PAGE",             0,
+                                   &get_key_ino_pgno,
+                                   &set_page},
+        [TYPE_XATTR]            = {"TYPE_XATTR",            0,
+                                   &get_key_ino_name,
+                                   &set_xattr},
+        [TYPE_ULINKED_INODE]    = {"TYPE_ULINKED_INODE",    0,
+                                   &get_key_ino,
+                                   &set_ulinked_inode},
+        [TYPE_FREE_INO]         = {"TYPE_FREE_INO",         OBJSZ(free_ino),
+                                   &get_key_ino,
+                                   &set_free_ino}
+    }, *typep;
+
+    for (i = 0; i < ARRAY_SIZE(typemap); i++) {
+        typep = &typemap[i];
+
+        if (typep->nm != NULL)
+            fprintf(stderr, "%zu: %s\n", i, typep->nm);
+    }
+
+    arg = readline("Type: ");
+    if (arg == NULL)
+        return 1;
+    type = atoi(arg);
+    free(arg);
+
+    if (type >= ARRAY_SIZE(typemap))
+        goto type_err;
+
+    typep = &typemap[type];
+    if (typep->set_data == NULL)
+        goto type_err;
+
+    if (typep->get_args != NULL) {
+        res = (*(typep->get_args))(&k);
+        if (res != 0)
+            return res;
+    }
+    k.type = type;
+
+    if (typep->datasize == 0) {
+        d = NULL;
+        datasize = 0;
+    } else {
+        memset(&data, 0, sizeof(data));
+        d = &data;
+        datasize = typep->datasize;
+    }
+
+    res = (*(typep->set_data))(&k, &d, &datasize);
+    if (res != 0)
+        goto end;
+
+    res = db_hl_trans_new(dbh);
+    if (res != 0)
+        goto insert_err;
+
+    res = db_hl_insert(dbh, &k, d, datasize);
+    if (res != 0) {
+        if (res == -EADDRNOTAVAIL)
+            res = -EIO;
+        goto insert_err;
+    }
+
+    res = db_hl_sync(dbh);
+    if (res != 0) {
+        db_hl_trans_abort(dbh);
+        goto insert_err;
+    }
+
+end:
+    if (typep->datasize == 0)
+        free(d);
+    return res;
+
+insert_err:
+    if (typep->datasize == 0)
+        free(d);
+    error(0, -res, "Error insert");
+    return res;
+
+type_err:
+    error(0, 0, "Invalid object type %d", type);
+    return 2;
 }
 
 static int
@@ -762,9 +1086,137 @@ type_err:
 static int
 cmd_update(struct dbh *dbh)
 {
-    (void)dbh;
+    char *arg;
+    enum db_obj_type type;
+    int res;
+    size_t datasize;
+    size_t i;
+    struct db_key k;
+    union {
+        struct db_obj_header    hdr;
+        struct db_obj_dirent    de;
+        struct db_obj_stat      s;
+        struct db_obj_free_ino  freeino;
+    } data;
+    void *d;
 
-    return 0;
+    static const struct {
+        const char          *nm;
+        size_t              datasize;
+        int                 (*get_args)(struct db_key *);
+        int                 (*set_data)(const struct db_key *, void **,
+                                        size_t *);
+    } typemap[] = {
+        [TYPE_HEADER]           = {"TYPE_HEADER",           OBJSZ(header),
+                                   NULL,
+                                   &set_header},
+        [TYPE_DIRENT]           = {"TYPE_DIRENT",           OBJSZ(dirent),
+                                   &get_key_ino_name,
+                                   &set_dirent},
+        [TYPE_STAT]             = {"TYPE_STAT",             OBJSZ(stat),
+                                   &get_key_ino,
+                                   &set_stat},
+        [TYPE_PAGE]             = {"TYPE_PAGE",             0,
+                                   &get_key_ino_pgno,
+                                   &set_page},
+        [TYPE_XATTR]            = {"TYPE_XATTR",            0,
+                                   &get_key_ino_name,
+                                   &set_xattr},
+        [TYPE_ULINKED_INODE]    = {"TYPE_ULINKED_INODE",    0,
+                                   &get_key_ino,
+                                   &set_ulinked_inode},
+        [TYPE_FREE_INO]         = {"TYPE_FREE_INO",         OBJSZ(free_ino),
+                                   &get_key_ino,
+                                   &set_free_ino}
+    }, *typep;
+
+    for (i = 0; i < ARRAY_SIZE(typemap); i++) {
+        typep = &typemap[i];
+
+        if (typep->nm != NULL)
+            fprintf(stderr, "%zu: %s\n", i, typep->nm);
+    }
+
+    arg = readline("Type: ");
+    if (arg == NULL)
+        return 1;
+    type = atoi(arg);
+    free(arg);
+
+    if (type >= ARRAY_SIZE(typemap))
+        goto type_err;
+
+    typep = &typemap[type];
+    if (typep->set_data == NULL)
+        goto type_err;
+
+    if (typep->get_args != NULL) {
+        res = (*(typep->get_args))(&k);
+        if (res != 0)
+            return res;
+    }
+    k.type = type;
+
+    if (typep->datasize == 0) {
+        res = db_hl_search(dbh, &k, NULL, NULL, &datasize);
+        if (res != 1)
+            goto lookup_err;
+
+        d = do_malloc(datasize);
+        if (d == NULL) {
+            res = -errno;
+            error(0, 0, "Out of memory");
+            return res;
+        }
+    } else
+        d = &data;
+
+    res = db_hl_search(dbh, &k, &k, d, &datasize);
+    if (res != 1)
+        goto lookup_err;
+
+    res = (*(typep->set_data))(&k, &d, &datasize);
+    if (res != 0)
+        goto end;
+
+    res = db_hl_trans_new(dbh);
+    if (res != 0)
+        goto replace_err;
+
+    res = db_hl_replace(dbh, &k, d, datasize);
+    if (res != 0) {
+        if (res == -EADDRNOTAVAIL)
+            res = -EIO;
+        goto replace_err;
+    }
+
+    res = db_hl_sync(dbh);
+    if (res != 0) {
+        db_hl_trans_abort(dbh);
+        goto replace_err;
+    }
+
+end:
+    if (typep->datasize == 0)
+        free(d);
+    return res;
+
+lookup_err:
+    if (res == 0)
+        res = 2;
+    else
+        error(0, -res, "Error looking up");
+    return res;
+
+replace_err:
+    if (typep->datasize == 0)
+        free(d);
+    error(0, -res, "Error replacing");
+    return res;
+
+type_err:
+    error(0, 0, "Invalid object type %d", type);
+    return 2;
 }
 
 static int
