@@ -32,6 +32,8 @@
 #include <time.h>
 #include <unistd.h>
 
+#include <sys/param.h>
+
 #ifdef HAVE_STRUCT_STAT_ST_MTIMESPEC
 #define st_atim st_atimespec
 #define st_mtim st_mtimespec
@@ -76,6 +78,8 @@ static void disp_header(FILE *, const struct db_key *, const void *, size_t);
 static void disp_header_full(FILE *, const struct db_key *, const void *,
                              size_t);
 static void disp_free_ino(FILE *, const struct db_key *, const void *, size_t);
+static void disp_free_ino_full(FILE *, const struct db_key *, const void *,
+                               size_t);
 static void disp_dirent(FILE *, const struct db_key *, const void *, size_t);
 static void disp_stat(FILE *, const struct db_key *, const void *, size_t);
 static void disp_stat_full(FILE *, const struct db_key *, const void *, size_t);
@@ -83,6 +87,8 @@ static void disp_page(FILE *, const struct db_key *, const void *, size_t);
 static void disp_xattr(FILE *, const struct db_key *, const void *, size_t);
 static void disp_ulinked_inode(FILE *, const struct db_key *, const void *,
                                size_t);
+
+static int used_ino_get(uint64_t *, uint32_t, uint32_t);
 
 static int dump_db_obj(FILE *, const void *, const void *, size_t, const char *,
                        void *);
@@ -511,6 +517,37 @@ disp_free_ino(FILE *f, const struct db_key *key, const void *data,
             key->ino, key->ino + FREE_INO_RANGE_SZ - 1);
 }
 
+#define OUTPUT_WIDTH 64
+#define NUM_ROWS ((FREE_INO_RANGE_SZ + OUTPUT_WIDTH - 1) / OUTPUT_WIDTH)
+
+static void
+disp_free_ino_full(FILE *f, const struct db_key *key, const void *data,
+                   size_t datasize)
+{
+    int i;
+    struct db_obj_free_ino *freeino = (struct db_obj_free_ino *)data;
+
+    disp_free_ino(f, key, data, datasize);
+    fputc('\n', f);
+
+    for (i = 0;; i++) {
+        if (i == FREE_INO_RANGE_SZ) {
+            fputc('\n', f);
+            break;
+        }
+        if ((i > 0) && (i % OUTPUT_WIDTH == 0))
+            fputc('\n', f);
+        fputc(used_ino_get(freeino->used_ino, key->ino, key->ino + i)
+              ? '1' : '0',
+              f);
+    }
+
+    fprintf(f, "Last: %s", (freeino->flags & FREE_INO_LAST_USED) ? "1" : "0");
+}
+
+#undef OUTPUT_WIDTH
+#undef NUM_ROWS
+
 static void
 disp_dirent(FILE *f, const struct db_key *key, const void *data,
             size_t datasize)
@@ -603,6 +640,19 @@ disp_ulinked_inode(FILE *f, const struct db_key *key, const void *data,
 
     fprintf(f, "node %" PRIu64,
             key->ino);
+}
+
+static int
+used_ino_get(uint64_t *used_ino, uint32_t base, uint32_t ino)
+{
+    int idx, wordidx;
+    uint64_t mask;
+
+    idx = ino - base;
+    wordidx = idx / NBWD;
+    mask = 1ull << (idx % NBWD);
+
+    return !!(used_ino[wordidx] & mask);
 }
 
 static int
@@ -790,7 +840,7 @@ cmd_find(struct dbh *dbh)
                                    &disp_ulinked_inode},
         [TYPE_FREE_INO]         = {"TYPE_FREE_INO",         OBJSZ(free_ino),
                                    &get_key_ino,
-                                   &disp_free_ino}
+                                   &disp_free_ino_full}
     }, *typep;
 
     for (i = 0; i < ARRAY_SIZE(typemap); i++) {
