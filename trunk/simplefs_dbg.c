@@ -496,14 +496,8 @@ disp_header_full(FILE *f, const struct db_key *key, const void *data,
 {
     struct db_obj_header *hdr = (struct db_obj_header *)data;
 
-    (void)key;
-    (void)datasize;
-
-    fprintf(f,
-            "     Version %" PRIu64 "\n"
-            "I-node count %" PRIu64,
-            hdr->version,
-            hdr->numinodes);
+    fprintf(f, "     Version %" PRIu64 "\n", hdr->version);
+    disp_header(f, key, data, datasize);
 }
 
 static void
@@ -567,8 +561,7 @@ disp_stat(FILE *f, const struct db_key *key, const void *data, size_t datasize)
 
     (void)datasize;
 
-    fprintf(f, "node %" PRIu64 " -> st_ino %" PRIu64,
-            key->ino, s->st_ino);
+    fprintf(f, "node %" PRIu64 " -> st_ino %" PRIu64, key->ino, s->st_ino);
 }
 
 static void
@@ -638,8 +631,7 @@ disp_ulinked_inode(FILE *f, const struct db_key *key, const void *data,
     (void)data;
     (void)datasize;
 
-    fprintf(f, "node %" PRIu64,
-            key->ino);
+    fprintf(f, "node %" PRIu64, key->ino);
 }
 
 static int
