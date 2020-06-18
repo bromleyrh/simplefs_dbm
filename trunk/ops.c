@@ -782,13 +782,23 @@ release_ino(struct back_end *be, fuse_ino_t ino)
     k.ino = (ino - FUSE_ROOT_ID) / FREE_INO_RANGE_SZ * FREE_INO_RANGE_SZ
             + FUSE_ROOT_ID;
     res = back_end_look_up(be, &k, &k, &freeino, NULL, 0);
-    if (res != 1)
-        return (res == 0) ? -EILSEQ : res;
+    if (res != 1) {
+        if (res != 0)
+            return res;
 
-    used_ino_set(freeino.used_ino, k.ino, ino, 0);
-    res = back_end_replace(be, &k, &freeino, sizeof(freeino));
-    if (res != 0)
-        return res;
+        /* insert new free I-node number information object */
+        memset(freeino.used_ino, 0xff, sizeof(freeino.used_ino));
+        used_ino_set(freeino.used_ino, k.ino, ino, 0);
+        freeino.flags = 0;
+        res = back_end_insert(be, &k, &freeino, sizeof(freeino));
+        if (res != 0)
+            return res;
+    } else {
+        used_ino_set(freeino.used_ino, k.ino, ino, 0);
+        res = back_end_replace(be, &k, &freeino, sizeof(freeino));
+        if (res != 0)
+            return res;
+    }
 
     k.type = TYPE_HEADER;
     res = back_end_look_up(be, &k, NULL, &hdr, NULL, 0);
