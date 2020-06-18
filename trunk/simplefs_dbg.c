@@ -693,7 +693,7 @@ dump_db_obj(FILE *f, const void *key, const void *data, size_t datasize,
         goto type_err;
 
     if ((objinfop->datasize != 0) && (datasize != objinfop->datasize)) {
-        error(0, 0, "%s data size %zu incorrect\n", objinfop->dispstr,
+        error(0, 0, "%s data size %zu bytes incorrect\n", objinfop->dispstr,
               datasize);
         return -EILSEQ;
     }
