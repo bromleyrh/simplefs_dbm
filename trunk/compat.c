@@ -94,7 +94,6 @@ init_ver_2_to_3(struct back_end *be, int ro, int fmtconv)
             fprintf(stderr, "Found I-node %" PRIu64 "\n", (uint64_t)(sk.ino));
 
             used_ino_set(freeino.used_ino, base, sk.ino, 1);
-            ++tot_numinodes;
 
             res = back_end_iter_next(iter);
             if (res != 0) {
@@ -119,6 +118,8 @@ init_ver_2_to_3(struct back_end *be, int ro, int fmtconv)
         }
 
         back_end_iter_free(iter);
+
+        tot_numinodes += numinodes;
 
         k.ino = base;
 
