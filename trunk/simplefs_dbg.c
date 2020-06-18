@@ -888,6 +888,11 @@ cmd_find(struct dbh *dbh)
     if (res != 1)
         goto lookup_err;
 
+    if ((typep->datasize != 0) && (datasize != typep->datasize)) {
+        error(0, 0, "Object data size %zu bytes incorrect", datasize);
+        return -EILSEQ;
+    }
+
     (*(typep->disp_data))(stdout, &k, d, datasize);
     putchar('\n');
 
@@ -1224,6 +1229,11 @@ cmd_update(struct dbh *dbh)
     res = db_hl_search(dbh, &k, &k, d, &datasize);
     if (res != 1)
         goto lookup_err;
+
+    if ((typep->datasize != 0) && (datasize != typep->datasize)) {
+        error(0, 0, "Object data size %zu bytes incorrect", datasize);
+        return -EILSEQ;
+    }
 
     res = (*(typep->set_data))(&k, &d, &datasize);
     if (res != 0)
