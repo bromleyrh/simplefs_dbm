@@ -151,7 +151,7 @@ init_ver_2_to_3(struct back_end *be, int ro, int fmtconv)
     k.type = TYPE_HEADER;
 
     hdr.version = 3;
-    hdr.numinodes = numinodes;
+    hdr.numinodes = tot_numinodes;
 
     res = back_end_replace(be, &k, &hdr, sizeof(hdr));
     if (res != 0)
