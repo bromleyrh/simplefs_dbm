@@ -1330,8 +1330,10 @@ do_fix_up_interactive(const char *db_pathname, int ro)
 
     ret = db_hl_open(&dbh, db_pathname, sizeof(struct db_key), &db_key_cmp,
                      NULL, ro ? DB_HL_RDONLY : 0);
-    if (ret != 0)
+    if (ret != 0) {
+        error(0, -ret, "Error opening %s", db_pathname);
         return ret;
+    }
 
     for (;;) {
         ret = process_cmd(dbh);
