@@ -743,7 +743,7 @@ get_ino(struct back_end *be, fuse_ino_t *ino)
     }
 
     used_ino_set(freeino.used_ino, k.ino, ret, 1);
-    res = ((free_ino_find(freeino.used_ino, k.ino) == 0)
+    res = ((memcchr(freeino.used_ino, 0xff, sizeof(freeino.used_ino)) == NULL)
            && !(freeino.flags & FREE_INO_LAST_USED))
           ? back_end_delete(be, &k)
           : back_end_replace(be, &k, &freeino, sizeof(freeino));
