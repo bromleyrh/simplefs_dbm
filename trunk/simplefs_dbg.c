@@ -351,15 +351,60 @@ scan_time(char *str, void *data, size_t off, int is_signed, int width, int base)
     return 0;
 }
 
+#define HDROFF(field) offsetof(struct db_obj_header, field)
+
 static int
 set_header(const struct db_key *key, void **data, size_t *datasize)
 {
+    char *arg;
+    int ret;
+    size_t i;
+    struct db_obj_header *hdr = *(struct db_obj_header **)data;
+
+    static const struct {
+        const char  *nm;
+        size_t      hdroff;
+        int         (*scan_field)(char *, void *, size_t, int, int, int);
+        int         is_signed;
+        int         width;
+        int         base;
+    } scandescs[] = {
+        {"version",     HDROFF(version),    &scan_int,  0, 8, 10},
+        {"numinodes",   HDROFF(numinodes),  &scan_int,  0, 8, 10}
+    }, *scandescp;
+
     (void)key;
-    (void)data;
     (void)datasize;
+
+    for (i = 0; i < ARRAY_SIZE(scandescs); i++) {
+        char prompt[32];
+
+        scandescp = &scandescs[i];
+
+        snprintf(prompt, sizeof(prompt), "%s: ", scandescp->nm);
+        arg = readline(prompt);
+        if (arg == NULL)
+            return 2;
+
+        if (arg[strspn(arg, " ")] == '\0') {
+            free(arg);
+            continue;
+        }
+
+        ret = (*(scandescp->scan_field))(arg, hdr, scandescp->hdroff,
+                                         scandescp->is_signed,
+                                         scandescp->width, scandescp->base);
+
+        free(arg);
+
+        if (ret != 0)
+            return ret;
+    }
 
     return 0;
 }
+
+#undef HDROFF
 
 static int
 set_free_ino(const struct db_key *key, void **data, size_t *datasize)
