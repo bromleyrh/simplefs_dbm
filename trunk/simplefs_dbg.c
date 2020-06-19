@@ -1,5 +1,7 @@
 /*
  * simplefs_dbg.c
+ *
+ * TODO: refactor to avoid redundancies
  */
 
 #define _GNU_SOURCE
