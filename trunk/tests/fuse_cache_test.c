@@ -941,7 +941,7 @@ run_automated_test(int test_type, const struct params *p)
                   ? verify_rand((struct be_ctx *)&cachectx)
                   : walk_cache(&cachectx);
         } else if (bep->use_bitmap)
-            print_bitmap(stdout, (struct bitmap_data *)&cachectx.bectx.bmdata);
+            print_bitmap(stdout, (struct bitmap_data *)(cachectx.bectx.bmdata));
         break;
     case 5:
         ret = verify_rand((struct be_ctx *)&cachectx);
