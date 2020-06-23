@@ -11,6 +11,8 @@
 #include <stdint.h>
 #include <stdio.h>
 
+#include <test_util.h>
+
 #define CONFIG_PATH_ENV "BACKENDTEST_CONFIG_PATH"
 
 #define DEFAULT_CONFIG_PATH "backendtest_config.json"
@@ -64,6 +66,9 @@ struct be_ops {
     int (*iter_next)(void *iter);
     int (*iter_search)(void *iter, const void *key);
     int (*iter_select)(void *iter, int idx);
+    int (*trans_new)(void *be);
+    int (*trans_abort)(void *be);
+    int (*trans_commit)(void *be);
     int (*dump)(FILE *f, void *be);
 };
 
@@ -138,6 +143,14 @@ struct be_cb {
     (bectx).ops.iter_select \
         = (typeof((bectx).ops.iter_select))&(prefix ## _iter_select)
 
+#define SET_TRANS_OPS(bectx, prefix) \
+    (bectx).ops.trans_new \
+        = (typeof((bectx).ops.trans_new))&(prefix ## _trans_new); \
+    (bectx).ops.trans_abort \
+        = (typeof((bectx).ops.trans_abort))&(prefix ## _trans_abort); \
+    (bectx).ops.trans_commit \
+        = (typeof((bectx).ops.trans_commit))&(prefix ## _trans_commit)
+
 struct be_stats {
     uint64_t num_gen;
     uint64_t num_ops;
@@ -154,12 +167,18 @@ struct be_ctx {
     struct be_ops   ops;
     int             key_size;
     int             max_key;
+    int             trans;
     int             (*wfn)(const void *, void *);
     void            *wctx;
     struct be_cb    cb;
     struct be_stats stats;
     void            *bmdata;
     void            *ctx;
+};
+
+struct be_bitmap_data {
+    struct bitmap_data bmdata;
+    struct bitmap_data bmdata_saved;
 };
 
 extern LIBBACKENDTEST_EXPORTED void (*term_handler)(int);
@@ -190,6 +209,10 @@ LIBBACKENDTEST_EXPORTED const char *int_key_to_str(const void *k, void *ctx);
 
 LIBBACKENDTEST_EXPORTED void be_bitmap_set(struct be_ctx *bectx, int key,
                                            int val, int record_stats);
+
+LIBBACKENDTEST_EXPORTED void be_bitmap_trans_new(struct be_ctx *bectx);
+LIBBACKENDTEST_EXPORTED void be_bitmap_trans_abort(struct be_ctx *bectx);
+LIBBACKENDTEST_EXPORTED void be_bitmap_trans_commit(struct be_ctx *bectx);
 
 LIBBACKENDTEST_EXPORTED int be_insert(struct be_ctx *bectx, int key,
                                       int *result, int repeat_allowed,

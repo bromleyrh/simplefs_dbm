@@ -11,6 +11,7 @@
 
 #include <bitmap.h>
 
+#include <errno.h>
 #include <limits.h>
 #include <stdlib.h>
 
@@ -454,6 +455,36 @@ auto_test_walk(struct be_ctx *bectx, int key, int use_be, int use_bitmap)
     }
 
     return ret;
+}
+
+int
+auto_test_trans_new(struct be_ctx *bectx, int use_be, int use_bitmap)
+{
+    (void)bectx;
+    (void)use_be;
+    (void)use_bitmap;
+
+    return -ENOSYS;
+}
+
+int
+auto_test_trans_abort(struct be_ctx *bectx, int use_be, int use_bitmap)
+{
+    (void)bectx;
+    (void)use_be;
+    (void)use_bitmap;
+
+    return -ENOSYS;
+}
+
+int
+auto_test_trans_commit(struct be_ctx *bectx, int use_be, int use_bitmap)
+{
+    (void)bectx;
+    (void)use_be;
+    (void)use_bitmap;
+
+    return -ENOSYS;
 }
 
 /* vi: set expandtab sw=4 ts=4: */

@@ -27,6 +27,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 
 #include <sys/param.h>
@@ -125,6 +126,8 @@ init_be_ctx(struct be_ctx *bectx, void *bmdata, int key_size, int max_key)
 
     bectx->key_size = key_size;
     bectx->max_key = max_key;
+
+    bectx->trans = 0;
 
     stats->num_gen = 0;
     stats->num_ops = stats->num_ops_start = stats->num_ops_out_of_range = 0;
@@ -242,6 +245,34 @@ be_bitmap_set(struct be_ctx *bectx, int key, int val, int record_stats)
 
     if (record_stats)
         ++(bectx->stats.num_ops);
+}
+
+void
+be_bitmap_trans_new(struct be_ctx *bectx)
+{
+    struct be_bitmap_data *bmdata = (struct be_bitmap_data *)(bectx->bmdata);
+
+    /* save bmdata to bmdata_saved */
+    memcpy(bmdata->bmdata_saved.bitmap, bmdata->bmdata.bitmap,
+           bmdata->bmdata.bitmap_len * sizeof(unsigned));
+}
+
+void
+be_bitmap_trans_abort(struct be_ctx *bectx)
+{
+    struct be_bitmap_data *bmdata = (struct be_bitmap_data *)(bectx->bmdata);
+
+    /* restore bmdata from bmdata_saved */
+    memcpy(bmdata->bmdata.bitmap, bmdata->bmdata_saved.bitmap,
+           bmdata->bmdata_saved.bitmap_len * sizeof(unsigned));
+}
+
+void
+be_bitmap_trans_commit(struct be_ctx *bectx)
+{
+    (void)bectx;
+
+    return;
 }
 
 int

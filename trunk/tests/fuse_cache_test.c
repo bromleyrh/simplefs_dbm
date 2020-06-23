@@ -49,8 +49,8 @@ struct params {
 };
 
 struct cache_bitmap_data {
-    struct bitmap_data  bmdata;
-    int                 loaded;
+    struct be_bitmap_data   bmdata;
+    int                     loaded;
 };
 
 struct fuse_cache_ctx {
@@ -515,7 +515,7 @@ init_fuse_cache_ctx(struct fuse_cache_ctx *cachectx, const char *file,
             return ret;
         }
     } else {
-        if (load_bitmap(bitmap, &cachectx->bectx.stats, &bmdata->bmdata)
+        if (load_bitmap(bitmap, &cachectx->bectx.stats, &bmdata->bmdata.bmdata)
             == -1)
             return -errno;
         bmdata->loaded = 1;
@@ -534,7 +534,7 @@ init_fuse_cache_ctx(struct fuse_cache_ctx *cachectx, const char *file,
         ret = change_to_tmpdir(FUSE_CACHE_TEST_TMPDIR);
         if (ret != 0)
             return ret;
-        if (alloc_bitmap(bitmap, &bmdata->bmdata) == -1)
+        if (alloc_bitmap(bitmap, &bmdata->bmdata.bmdata) == -1)
             return -errno;
         ret = do_back_end_create(cachectx, file);
         if (ret != 0)
@@ -898,10 +898,13 @@ run_automated_test(int test_type, const struct params *p)
     struct cache_bitmap_data bmdata;
     struct fuse_cache_ctx cachectx;
 
-    ret = init_bitmap(&bmdata.bmdata, bep->max_key);
+    ret = init_bitmap(&bmdata.bmdata.bmdata, bep->max_key);
+    if (ret != 0)
+        goto bitmap_err;
+    ret = init_bitmap(&bmdata.bmdata.bmdata_saved, bep->max_key);
     if (ret != 0) {
-        error(0, -ret, "Error initializing test bitmap");
-        return -1;
+        free_bitmap(&bmdata.bmdata.bmdata);
+        goto bitmap_err;
     }
     bmdata.loaded = 0;
 
@@ -959,8 +962,13 @@ run_automated_test(int test_type, const struct params *p)
 end2:
     close_log_file(NULL);
 end1:
-    free_bitmap(&bmdata.bmdata);
+    free_bitmap(&bmdata.bmdata.bmdata);
+    free_bitmap(&bmdata.bmdata.bmdata_saved);
     return ret ? -1 : 0;
+
+bitmap_err:
+    error(0, -ret, "Error initializing test bitmap");
+    return -1;
 }
 
 int
