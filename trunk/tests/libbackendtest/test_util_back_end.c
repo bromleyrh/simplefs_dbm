@@ -1,5 +1,7 @@
 /*
  * test_util_back_end.c
+ *
+ * FIXME: refactor code in be_test_*()
  */
 
 #include "test_util_back_end.h"
@@ -48,6 +50,15 @@ extern __thread int btree_mem_test;
 extern __thread int btree_mem_err;
 
 void (*term_handler)(int);
+
+static const struct {
+    int         (*fn)(struct be_ctx *, int, int);
+    const char  *act;
+} trans_ops[] = {
+    [1] = {&auto_test_trans_new,    "initiated"},
+    [2] = {&auto_test_trans_abort,  "aborted"},
+    [3] = {&auto_test_trans_commit, "committed"}
+};
 
 #define PERFORM_REPLACE(bep) (((bep)->test_replace) ? random() % 2 : 0)
 
@@ -711,6 +722,42 @@ be_iter_select(struct be_ctx *bectx, void *iter, int idx, int verbose,
     return ret;
 }
 
+int
+be_trans_new(struct be_ctx *bectx)
+{
+    int ret;
+
+    ret = (*(bectx->ops.trans_new))(bectx->be);
+    if (ret != 0)
+        error(0, -ret, "Error initiating transaction");
+
+    return ret;
+}
+
+int
+be_trans_abort(struct be_ctx *bectx)
+{
+    int ret;
+
+    ret = (*(bectx->ops.trans_abort))(bectx->be);
+    if (ret != 0)
+        error(0, -ret, "Error aborting transaction");
+
+    return ret;
+}
+
+int
+be_trans_commit(struct be_ctx *bectx)
+{
+    int ret;
+
+    ret = (*(bectx->ops.trans_commit))(bectx->be);
+    if (ret != 0)
+        error(0, -ret, "Error committing transaction");
+
+    return ret;
+}
+
 static int
 do_iter_seek_single(struct be_ctx *bectx, void *iter, unsigned *curkey, int dir,
                     int use_be, int use_bitmap,
@@ -1160,22 +1207,31 @@ be_test_rand_repeat(struct be_ctx *bectx, const struct be_params *bep,
 
     while (!quit && (NUM_OPS(bectx) < bep->num_ops)) {
         int key;
-        int delete, search;
+        int delete, search, trans;
         int verify = -1;
 
         ret = handle_usr_signals(bectx, NULL, NULL);
         if (ret != 0)
             break;
 
-        if (test_iter_only)
-            delete_from_root = 0;
-        else if (bep->delete_from_root) {
-            if (!delete_from_root)
-                delete_from_root = !(random() % 4096);
-            else
-                delete_from_root = !!(random() % 16384);
-        }
-        if (delete_from_root) {
+        if (!(bectx->trans))
+            trans = !(random() % 16384);
+        else if (!(random() % 16))
+            trans = 2 + random() % 2;
+        else
+            trans = 0;
+
+        if (trans) {
+            ret = (*(trans_ops[trans].fn))(bectx, bep->use_be, bep->use_bitmap);
+            if (ERROR_FATAL(ret))
+                break;
+            VERBOSE_LOG(stderr, "%s transaction\n"
+                        "--------------------------------------------------"
+                        "\n",
+                        trans_ops[trans].act);
+        } else if (!test_iter_only && bep->delete_from_root
+                   && (delete_from_root
+                       ? !!(random() % 16384) : !(random() % 4096))) {
             ret = auto_test_delete_from(bectx, 0, &key, bep->use_be,
                                         bep->use_bitmap, 1, bep->confirm);
             if (ERROR_FATAL(ret))
@@ -1186,117 +1242,115 @@ be_test_rand_repeat(struct be_ctx *bectx, const struct be_params *bep,
                         "--------------------------------------------------"
                         "\n",
                         key);
-        } else {
-            search = test_iter_only ? 0 : !(random() % bep->search_period);
-            if (search) {
-                key = (*gen_key_fn)(bep->max_key, params.out_of_range_period);
-                if (bep->test_walk)
-                    search = random() % (bep->test_order_stats ? 4 : 2);
-                else
-                    search = 1 + random() % (bep->test_order_stats ? 3 : 1);
-                switch (search) {
-                case 0:
-                    ret = auto_test_walk(bectx, key, bep->use_be,
-                                         bep->use_bitmap);
-                    break;
-                case 1:
-                    if (bep->test_range_search && (random() % 2 == 0)) {
-                        ret = auto_test_range_search(bectx, key, bep->use_be,
-                                                     bep->use_bitmap);
-                    } else {
-                        ret = auto_test_search(bectx, key, bep->use_be,
-                                               bep->use_bitmap);
-                    }
-                    break;
-                case 2:
-                    ret = auto_test_select(bectx, key, bep->use_be,
+        } else if ((search
+                    = test_iter_only ? 0 : !(random() % bep->search_period))) {
+            key = (*gen_key_fn)(bep->max_key, params.out_of_range_period);
+            if (bep->test_walk)
+                search = random() % (bep->test_order_stats ? 4 : 2);
+            else
+                search = 1 + random() % (bep->test_order_stats ? 3 : 1);
+            switch (search) {
+            case 0:
+                ret = auto_test_walk(bectx, key, bep->use_be,
+                                     bep->use_bitmap);
+                break;
+            case 1:
+                if (bep->test_range_search && (random() % 2 == 0)) {
+                    ret = auto_test_range_search(bectx, key, bep->use_be,
+                                                 bep->use_bitmap);
+                } else {
+                    ret = auto_test_search(bectx, key, bep->use_be,
                                            bep->use_bitmap);
-                    break;
-                case 3:
-                    ret = auto_test_get_index(bectx, key, bep->use_be,
-                                              bep->use_bitmap);
-                    break;
-                default:
-                    ret = -EIO;
-                    goto end;
                 }
+                break;
+            case 2:
+                ret = auto_test_select(bectx, key, bep->use_be,
+                                       bep->use_bitmap);
+                break;
+            case 3:
+                ret = auto_test_get_index(bectx, key, bep->use_be,
+                                          bep->use_bitmap);
+                break;
+            default:
+                ret = -EIO;
+                goto end;
+            }
+            if (ERROR_FATAL(ret))
+                break;
+            if (!(bep->verify_after_search))
+                verify = 0;
+        } else if (test_iter_only
+                   || (bep->test_iter
+                       && !(random() % params.iter_test_period))) {
+            ret = test_iter_funcs(bectx, test_iter_only,
+                                  test_iter_only
+                                  ? bep->num_ops : UINT64_MAX,
+                                  gen_key_fn, bep->max_key,
+                                  params.iter_test_out_of_range_period,
+                                  bep->use_be, bep->use_bitmap);
+            if (ret != 0)
+                break;
+            if (test_iter_only)
+                quit = 1;
+            if (!(bep->verify_after_search))
+                verify = 0;
+        } else {
+            if (!purge) {
+                purge = !(random() % params.purge_interval);
+                if (purge) {
+                    insert_ratio = negate_insert_ratio(insert_ratio)
+                                   * params.purge_factor;
+                }
+            } else {
+                purge = !!(random() % params.purge_period);
+                if (!purge) {
+                    insert_ratio
+                        = negate_insert_ratio(insert_ratio
+                                              / params.purge_factor);
+                }
+            }
+
+            delete = (insert_ratio > 0) ? !(random() % (insert_ratio+1))
+                     : !!(random() % -(insert_ratio+1));
+
+            if (!delete) {
+                int replace = PERFORM_REPLACE(bep);
+
+                key = (*gen_key_fn)(bep->max_key, 0);
+                VERBOSE_LOG(log, "%s %d\n", replace ? "upd" : "ins", key);
+                ret = auto_test_insert(bectx, key, replace, bep->use_be,
+                                       bep->use_bitmap, 1, 1, bep->confirm);
                 if (ERROR_FATAL(ret))
                     break;
-                if (!(bep->verify_after_search))
-                    verify = 0;
-            } else if (test_iter_only
-                       || (bep->test_iter
-                           && !(random() % params.iter_test_period))) {
-                ret = test_iter_funcs(bectx, test_iter_only,
-                                      test_iter_only
-                                      ? bep->num_ops : UINT64_MAX,
-                                      gen_key_fn, bep->max_key,
-                                      params.iter_test_out_of_range_period,
-                                      bep->use_be, bep->use_bitmap);
-                if (ret != 0)
-                    break;
-                if (test_iter_only)
-                    quit = 1;
-                if (!(bep->verify_after_search))
-                    verify = 0;
+                if (ret == -ENOSPC) {
+                    if (bep->empty_on_fill) {
+                        ret = empty_back_end(bectx);
+                        if (ret != 0)
+                            break;
+                    } else {
+                        insert_ratio = -INT_MAX;
+                        purge = 1;
+                    }
+                } else if (ret == 2)
+                    verify = 1;
+                VERBOSE_LOG(stderr, "%s %d\n"
+                    "--------------------------------------------------"
+                    "\n",
+                    replace ? "replaced" : "inserted", key);
             } else {
-                if (!purge) {
-                    purge = !(random() % params.purge_interval);
-                    if (purge) {
-                        insert_ratio = negate_insert_ratio(insert_ratio)
-                                       * params.purge_factor;
-                    }
-                } else {
-                    purge = !!(random() % params.purge_period);
-                    if (!purge) {
-                        insert_ratio
-                            = negate_insert_ratio(insert_ratio
-                                                  / params.purge_factor);
-                    }
-                }
-
-                delete = (insert_ratio > 0) ? !(random() % (insert_ratio+1))
-                         : !!(random() % -(insert_ratio+1));
-
-                if (!delete) {
-                    int replace = PERFORM_REPLACE(bep);
-
-                    key = (*gen_key_fn)(bep->max_key, 0);
-                    VERBOSE_LOG(log, "%s %d\n", replace ? "upd" : "ins", key);
-                    ret = auto_test_insert(bectx, key, replace, bep->use_be,
-                                           bep->use_bitmap, 1, 1, bep->confirm);
-                    if (ERROR_FATAL(ret))
-                        break;
-                    if (ret == -ENOSPC) {
-                        if (bep->empty_on_fill) {
-                            ret = empty_back_end(bectx);
-                            if (ret != 0)
-                                break;
-                        } else {
-                            insert_ratio = -INT_MAX;
-                            purge = 1;
-                        }
-                    } else if (ret == 2)
-                        verify = 1;
-                    VERBOSE_LOG(stderr, "%s %d\n"
-                        "--------------------------------------------------"
-                        "\n",
-                        replace ? "replaced" : "inserted", key);
-                } else {
-                    key = (*gen_key_fn)(bep->max_key,
-                                        params.out_of_range_period);
-                    VERBOSE_LOG(log, "del %d\n", key);
-                    ret = auto_test_delete(bectx, key, bep->use_be,
-                                           bep->use_bitmap, 1, bep->confirm);
-                    if (ERROR_FATAL(ret))
-                        break;
-                    if (ret == 2)
-                        verify = 1;
-                    VERBOSE_LOG(stderr, "deleted %d\n"
-                        "--------------------------------------------------"
-                        "\n",
-                        key);
-                }
+                key = (*gen_key_fn)(bep->max_key,
+                                    params.out_of_range_period);
+                VERBOSE_LOG(log, "del %d\n", key);
+                ret = auto_test_delete(bectx, key, bep->use_be,
+                                       bep->use_bitmap, 1, bep->confirm);
+                if (ERROR_FATAL(ret))
+                    break;
+                if (ret == 2)
+                    verify = 1;
+                VERBOSE_LOG(stderr, "deleted %d\n"
+                    "--------------------------------------------------"
+                    "\n",
+                    key);
             }
         }
 
@@ -1363,93 +1417,109 @@ be_test_sorted(struct be_ctx *bectx, const struct be_params *bep, FILE *log)
 
     key = (*gen_key_fn)(bep->max_key, 0);
     while (!quit && (NUM_OPS(bectx) < bep->num_ops)) {
-        int search;
+        int search, trans;
         int verify = -1;
 
         ret = handle_usr_signals(bectx, NULL, NULL);
         if (ret != 0)
             break;
 
-        if (direction) {
-            if ((key < bep->max_key) || delete)
-                ++key;
-        } else {
-            if (key > !(bep->zero_keys))
-                --key;
-        }
+        if (!(bectx->trans))
+            trans = !(random() % 16384);
+        else if (!(random() % 16))
+            trans = 2 + random() % 2;
+        else
+            trans = 0;
 
-        search = !(random() % bep->search_period);
-        if (search) {
-            if (bep->test_walk)
-                search = random() % (bep->test_order_stats ? 4 : 2);
-            else
-                search = 1 + random() % (bep->test_order_stats ? 3 : 1);
-            switch (search) {
-            case 0:
-                ret = auto_test_walk(bectx, key, bep->use_be, bep->use_bitmap);
-                break;
-            case 1:
-                if (bep->test_range_search && (random() % 2 == 0)) {
-                    ret = auto_test_range_search(bectx, key, bep->use_be,
-                                                 bep->use_bitmap);
-                } else {
-                    ret = auto_test_search(bectx, key, bep->use_be,
-                                           bep->use_bitmap);
-                }
-                break;
-            case 2:
-                ret = auto_test_select(bectx, key, bep->use_be,
-                                       bep->use_bitmap);
-                break;
-            case 3:
-                ret = auto_test_get_index(bectx, key, bep->use_be,
-                                          bep->use_bitmap);
-                break;
-            default:
-                ret = -EIO;
-                goto end;
-            }
+        if (trans) {
+            ret = (*(trans_ops[trans].fn))(bectx, bep->use_be, bep->use_bitmap);
             if (ERROR_FATAL(ret))
                 break;
-            if (!(bep->verify_after_search))
-                verify = 0;
+            VERBOSE_LOG(stderr, "%s transaction\n"
+                        "--------------------------------------------------"
+                        "\n",
+                        trans_ops[trans].act);
         } else {
-            if (!(random() % params.sorted_test_period)) {
-                delete = random() % 2;
-                direction = random() % 2;
-                key = (*gen_key_fn)(bep->max_key,
-                                    delete ? params.out_of_range_period : 0);
-            }
-            if (!delete) {
-                int replace = PERFORM_REPLACE(bep);
+            if (direction) {
+                if ((key < bep->max_key) || delete)
+                    ++key;
+            } else if (key > !(bep->zero_keys))
+                --key;
 
-                VERBOSE_LOG(log, "%s %d\n", replace ? "upd" : "ins", key);
-                ret = auto_test_insert(bectx, key, replace, bep->use_be,
-                                       bep->use_bitmap, 1, 1, bep->confirm);
+            if ((search = !(random() % bep->search_period))) {
+                if (bep->test_walk)
+                    search = random() % (bep->test_order_stats ? 4 : 2);
+                else
+                    search = 1 + random() % (bep->test_order_stats ? 3 : 1);
+                switch (search) {
+                case 0:
+                    ret = auto_test_walk(bectx, key, bep->use_be,
+                                         bep->use_bitmap);
+                    break;
+                case 1:
+                    if (bep->test_range_search && (random() % 2 == 0)) {
+                        ret = auto_test_range_search(bectx, key, bep->use_be,
+                                                     bep->use_bitmap);
+                    } else {
+                        ret = auto_test_search(bectx, key, bep->use_be,
+                                               bep->use_bitmap);
+                    }
+                    break;
+                case 2:
+                    ret = auto_test_select(bectx, key, bep->use_be,
+                                           bep->use_bitmap);
+                    break;
+                case 3:
+                    ret = auto_test_get_index(bectx, key, bep->use_be,
+                                              bep->use_bitmap);
+                    break;
+                default:
+                    ret = -EIO;
+                    goto end;
+                }
                 if (ERROR_FATAL(ret))
                     break;
-                if ((ret == -ENOSPC) && bep->empty_on_fill) {
-                    ret = empty_back_end(bectx);
-                    if (ret != 0)
-                        break;
-                } else if (ret == 2)
-                    verify = 1;
-                VERBOSE_LOG(stderr, "%s %d\n"
-                            "--------------------------------------------------"
-                            "\n",
-                            replace ? "replaced" : "inserted", key);
+                if (!(bep->verify_after_search))
+                    verify = 0;
             } else {
-                VERBOSE_LOG(log, "del %d\n", key);
-                ret = auto_test_delete(bectx, key, bep->use_be,
-                                       bep->use_bitmap, 1, bep->confirm);
-                if (ERROR_FATAL(ret))
-                    break;
-                if (ret == 2)
-                    verify = 1;
-                VERBOSE_LOG(stderr, "deleted %d\n"
-                            "--------------------------------------------------"
-                            "\n",
-                            key);
+                if (!(random() % params.sorted_test_period)) {
+                    delete = random() % 2;
+                    direction = random() % 2;
+                    key = (*gen_key_fn)(bep->max_key,
+                                        delete
+                                        ? params.out_of_range_period : 0);
+                }
+                if (!delete) {
+                    int replace = PERFORM_REPLACE(bep);
+
+                    VERBOSE_LOG(log, "%s %d\n", replace ? "upd" : "ins", key);
+                    ret = auto_test_insert(bectx, key, replace, bep->use_be,
+                                           bep->use_bitmap, 1, 1, bep->confirm);
+                    if (ERROR_FATAL(ret))
+                        break;
+                    if ((ret == -ENOSPC) && bep->empty_on_fill) {
+                        ret = empty_back_end(bectx);
+                        if (ret != 0)
+                            break;
+                    } else if (ret == 2)
+                        verify = 1;
+                    VERBOSE_LOG(stderr, "%s %d\n"
+                        "--------------------------------------------------"
+                        "\n",
+                        replace ? "replaced" : "inserted", key);
+                } else {
+                    VERBOSE_LOG(log, "del %d\n", key);
+                    ret = auto_test_delete(bectx, key, bep->use_be,
+                                           bep->use_bitmap, 1, bep->confirm);
+                    if (ERROR_FATAL(ret))
+                        break;
+                    if (ret == 2)
+                        verify = 1;
+                    VERBOSE_LOG(stderr, "deleted %d\n"
+                        "--------------------------------------------------"
+                        "\n",
+                        key);
+                }
             }
         }
 
@@ -1518,20 +1588,31 @@ be_test_rand_norepeat(struct be_ctx *bectx, const struct be_params *bep,
 
     while (!quit && (NUM_OPS(bectx) < bep->num_ops)) {
         int key;
-        int delete, search;
+        int delete, search, trans;
         int verify = -1;
 
         ret = handle_usr_signals(bectx, NULL, NULL);
         if (ret != 0)
             break;
 
-        if (bep->delete_from_root) {
-            if (!delete_from_root)
-                delete_from_root = !(random() % 4096);
-            else
-                delete_from_root = !!(random() % 16384);
-        }
-        if (delete_from_root) {
+        if (!(bectx->trans))
+            trans = !(random() % 16384);
+        else if (!(random() % 16))
+            trans = 2 + random() % 2;
+        else
+            trans = 0;
+
+        if (trans) {
+            ret = (*(trans_ops[trans].fn))(bectx, bep->use_be, bep->use_bitmap);
+            if (ERROR_FATAL(ret))
+                break;
+            VERBOSE_LOG(stderr, "%s transaction\n"
+                        "--------------------------------------------------"
+                        "\n",
+                        trans_ops[trans].act);
+        } else if (bep->delete_from_root
+                 && (delete_from_root
+                     ? !!(random() % 16384) : !(random() % 4096))) {
             ret = auto_test_delete_from(bectx, 0, &key, bep->use_be,
                                         bep->use_bitmap, 1, bep->confirm);
             if (ERROR_FATAL(ret))

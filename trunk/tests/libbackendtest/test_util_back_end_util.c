@@ -460,31 +460,52 @@ auto_test_walk(struct be_ctx *bectx, int key, int use_be, int use_bitmap)
 int
 auto_test_trans_new(struct be_ctx *bectx, int use_be, int use_bitmap)
 {
-    (void)bectx;
-    (void)use_be;
-    (void)use_bitmap;
+    int ret;
 
-    return -ENOSYS;
+    if (use_be) {
+        ret = be_trans_new(bectx);
+        if (ret != 0)
+            return ret;
+    }
+
+    if (use_bitmap)
+        be_bitmap_trans_new(bectx);
+
+    return 0;
 }
 
 int
 auto_test_trans_abort(struct be_ctx *bectx, int use_be, int use_bitmap)
 {
-    (void)bectx;
-    (void)use_be;
-    (void)use_bitmap;
+    int ret;
 
-    return -ENOSYS;
+    if (use_be) {
+        ret = be_trans_abort(bectx);
+        if (ret != 0)
+            return ret;
+    }
+
+    if (use_bitmap)
+        be_bitmap_trans_abort(bectx);
+
+    return 0;
 }
 
 int
 auto_test_trans_commit(struct be_ctx *bectx, int use_be, int use_bitmap)
 {
-    (void)bectx;
-    (void)use_be;
-    (void)use_bitmap;
+    int ret;
 
-    return -ENOSYS;
+    if (use_be) {
+        ret = be_trans_commit(bectx);
+        if (ret != 0)
+            return ret;
+    }
+
+    if (use_bitmap)
+        be_bitmap_trans_commit(bectx);
+
+    return 0;
 }
 
 /* vi: set expandtab sw=4 ts=4: */

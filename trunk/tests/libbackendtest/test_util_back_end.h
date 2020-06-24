@@ -259,6 +259,10 @@ LIBBACKENDTEST_EXPORTED int be_iter_select(struct be_ctx *bectx, void *iter,
                                            int idx, int verbose,
                                            int record_stats);
 
+LIBBACKENDTEST_EXPORTED int be_trans_new(struct be_ctx *bectx);
+LIBBACKENDTEST_EXPORTED int be_trans_abort(struct be_ctx *bectx);
+LIBBACKENDTEST_EXPORTED int be_trans_commit(struct be_ctx *bectx);
+
 LIBBACKENDTEST_EXPORTED int be_test_quick(struct be_ctx *bectx,
                                           const struct be_params *bep);
 LIBBACKENDTEST_EXPORTED int be_test_insertion(struct be_ctx *bectx,

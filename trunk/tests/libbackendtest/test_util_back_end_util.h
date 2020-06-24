@@ -70,6 +70,9 @@ int auto_test_select(struct be_ctx *bectx, int idx, int use_be, int use_bitmap);
 int auto_test_get_index(struct be_ctx *bectx, int key, int use_be,
                         int use_bitmap);
 int auto_test_walk(struct be_ctx *bectx, int key, int use_be, int use_bitmap);
+int auto_test_trans_new(struct be_ctx *bectx, int use_be, int use_bitmap);
+int auto_test_trans_abort(struct be_ctx *bectx, int use_be, int use_bitmap);
+int auto_test_trans_commit(struct be_ctx *bectx, int use_be, int use_bitmap);
 
 #endif
 
