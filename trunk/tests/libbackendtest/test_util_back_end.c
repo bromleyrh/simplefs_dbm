@@ -1215,7 +1215,7 @@ be_test_rand_repeat(struct be_ctx *bectx, const struct be_params *bep,
             break;
 
         if (!(bectx->trans))
-            trans = !(random() % 16384);
+            trans = !(random() % 128);
         else if (!(random() % 16))
             trans = 2 + random() % 2;
         else

@@ -471,6 +471,8 @@ auto_test_trans_new(struct be_ctx *bectx, int use_be, int use_bitmap)
     if (use_bitmap)
         be_bitmap_trans_new(bectx);
 
+    bectx->trans = 1;
+
     return 0;
 }
 
@@ -488,6 +490,8 @@ auto_test_trans_abort(struct be_ctx *bectx, int use_be, int use_bitmap)
     if (use_bitmap)
         be_bitmap_trans_abort(bectx);
 
+    bectx->trans = 0;
+
     return 0;
 }
 
@@ -504,6 +508,8 @@ auto_test_trans_commit(struct be_ctx *bectx, int use_be, int use_bitmap)
 
     if (use_bitmap)
         be_bitmap_trans_commit(bectx);
+
+    bectx->trans = 0;
 
     return 0;
 }

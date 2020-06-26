@@ -141,6 +141,9 @@ static int test_iter_free(void *);
 static int test_iter_get(void *, void *);
 static int test_iter_next(void *);
 static int test_iter_search(void *, const void *);
+static int test_trans_new(void *);
+static int test_trans_abort(void *);
+static int test_trans_commit(void *);
 static int test_dump(FILE *, void *);
 
 static int do_walk(void *, int (*)(const void *, const void *, size_t, void *),
@@ -556,6 +559,7 @@ init_fuse_cache_ctx(struct fuse_cache_ctx *cachectx, const char *file,
     SET_STD_ITER_OPS_NO_PREV(cachectx->bectx, test);
     SET_REPLACE_OP(cachectx->bectx, test);
     SET_WALK_OP(cachectx->bectx, test);
+    SET_TRANS_OPS(cachectx->bectx, test);
     cachectx->bectx.cb.verify_rand = &verify_rand;
     cachectx->bectx.cb.print_stats = &print_stats;
     cachectx->bectx.cb.end_test = &do_end_test;
@@ -765,6 +769,30 @@ static int
 test_iter_search(void *iter, const void *key)
 {
     return back_end_iter_search(iter, key);
+}
+
+static int
+test_trans_new(void *be)
+{
+    struct fuse_cache_ctx *cachectx = (struct fuse_cache_ctx *)be;
+
+    return back_end_trans_new(cachectx->be);
+}
+
+static int
+test_trans_abort(void *be)
+{
+    struct fuse_cache_ctx *cachectx = (struct fuse_cache_ctx *)be;
+
+    return back_end_trans_abort(cachectx->be);
+}
+
+static int
+test_trans_commit(void *be)
+{
+    struct fuse_cache_ctx *cachectx = (struct fuse_cache_ctx *)be;
+
+    return back_end_trans_commit(cachectx->be);
 }
 
 static int
