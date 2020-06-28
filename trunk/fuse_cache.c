@@ -2314,7 +2314,7 @@ fuse_cache_trans_commit(void *ctx)
         return err;
 
     err = (*(cache->ops->trans_commit))(cache->ctx);
-    if (err)
+    if (err < 0)
         return err;
 
     check_consistency(cache);
