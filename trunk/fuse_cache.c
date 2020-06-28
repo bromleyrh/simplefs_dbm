@@ -1399,7 +1399,7 @@ fuse_cache_insert(void *ctx, const void *key, const void *data, size_t datasize)
 
     /* insert into back end */
     res = (*(cache->ops->insert))(cache->ctx, key, data, datasize);
-    if (res != 0)
+    if (res < 0)
         goto err3;
 
     trans_state = cache->trans_state;
@@ -1499,7 +1499,7 @@ fuse_cache_replace(void *ctx, const void *key, const void *data,
 
     /* replace in back end */
     res = (*(cache->ops->replace))(cache->ctx, key, data, datasize);
-    if (res != 0) {
+    if (res < 0) {
         if (!in_cache) {
             avl_tree_delete_node(cache->cache, &o->n, &o);
             o->in_cache = 0;
@@ -1723,7 +1723,7 @@ fuse_cache_delete(void *ctx, const void *key)
 
     /* delete from back end */
     res = (*(cache->ops->delete))(cache->ctx, key);
-    if (res != 0)
+    if (res < 0)
         return res;
 
     trans_state = cache->trans_state;
