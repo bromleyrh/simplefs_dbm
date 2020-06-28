@@ -177,14 +177,14 @@ back_end_dbm_create(void **ctx, size_t key_size, back_end_key_cmp_t key_cmp,
         goto err3;
 
     if (dbargs->trans_cb) {
-        err = db_hl_set_cb(ret->dbh, &trans_cb, ret, NULL);
+        err = db_hl_ctl(ret->dbh, DB_HL_OP_SET_CB, &trans_cb, ret, NULL);
         if (err)
             goto err4;
         ret->trans_cb = dbargs->trans_cb;
         ret->trans_ctx = dbargs->trans_ctx;
     }
     if (dbargs->sync_cb) {
-        err = db_hl_sync_set_cb(ret->dbh, &sync_cb, ret, NULL);
+        err = db_hl_ctl(ret->dbh, DB_HL_OP_SYNC_SET_CB, &sync_cb, ret, NULL);
         if (err)
             goto err4;
         ret->sync_cb = dbargs->sync_cb;
@@ -266,14 +266,14 @@ back_end_dbm_open(void **ctx, size_t key_size, back_end_key_cmp_t key_cmp,
         goto err4;
 
     if (dbargs->trans_cb) {
-        err = db_hl_set_cb(ret->dbh, &trans_cb, ret, NULL);
+        err = db_hl_ctl(ret->dbh, DB_HL_OP_SET_CB, &trans_cb, ret, NULL);
         if (err)
             goto err4;
         ret->trans_cb = dbargs->trans_cb;
         ret->trans_ctx = dbargs->trans_ctx;
     }
     if (dbargs->sync_cb) {
-        err = db_hl_sync_set_cb(ret->dbh, &sync_cb, ret, NULL);
+        err = db_hl_ctl(ret->dbh, DB_HL_OP_SYNC_SET_CB, &sync_cb, ret, NULL);
         if (err)
             goto err5;
         ret->sync_cb = dbargs->sync_cb;
@@ -535,7 +535,7 @@ back_end_dbm_disable_iter_commit(void *ctx)
 {
     struct db_ctx *dbctx = (struct db_ctx *)ctx;
 
-    db_hl_set_iter_commit(dbctx->dbh, 0);
+    db_hl_ctl(dbctx->dbh, DB_HL_OP_SET_ITER_COMMIT, 0);
 }
 
 int
@@ -543,7 +543,7 @@ back_end_dbm_get_trans_state(void *ctx)
 {
     struct db_ctx *dbctx = (struct db_ctx *)ctx;
 
-    return db_hl_get_trans_state(dbctx->dbh);
+    return db_hl_ctl(dbctx->dbh, DB_HL_OP_GET_TRANS_STATE);
 }
 
 /* vi: set expandtab sw=4 ts=4: */
