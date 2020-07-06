@@ -51,7 +51,7 @@ AX_CHECK_COMPILE_FLAG([-Werror -fstack-protector-all],
 )
 AC_SUBST([stack_protector])
 
-AC_CHECK_HEADERS([sys/xattr.h])
+AC_CHECK_HEADERS([linux/magic.h sys/xattr.h])
 
 AC_CHECK_TYPES([clockid_t], [], [],
                [
@@ -62,7 +62,7 @@ AC_CHECK_TYPES([clockid_t], [], [],
 AC_CHECK_MEMBERS([struct stat.st_atimespec, struct stat.st_mtimespec,
                   struct stat.st_ctimespec])
 
-AC_CHECK_FUNCS([posix_fallocate])
+AC_CHECK_FUNCS([fdatasync posix_fallocate])
 
 AX_FUNC_ERROR
 

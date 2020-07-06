@@ -13,8 +13,8 @@ include tests/libbackendtest/Makefile.am
 include tests/libtestshell/Makefile.am
 include tests/libutiltest/Makefile.am
 
-tests_fuse_cache_test_SOURCES = back_end.c back_end_dbm.c fuse_cache.c \
-	tests/fuse_cache_test.c
+tests_fuse_cache_test_SOURCES = back_end.c back_end_dbm.c blkdev.c \
+	fuse_cache.c tests/fuse_cache_test.c
 tests_fuse_cache_test_CPPFLAGS = $(AM_CPPFLAGS) -Itests/libbackendtest \
 	-Itests/libutiltest @libtest_cppflags@
 tests_fuse_cache_test_CFLAGS = $(AM_CFLAGS)

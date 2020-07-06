@@ -6,6 +6,7 @@
 
 #include "back_end.h"
 #include "back_end_dbm.h"
+#include "blkdev.h"
 #include "util.h"
 
 #include <dbm_high_level.h>
@@ -172,7 +173,8 @@ back_end_dbm_create(void **ctx, size_t key_size, back_end_key_cmp_t key_cmp,
     ret->key_ctx->last_key_valid = 0;
 
     err = db_hl_create(&ret->dbh, dbargs->db_pathname, dbargs->db_mode,
-                       key_size, (db_hl_key_cmp_t)key_cmp, ret->key_ctx, 0);
+                       key_size, (db_hl_key_cmp_t)key_cmp, ret->key_ctx,
+                       DB_HL_USEFSOPS, FS_BLKDEV_OPS);
     if (err)
         goto err3;
 
@@ -247,7 +249,9 @@ back_end_dbm_open(void **ctx, size_t key_size, back_end_key_cmp_t key_cmp,
 
     /* test for journal replay by attempting read-only open */
     err = db_hl_open(&ret->dbh, relpath, key_size, (db_hl_key_cmp_t)key_cmp,
-                     ret->key_ctx, DB_HL_RDONLY | DB_HL_RELPATH, dfd);
+                     ret->key_ctx,
+                     DB_HL_RDONLY | DB_HL_RELPATH | DB_HL_USEFSOPS, dfd,
+                     FS_BLKDEV_OPS);
     if (!(dbargs->ro)) {
         if (err) {
             if (err != -EROFS)
@@ -260,7 +264,8 @@ back_end_dbm_open(void **ctx, size_t key_size, back_end_key_cmp_t key_cmp,
         }
 
         err = db_hl_open(&ret->dbh, relpath, key_size, (db_hl_key_cmp_t)key_cmp,
-                         ret->key_ctx, DB_HL_RELPATH, dfd);
+                         ret->key_ctx, DB_HL_RELPATH | DB_HL_USEFSOPS, dfd,
+                         FS_BLKDEV_OPS);
     }
     if (err)
         goto err4;
