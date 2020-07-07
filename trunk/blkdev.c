@@ -5,6 +5,7 @@
 #include "config.h"
 
 #include "blkdev.h"
+#include "util.h"
 
 #ifdef __APPLE__
 #include "common.h"
@@ -18,9 +19,11 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <stdarg.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 #include <unistd.h>
 
 #include <sys/file.h>
@@ -31,6 +34,18 @@
 #ifdef HAVE_LINUX_MAGIC_H
 #include <sys/vfs.h>
 #endif
+
+#define BCTX_FD(bctx, n) ((bctx)->fd[n])
+
+#define DFD(bctx) BCTX_FD(bctx, 0)
+#define FD(bctx) BCTX_FD(bctx, 1)
+#define JFD(bctx) BCTX_FD(bctx, 2)
+
+struct blkdev_ctx {
+    int     fd[3];
+    off_t   off;
+    off_t   joff;
+};
 
 struct fs_ops {
     int (*openfs)(void **ctx, void *args);
@@ -92,6 +107,12 @@ static int fs_blkdev_fcntl_setfl(void *ctx, int fd, int flags);
 static int fs_blkdev_fstatfs(void *ctx, int fd, struct statfs *buf);
 #endif
 
+#define JOURNAL_FILE_SUFFIX "_journal"
+
+#if defined(HAVE_LINUX_MAGIC_H) && !defined(NFS_SUPER_MAGIC)
+#define NFS_SUPER_MAGIC 1
+#endif
+
 const struct fs_ops fs_blkdev_ops = {
     .openfs         = &fs_blkdev_openfs,
     .closefs        = &fs_blkdev_closefs,
@@ -115,6 +136,8 @@ const struct fs_ops fs_blkdev_ops = {
 #endif
 };
 
+static int err_to_errno(int);
+
 static int interrupt_recv(const struct interrupt_data *);
 
 static size_t do_io(io_fn_t, int, void *, size_t, off_t, size_t,
@@ -131,7 +154,14 @@ static int do_pfdatasync(int, const struct interrupt_data *);
 #endif
 #endif
 
-static int falloc(int, off_t, off_t);
+/*static int falloc(int, off_t, off_t);
+*/
+static int
+err_to_errno(int err)
+{
+    errno = err;
+    return -1;
+}
 
 static int
 interrupt_recv(const struct interrupt_data *intdata)
@@ -204,6 +234,7 @@ do_pfdatasync(int fd, const struct interrupt_data *intdata)
 
 #endif
 
+#if 0
 /*
  * NOTE: Due to lack of atomicity, falloc() should not be called while
  * concurrent updates to the specified file's size or allocated blocks are being
@@ -273,40 +304,123 @@ falloc(int fd, off_t offset, off_t len)
 #endif
 }
 
+#endif
+
 static int
 fs_blkdev_openfs(void **ctx, void *args)
 {
+    size_t i;
+    struct blkdev_ctx *ret;
+
     (void)args;
 
-    *ctx = NULL;
+    ret = do_malloc(sizeof(*ret));
+    if (ret == NULL)
+        return -errno;
+
+    for (i = 0; i < ARRAY_SIZE(ret->fd); i++)
+        ret->fd[i] = -1;
+    ret->off = -1;
+
+    *ctx = ret;
     return 0;
 }
 
 static int
 fs_blkdev_closefs(void *ctx)
 {
-    (void)ctx;
+    free(ctx);
 
     return 0;
 }
 
+/*
+ * This function receives open requests for exactly the following pathnames:
+ * - ".", whose corresponding file should have the directory type
+ * - "x_journal" for some prefix "x", whose corresponding file must have the
+ *   regular file type
+ * - "x" for the same string "x" as the file above, whose corresponding file
+ *   must also have the regular file type
+ *
+ * The function fs_blkdev_openat() should resolve the above pathnames such that
+ * each refers to a distinct file or a nonexistent file. In particular, it is
+ * important that x_journal and x resolve to different files if they both refer
+ * to existing files. If this is not guaranteed, corruption may occur.
+ *
+ * After a file system is formatted but before it is first mounted, neither the
+ * file x_journal nor x should exist. In this case, fs_blkdev_openat() should
+ * return descriptors for these files only if O_CREAT is specified in the flags
+ * argument, in which case it should create a new file for each. The results for
+ * the case where a file system has not been formatted are undefined.
+ *
+ * Above, having the type T means that fs_blkdev_fstat() returns the type T in
+ * the st_mode field of the status structure for a file descriptor referring to
+ * the file. Also, if T is the regular file type, all of the below operations
+ * must be supported on a file descriptor referencing the file. Otherwise, T is
+ * the directory type, and only the openat, close, and fsync operations need to
+ * be supported.
+ */
 static int
 fs_blkdev_openat(void *ctx, int dfd, const char *pathname, int flags,
                  va_list ap)
 {
-    (void)ctx;
+    char buf[PATH_MAX];
+    int *bfd;
+    int ret;
+    struct blkdev_ctx *bctx = (struct blkdev_ctx *)ctx;
 
-    return (flags & O_CREAT)
-           ? openat(dfd, pathname, flags, (mode_t)va_arg(ap, unsigned))
-           : openat(dfd, pathname, flags);
+    (void)ap;
+
+    if (strcmp(".", pathname) == 0)
+        bfd = &DFD(bctx);
+    else {
+        size_t plen, slen;
+
+        slen = strlen(pathname);
+        plen = slen - sizeof(JOURNAL_FILE_SUFFIX) + 1;
+
+        if (strcmp(JOURNAL_FILE_SUFFIX, pathname + plen) == 0) {
+            if (plen >= sizeof(buf))
+                return err_to_errno(ENAMETOOLONG);
+            strncpy(buf, pathname, plen);
+            buf[plen] = '\0';
+            pathname = buf;
+            bfd = &JFD(bctx);
+        } else
+            bfd = &FD(bctx);
+    }
+
+    ret = openat(dfd, pathname, flags);
+    if (ret != -1)
+        *bfd = ret;
+
+    return ret;
 }
 
 static int
 fs_blkdev_close(void *ctx, int fd)
 {
-    (void)ctx;
+    int ret;
+    size_t i;
+    struct blkdev_ctx *bctx = (struct blkdev_ctx *)ctx;
 
-    return close(fd);
+    if (fd < 0)
+        goto err;
+    for (i = 0;; i++) {
+        if (i == ARRAY_SIZE(bctx->fd))
+            goto err;
+        if (fd == bctx->fd[i])
+            break;
+    }
+
+    ret = close(fd);
+    if ((ret != -1) || (errno != EBADF))
+        bctx->fd[i] = -1;
+
+    return ret;
+
+err:
+    return err_to_errno(EBADF);
 }
 
 static void *
@@ -347,6 +461,8 @@ fs_blkdev_fstat(void *ctx, int fd, struct stat *s)
 {
     (void)ctx;
 
+    return err_to_errno(ENOSYS);
+
     return fstat(fd, s);
 }
 
@@ -355,6 +471,8 @@ fs_blkdev_pread(void *ctx, int fd, void *buf, size_t count, off_t offset,
                 size_t maxread, const struct interrupt_data *intdata)
 {
     (void)ctx;
+
+    return err_to_errno(ENOSYS);
 
     return do_ppread(fd, buf, count, offset, maxread, intdata);
 }
@@ -365,6 +483,8 @@ fs_blkdev_pwrite(void *ctx, int fd, const void *buf, size_t count, off_t offset,
 {
     (void)ctx;
 
+    return err_to_errno(ENOSYS);
+
     return do_ppwrite(fd, buf, count, offset, maxwrite, intdata);
 }
 
@@ -373,6 +493,8 @@ fs_blkdev_ftruncate(void *ctx, int fd, off_t length)
 {
     (void)ctx;
 
+    return err_to_errno(ENOSYS);
+
     return ftruncate(fd, length);
 }
 
@@ -380,8 +502,11 @@ static int
 fs_blkdev_falloc(void *ctx, int fd, off_t offset, off_t len)
 {
     (void)ctx;
+    (void)fd;
+    (void)offset;
+    (void)len;
 
-    return falloc(fd, offset, len);
+    return 0;
 }
 
 static int
@@ -429,12 +554,22 @@ fs_blkdev_fcntl_setfl(void *ctx, int fd, int flags)
 }
 
 #ifdef HAVE_LINUX_MAGIC_H
+/*
+ * Currently, this function is only required to set the f_type field of the
+ * statfs structure *buf to a value other than NFS_SUPER_MAGIC, if this macro is
+ * defined in linux/magic.h.
+ */
 static int
 fs_blkdev_fstatfs(void *ctx, int fd, struct statfs *buf)
 {
     (void)ctx;
+    (void)fd;
 
-    return fstatfs(fd, buf);
+    memset(buf, 0, sizeof(*buf));
+    /* Return f_type value other than NFS_SUPER_MAGIC */
+    buf->f_type = NFS_SUPER_MAGIC - 1;
+
+    return 0;
 }
 
 #endif
