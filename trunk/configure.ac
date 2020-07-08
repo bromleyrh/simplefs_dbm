@@ -51,7 +51,7 @@ AX_CHECK_COMPILE_FLAG([-Werror -fstack-protector-all],
 )
 AC_SUBST([stack_protector])
 
-AC_CHECK_HEADERS([linux/magic.h sys/xattr.h])
+AC_CHECK_HEADERS([linux/fs.h linux/magic.h sys/xattr.h])
 
 AC_CHECK_TYPES([clockid_t], [], [],
                [
