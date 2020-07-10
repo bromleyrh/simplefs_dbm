@@ -136,6 +136,7 @@ static int fs_blkdev_fstatfs(void *ctx, int fd, struct statfs *buf);
 
 /* These sizes must be a multiple of 4096 */
 #define DATA_MIN_SIZE (2 * 1024 * 1024)
+#define DATA_SIZE(bctx) ((bctx)->hdr.joff - sizeof(struct disk_header))
 #define JOURNAL_SIZE (256 * 1024 * 1024)
 
 #define BLKDEV_MIN_SIZE \
@@ -171,6 +172,8 @@ const struct fs_ops fs_blkdev_ops = {
 };
 
 static int err_to_errno(int);
+static size_t err_to_errno_sz(int);
+static void *err_to_errno_p(int);
 
 static int interrupt_recv(const struct interrupt_data *);
 
@@ -188,8 +191,6 @@ static int do_pfdatasync(int, const struct interrupt_data *);
 #endif
 #endif
 
-/*static int falloc(int, off_t, off_t);
-*/
 static int blkdev_flags(int);
 static int get_blkdev_size(int, uint64_t *);
 
@@ -201,11 +202,28 @@ static int open_blkdev(int, int, int, int *, struct blkdev_ctx *);
 
 static int check_fd_regular(int, struct blkdev_ctx *);
 
+static size_t do_blkdev_io(struct blkdev_ctx *, int, void *, size_t, off_t,
+                           size_t, const struct interrupt_data *, int);
+
 static int
 err_to_errno(int err)
 {
     errno = err;
     return -1;
+}
+
+static size_t
+err_to_errno_sz(int err)
+{
+    errno = err;
+    return 0;
+}
+
+static void *
+err_to_errno_p(int err)
+{
+    errno = err;
+    return NULL;
 }
 
 static int
@@ -276,78 +294,6 @@ do_pfdatasync(int fd, const struct interrupt_data *intdata)
 }
 
 #endif
-
-#endif
-
-#if 0
-/*
- * NOTE: Due to lack of atomicity, falloc() should not be called while
- * concurrent updates to the specified file's size or allocated blocks are being
- * performed on OS X
- */
-static int
-falloc(int fd, off_t offset, off_t len)
-{
-#if defined(HAVE_POSIX_FALLOCATE)
-    return posix_fallocate(fd, offset, len);
-#elif defined(__APPLE__)
-    off_t curalloc;
-    struct stat s;
-
-    if (offset != 0) /* see F_PREALLOCATE comment below */
-        return ENOTSUP;
-    if (INT64_MAX - offset < len)
-        return EFBIG;
-
-    if (fstat(fd, &s) == -1)
-        return ERRNO;
-    curalloc = s.st_blocks * 512;
-
-    if (len > curalloc) {
-        fstore_t stinfo;
-
-        /*
-         * F_PREALLOCATE sets the size in bytes of a file's preallocated block
-         * pool on APFS (with decreases in size disallowed), while it increases
-         * the size of the pool by the given number of bytes on HFS+. It is not
-         * known whether space for holes in a file (which must reside in the
-         * range [0, s.st_size)) can be allocated from the file's preallocated
-         * block pool. It is not possible to reserve preallocated blocks for an
-         * arbitrary range of bytes.
-         */
-
-        stinfo.fst_flags = F_ALLOCATEALL;
-        stinfo.fst_posmode = F_PEOFPOSMODE;
-        stinfo.fst_offset = 0;
-        /*
-         * stinfo.fst_length should be set to the correct preallocated component
-         * of len. If the file has no holes, this is len - s.st_size. However,
-         * if the file has holes, this component cannot be accurately determined
-         * without a scan of the entire file. Thus, len is used below, ensuring
-         * that stinfo.fst_length is greater than or equal to the correct
-         * preallocated component. This will allocate more than the requested
-         * amount of space if the file has no holes.
-         */
-        stinfo.fst_length = len;
-
-        if (fcntl(fd, F_PREALLOCATE, &stinfo) == -1)
-            return ERRNO;
-    }
-
-    /* set file size to offset + len, as with posix_fallocate() */
-    len += offset;
-    if ((s.st_size < len) && (ftruncate(fd, len) == -1))
-        return ERRNO;
-
-    return 0;
-#else
-    (void)fd;
-    (void)offset;
-    (void)len;
-
-    return ENOSYS;
-#endif
-}
 
 #endif
 
@@ -443,6 +389,39 @@ check_fd_regular(int fd, struct blkdev_ctx *bctx)
         return err_to_errno((fd == DFD(bctx)) ? EINVAL : EBADF);
 
     return 0;
+}
+
+static size_t
+do_blkdev_io(struct blkdev_ctx *bctx, int fd, void *buf, size_t count,
+             off_t offset, size_t maxio, const struct interrupt_data *intdata,
+             int direction)
+{
+    int ret;
+    off_t maxreloff, off;
+
+    ret = check_fd_regular(fd, bctx);
+    if (ret != 0)
+        return ret;
+    if (offset < 0)
+        return err_to_errno_sz(EINVAL);
+    if (count > (uint64_t)(INT64_MAX - offset))
+        return err_to_errno_sz(EOVERFLOW);
+
+    if (fd == JFD(bctx)) {
+        maxreloff = JOURNAL_SIZE;
+        off = bctx->hdr.joff;
+    } else {
+        maxreloff = DATA_SIZE(bctx);
+        off = bctx->hdr.off;
+    }
+    off += offset;
+
+    if (offset + (off_t)count > maxreloff)
+        return err_to_errno_sz(ENOSPC);
+
+    return (direction == 0)
+           ? do_ppread(fd, buf, count, off, maxio, intdata)
+           : do_ppwrite(fd, (const void *)buf, count, off, maxio, intdata);
 }
 
 static int
@@ -608,9 +587,12 @@ static void *
 fs_blkdev_mmap(void *ctx, void *addr, size_t length, int prot, int flags,
                int fd, off_t offset)
 {
-    (void)ctx;
+    struct blkdev_ctx *bctx = (struct blkdev_ctx *)ctx;
 
-    return mmap(addr, length, prot, flags, fd, offset);
+    if (fd != FD(bctx))
+        return err_to_errno_p(EINVAL);
+
+    return mmap(addr, length, prot, flags, fd, bctx->hdr.off + offset);
 }
 
 static int
@@ -662,32 +644,28 @@ static size_t
 fs_blkdev_pread(void *ctx, int fd, void *buf, size_t count, off_t offset,
                 size_t maxread, const struct interrupt_data *intdata)
 {
-    (void)ctx;
+    struct blkdev_ctx *bctx = (struct blkdev_ctx *)ctx;
 
-    return err_to_errno(ENOSYS);
-
-    return do_ppread(fd, buf, count, offset, maxread, intdata);
+    return do_blkdev_io(bctx, fd, buf, count, offset, maxread, intdata, 0);
 }
 
 static size_t
 fs_blkdev_pwrite(void *ctx, int fd, const void *buf, size_t count, off_t offset,
                  size_t maxwrite, const struct interrupt_data *intdata)
 {
-    (void)ctx;
+    struct blkdev_ctx *bctx = (struct blkdev_ctx *)ctx;
 
-    return err_to_errno(ENOSYS);
-
-    return do_ppwrite(fd, buf, count, offset, maxwrite, intdata);
+    return do_blkdev_io(bctx, fd, (void *)buf, count, offset, maxwrite, intdata,
+                        1);
 }
 
 static int
 fs_blkdev_ftruncate(void *ctx, int fd, off_t length)
 {
     (void)ctx;
+    (void)fd;
 
-    return err_to_errno(ENOSYS);
-
-    return ftruncate(fd, length);
+    return (length < 0) ? err_to_errno(EINVAL) : 0;
 }
 
 static int
