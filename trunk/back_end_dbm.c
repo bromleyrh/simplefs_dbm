@@ -50,6 +50,15 @@ int db_hl_get_trans_state(struct dbh *);
 static void trans_cb(struct dbh *, int, int, int, void *);
 static void sync_cb(struct dbh *, int, void *);
 
+static int get_dir_relpath_components(const char *, int *, const char **,
+                                      char *);
+static int is_blkdev(int, const char *);
+
+static int do_create(struct dbh **, int, const char *, mode_t, size_t,
+                     back_end_key_cmp_t, void *, int, int);
+static int do_open(struct dbh **, int, const char *, size_t, back_end_key_cmp_t,
+                   void *, int, int);
+
 static int get_next_elem(void *, void *, size_t *, const void *,
                          struct db_ctx *);
 
@@ -112,6 +121,74 @@ sync_cb(struct dbh *dbh, int status, void *ctx)
     (*(dbctx->sync_cb))(status, dbctx->sync_ctx);
 }
 
+int
+get_dir_relpath_components(const char *pathname, int *dfd,
+                           const char **relpathname, char *buf)
+{
+    int fd;
+
+    if (dirname_safe(pathname, buf, PATH_MAX) == NULL)
+        return -ENAMETOOLONG;
+
+    fd = open(buf, O_CLOEXEC | O_DIRECTORY | O_RDONLY);
+    if (fd == -1)
+        return -errno;
+
+    *dfd = fd;
+    *relpathname = basename_safe(pathname);
+    return 0;
+}
+
+static int
+is_blkdev(int dfd, const char *pathname)
+{
+    struct stat s;
+
+    /* Time-of-check to time-of-use race conditions are avoided as follows. If
+     * this function returns a block device type, this module relies on the
+     * FS_BLKDEV_OPS implementation to return an error if the pathname no longer
+     * resolves to a block device. If this function returns a non-block-device
+     * type, this module relies on the DBM implementation to return an error if
+     * the pathname no longer resolves to a regular file. */
+    if (fstatat(dfd, pathname, &s, 0) == -1)
+        return (errno == ENOENT) ? 0 : -errno;
+
+    return (s.st_mode & S_IFMT) == S_IFBLK;
+}
+
+static int
+do_create(struct dbh **dbh, int dfd, const char *relpath, mode_t mode,
+          size_t key_size, back_end_key_cmp_t key_cmp, void *key_ctx, int flags,
+          int blkdev)
+{
+    db_hl_key_cmp_t keycmp = (db_hl_key_cmp_t)key_cmp;
+
+    if (blkdev) {
+        return db_hl_create(dbh, relpath, mode, key_size, keycmp, key_ctx,
+                            flags | DB_HL_RELPATH | DB_HL_USEFSOPS, dfd,
+                            FS_BLKDEV_OPS);
+    }
+
+    return db_hl_create(dbh, relpath, mode, key_size, keycmp, key_ctx,
+                        flags | DB_HL_RELPATH, dfd);
+}
+
+static int
+do_open(struct dbh **dbh, int dfd, const char *relpath, size_t key_size,
+        back_end_key_cmp_t key_cmp, void *key_ctx, int flags, int blkdev)
+{
+    db_hl_key_cmp_t keycmp = (db_hl_key_cmp_t)key_cmp;
+
+    if (blkdev) {
+        return db_hl_open(dbh, relpath, key_size, keycmp, key_ctx,
+                          flags | DB_HL_RELPATH | DB_HL_USEFSOPS, dfd,
+                          FS_BLKDEV_OPS);
+    }
+
+    return db_hl_open(dbh, relpath, key_size, keycmp, key_ctx,
+                      flags | DB_HL_RELPATH, dfd);
+}
+
 static int
 get_next_elem(void *retkey, void *retdata, size_t *retdatasize, const void *key,
               struct db_ctx *dbctx)
@@ -149,61 +226,80 @@ int
 back_end_dbm_create(void **ctx, size_t key_size, back_end_key_cmp_t key_cmp,
                     void *args)
 {
+    char buf[PATH_MAX];
+    const char *relpath;
+    int blkdev;
+    int dfd;
     int err;
     struct db_args *dbargs = (struct db_args *)args;
     struct db_ctx *ret;
 
+    err = get_dir_relpath_components(dbargs->db_pathname, &dfd, &relpath, buf);
+    if (err)
+        return err;
+
+    blkdev = is_blkdev(dfd, relpath);
+    if (blkdev < 0) {
+        err = blkdev;
+        goto err1;
+    }
+
     ret = do_malloc(sizeof(*ret));
-    if (ret == NULL)
-        return -errno;
+    if (ret == NULL) {
+        err = -errno;
+        goto err1;
+    }
     ret->key_size = key_size;
     ret->key_cmp = key_cmp;
 
     ret->key_ctx = do_malloc(sizeof(*(ret->key_ctx)));
     if (ret->key_ctx == NULL) {
         err = -errno;
-        goto err1;
+        goto err2;
     }
 
     ret->key_ctx->last_key = do_malloc(key_size);
     if (ret->key_ctx->last_key == NULL) {
         err = -errno;
-        goto err2;
+        goto err3;
     }
     ret->key_ctx->last_key_valid = 0;
 
-    err = db_hl_create(&ret->dbh, dbargs->db_pathname, dbargs->db_mode,
-                       key_size, (db_hl_key_cmp_t)key_cmp, ret->key_ctx,
-                       DB_HL_USEFSOPS, FS_BLKDEV_OPS);
+    err = do_create(&ret->dbh, dfd, relpath, dbargs->db_mode, key_size, key_cmp,
+                    ret->key_ctx, 0, blkdev);
     if (err)
-        goto err3;
+        goto err4;
 
     if (dbargs->trans_cb) {
         err = db_hl_ctl(ret->dbh, DB_HL_OP_SET_CB, &trans_cb, ret, NULL);
         if (err)
-            goto err4;
+            goto err5;
         ret->trans_cb = dbargs->trans_cb;
         ret->trans_ctx = dbargs->trans_ctx;
     }
     if (dbargs->sync_cb) {
         err = db_hl_ctl(ret->dbh, DB_HL_OP_SYNC_SET_CB, &sync_cb, ret, NULL);
         if (err)
-            goto err4;
+            goto err5;
         ret->sync_cb = dbargs->sync_cb;
         ret->sync_ctx = dbargs->sync_ctx;
     }
 
+    close(dfd);
+
     *ctx = ret;
     return 0;
 
-err4:
+err5:
     db_hl_close(ret->dbh);
-err3:
+err4:
     free(ret->key_ctx->last_key);
-err2:
+err3:
     free(ret->key_ctx);
-err1:
+err2:
     free(ret);
+err1:
+    close(dfd);
     return err;
 }
 
@@ -213,18 +309,21 @@ back_end_dbm_open(void **ctx, size_t key_size, back_end_key_cmp_t key_cmp,
 {
     char buf[PATH_MAX];
     const char *relpath;
+    int blkdev;
     int dfd;
     int err;
     struct db_args *dbargs = (struct db_args *)args;
     struct db_ctx *ret;
 
-    if (dirname_safe(dbargs->db_pathname, buf, sizeof(buf))
-        == NULL)
-        return -ENAMETOOLONG;
-    dfd = open(buf, O_CLOEXEC | O_DIRECTORY | O_RDONLY);
-    if (dfd == -1)
-        return -errno;
-    relpath = basename_safe(dbargs->db_pathname);
+    err = get_dir_relpath_components(dbargs->db_pathname, &dfd, &relpath, buf);
+    if (err)
+        return err;
+
+    blkdev = is_blkdev(dfd, relpath);
+    if (blkdev < 0) {
+        err = blkdev;
+        goto err1;
+    }
 
     ret = do_malloc(sizeof(*ret));
     if (ret == NULL) {
@@ -248,10 +347,8 @@ back_end_dbm_open(void **ctx, size_t key_size, back_end_key_cmp_t key_cmp,
     ret->key_ctx->last_key_valid = 0;
 
     /* test for journal replay by attempting read-only open */
-    err = db_hl_open(&ret->dbh, relpath, key_size, (db_hl_key_cmp_t)key_cmp,
-                     ret->key_ctx,
-                     DB_HL_RDONLY | DB_HL_RELPATH | DB_HL_USEFSOPS, dfd,
-                     FS_BLKDEV_OPS);
+    err = do_open(&ret->dbh, dfd, relpath, key_size, key_cmp, ret->key_ctx,
+                  DB_HL_RDONLY, blkdev);
     if (!(dbargs->ro)) {
         if (err) {
             if (err != -EROFS)
@@ -263,9 +360,8 @@ back_end_dbm_open(void **ctx, size_t key_size, back_end_key_cmp_t key_cmp,
                 goto err4;
         }
 
-        err = db_hl_open(&ret->dbh, relpath, key_size, (db_hl_key_cmp_t)key_cmp,
-                         ret->key_ctx, DB_HL_RELPATH | DB_HL_USEFSOPS, dfd,
-                         FS_BLKDEV_OPS);
+        err = do_open(&ret->dbh, dfd, relpath, key_size, key_cmp, ret->key_ctx,
+                      DB_HL_RELPATH, blkdev);
     }
     if (err)
         goto err4;

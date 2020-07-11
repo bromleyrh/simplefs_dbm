@@ -492,6 +492,7 @@ fs_blkdev_openat(void *ctx, int dfd, const char *pathname, int flags,
     int *init, initialized;
     int res, ret;
     struct blkdev_ctx *bctx = (struct blkdev_ctx *)ctx;
+    struct stat s;
 
     (void)ap;
 
@@ -523,6 +524,15 @@ fs_blkdev_openat(void *ctx, int dfd, const char *pathname, int flags,
 
     if (dir)
         goto end;
+
+    if (fstat(ret, &s) == -1) {
+        res = -errno;
+        goto err;
+    }
+    if ((s.st_mode & S_IFMT) != S_IFBLK) {
+        res = -ENODEV;
+        goto err;
+    }
 
     create = !!(flags & O_CREAT);
     ro = (flags & O_ACCMODE) == O_RDONLY;
