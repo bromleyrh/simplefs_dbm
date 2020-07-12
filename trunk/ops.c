@@ -1231,10 +1231,15 @@ delete_file(struct back_end *be, fuse_ino_t ino)
     if (ret != 1)
         return (ret == 0) ? -ENOENT : ret;
 
-    if (S_ISREG(s.st_mode)) {
+    if (S_ISREG(s.st_mode) || S_ISLNK(s.st_mode)) {
+        off_t size;
         uint64_t i, numpg;
 
-        numpg = (s.st_size + PG_SIZE - 1) / PG_SIZE;
+        size = s.st_size;
+        if (S_ISLNK(s.st_mode)) /* size does not include null terminator */
+            ++size;
+
+        numpg = (size + PG_SIZE - 1) / PG_SIZE;
 
         k.type = TYPE_PAGE;
 
