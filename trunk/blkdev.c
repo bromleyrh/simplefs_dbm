@@ -37,14 +37,13 @@
 #include <sys/file.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
-#include <sys/param.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #ifdef HAVE_LINUX_MAGIC_H
 #include <sys/vfs.h>
 #endif
 
-#define MAGIC 0
+#define MAGIC 0x53464d53
 
 struct disk_header {
     uint32_t    magic;
@@ -99,9 +98,6 @@ struct fs_ops {
     int (*fstatfs)(void *ctx, int fd, struct statfs *buf);
 #endif
 };
-
-typedef ssize_t (*io_fn_t)(int, void *, size_t, off_t,
-                           const struct interrupt_data *);
 
 static int fs_blkdev_openfs(void **ctx, void *args);
 static int fs_blkdev_closefs(void *ctx);
@@ -175,22 +171,6 @@ static int err_to_errno(int);
 static size_t err_to_errno_sz(int);
 static void *err_to_errno_p(int);
 
-static int interrupt_recv(const struct interrupt_data *);
-
-static size_t do_io(io_fn_t, int, void *, size_t, off_t, size_t,
-                    const struct interrupt_data *);
-
-static size_t do_ppread(int, void *, size_t, off_t, size_t,
-                        const struct interrupt_data *);
-static size_t do_ppwrite(int, const void *, size_t, off_t, size_t,
-                         const struct interrupt_data *);
-#ifndef __APPLE__
-static int do_pfsync(int, const struct interrupt_data *);
-#ifdef HAVE_FDATASYNC
-static int do_pfdatasync(int, const struct interrupt_data *);
-#endif
-#endif
-
 static int blkdev_flags(int);
 static int get_blkdev_size(int, uint64_t *);
 
@@ -225,77 +205,6 @@ err_to_errno_p(int err)
     errno = err;
     return NULL;
 }
-
-static int
-interrupt_recv(const struct interrupt_data *intdata)
-{
-    if ((intdata != NULL) && (intdata->interrupted != NULL)
-        && (*(intdata->interrupted))()) {
-        errno = EINTR;
-        return 1;
-    }
-
-    return 0;
-}
-
-static size_t
-do_io(io_fn_t fn, int fd, void *buf, size_t len, off_t offset, size_t maxlen,
-      const struct interrupt_data *intdata)
-{
-    size_t num_processed;
-    ssize_t ret;
-
-    if (maxlen == 0)
-        maxlen = ~((size_t)0);
-
-    for (num_processed = 0; num_processed < len; num_processed += ret) {
-        size_t length = MIN(len - num_processed, maxlen);
-
-        if (interrupt_recv(intdata))
-            break;
-
-        errno = 0;
-        ret = (*fn)(fd, (char *)buf + num_processed, length,
-                    offset + num_processed, intdata);
-        if (ret <= 0)
-            break;
-    }
-
-    return num_processed;
-}
-
-static size_t
-do_ppread(int fd, void *buf, size_t len, off_t offset, size_t maxread,
-          const struct interrupt_data *intdata)
-{
-    return do_io(&ppread, fd, buf, len, offset, maxread, intdata);
-}
-
-static size_t
-do_ppwrite(int fd, const void *buf, size_t len, off_t offset, size_t maxwrite,
-           const struct interrupt_data *intdata)
-{
-    return do_io((io_fn_t)&ppwrite, fd, (void *)buf, len, offset, maxwrite,
-                 intdata);
-}
-
-#ifndef __APPLE__
-static int
-do_pfsync(int fd, const struct interrupt_data *intdata)
-{
-    return interrupt_recv(intdata) ? -1 : pfsync(fd, intdata);
-}
-
-#ifdef HAVE_FDATASYNC
-static int
-do_pfdatasync(int fd, const struct interrupt_data *intdata)
-{
-    return interrupt_recv(intdata) ? -1 : pfdatasync(fd, intdata);
-}
-
-#endif
-
-#endif
 
 static int
 blkdev_flags(int flags)

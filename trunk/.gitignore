@@ -30,6 +30,7 @@ stamp-h1
 
 /simplefs
 
+/mkfs.simplefs
 /mount.simplefs
 /simplefs_dbg
 

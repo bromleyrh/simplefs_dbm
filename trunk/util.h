@@ -7,6 +7,8 @@
 
 #include "config.h"
 
+#include <io_ext.h>
+
 #include <errno.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -69,6 +71,13 @@ void *do_realloc(void *ptr, size_t size);
  * log_2_pow2(): calculate the base-2 logarithm of n, which must be a power of 2
  */
 uint32_t log_2_pow2(uint64_t n);
+
+size_t do_ppread(int, void *, size_t, off_t, size_t,
+                 const struct interrupt_data *);
+size_t do_ppwrite(int, const void *, size_t, off_t, size_t,
+                  const struct interrupt_data *);
+int do_pfsync(int, const struct interrupt_data *);
+int do_pfdatasync(int, const struct interrupt_data *);
 
 int gettime(clockid_t clk_id, struct timespec *tm);
 

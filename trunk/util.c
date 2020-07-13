@@ -10,6 +10,8 @@
 #include "common.h"
 #undef NO_ASSERT
 
+#include <io_ext.h>
+
 #include <assert.h>
 #include <errno.h>
 #include <stddef.h>
@@ -20,6 +22,9 @@
 #include <sys/param.h>
 #include <sys/time.h>
 
+typedef ssize_t (*io_fn_t)(int, void *, size_t, off_t,
+                           const struct interrupt_data *);
+
 #define ASSURE_ERRNO_SET(ret, expr) \
     do { \
         errno = 0; \
@@ -27,6 +32,49 @@
         if (((ret) == NULL) && (errno == 0)) \
             errno = ENOMEM; \
     } while (0)
+
+static int interrupt_recv(const struct interrupt_data *);
+
+static size_t do_io(io_fn_t, int, void *, size_t, off_t, size_t,
+                    const struct interrupt_data *);
+
+static int
+interrupt_recv(const struct interrupt_data *intdata)
+{
+    if ((intdata != NULL) && (intdata->interrupted != NULL)
+        && (*(intdata->interrupted))()) {
+        errno = EINTR;
+        return 1;
+    }
+
+    return 0;
+}
+
+static size_t
+do_io(io_fn_t fn, int fd, void *buf, size_t len, off_t offset, size_t maxlen,
+      const struct interrupt_data *intdata)
+{
+    size_t num_processed;
+    ssize_t ret;
+
+    if (maxlen == 0)
+        maxlen = ~((size_t)0);
+
+    for (num_processed = 0; num_processed < len; num_processed += ret) {
+        size_t length = MIN(len - num_processed, maxlen);
+
+        if (interrupt_recv(intdata))
+            break;
+
+        errno = 0;
+        ret = (*fn)(fd, (char *)buf + num_processed, length,
+                    offset + num_processed, intdata);
+        if (ret <= 0)
+            break;
+    }
+
+    return num_processed;
+}
 
 void *
 do_malloc(size_t size)
@@ -136,6 +184,39 @@ log_2_pow2(uint64_t n)
 
     return res;
 }
+
+size_t
+do_ppread(int fd, void *buf, size_t len, off_t offset, size_t maxread,
+          const struct interrupt_data *intdata)
+{
+    return do_io(&ppread, fd, buf, len, offset, maxread, intdata);
+}
+
+size_t
+do_ppwrite(int fd, const void *buf, size_t len, off_t offset, size_t maxwrite,
+           const struct interrupt_data *intdata)
+{
+    return do_io((io_fn_t)&ppwrite, fd, (void *)buf, len, offset, maxwrite,
+                 intdata);
+}
+
+#ifndef __APPLE__
+int
+do_pfsync(int fd, const struct interrupt_data *intdata)
+{
+    return interrupt_recv(intdata) ? -1 : pfsync(fd, intdata);
+}
+
+#ifdef HAVE_FDATASYNC
+int
+do_pfdatasync(int fd, const struct interrupt_data *intdata)
+{
+    return interrupt_recv(intdata) ? -1 : pfdatasync(fd, intdata);
+}
+
+#endif
+
+#endif
 
 int
 gettime(clockid_t clk_id, struct timespec *tm)
