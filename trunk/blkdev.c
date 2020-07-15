@@ -502,6 +502,11 @@ err:
     return err_to_errno(EBADF);
 }
 
+/*
+ * All memory-mapping functions are only invoked for the file y in the comment
+ * for fs_blkdev_openat().
+ */
+
 static void *
 fs_blkdev_mmap(void *ctx, void *addr, size_t length, int prot, int flags,
                int fd, off_t offset)
