@@ -601,7 +601,7 @@ fs_blkdev_fstat(void *ctx, int fd, struct stat *s)
 
     memset(s, 0, sizeof(*s));
     s->st_mode = S_IFREG;
-    s->st_size = (fd == FD(bctx)) ? bctx->hdr.blkdevsz : JOURNAL_SIZE;
+    s->st_size = (fd == FD(bctx)) ? DATA_SIZE(bctx) : JOURNAL_SIZE;
 
     return 0;
 }
