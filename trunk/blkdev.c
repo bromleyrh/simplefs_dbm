@@ -67,6 +67,7 @@ STATIC_ASSERT(sizeof(struct disk_header) == 4096);
 struct blkdev_ctx {
     struct disk_header  hdr;
     int                 fd[3];
+    void                *mmap_addr;
     int                 init;
     int                 jinit;
 };
@@ -80,6 +81,7 @@ struct fs_ops {
     void *(*mmap)(void *ctx, void *addr, size_t length, int prot, int flags,
                   int fd, off_t offset);
     int (*munmap)(void *ctx, void *addr, size_t length);
+    int (*mmap_validate_range)(void *ctx, void *addr, size_t length);
     int (*msync)(void *ctx, void *addr, size_t length, int flags);
     int (*mprotect)(void *ctx, void *addr, size_t len, int prot);
     int (*fstat)(void *ctx, int fd, struct stat *s);
@@ -107,6 +109,7 @@ static int fs_blkdev_close(void *ctx, int fd);
 static void *fs_blkdev_mmap(void *ctx, void *addr, size_t length, int prot,
                             int flags, int fd, off_t offset);
 static int fs_blkdev_munmap(void *ctx, void *addr, size_t length);
+static int fs_blkdev_mmap_validate_range(void *ctx, void *addr, size_t length);
 static int fs_blkdev_msync(void *ctx, void *addr, size_t length, int flags);
 static int fs_blkdev_mprotect(void *ctx, void *addr, size_t len, int prot);
 static int fs_blkdev_fstat(void *ctx, int fd, struct stat *s);
@@ -145,25 +148,26 @@ static int fs_blkdev_fstatfs(void *ctx, int fd, struct statfs *buf);
 #define IO_SIZE 4096
 
 const struct fs_ops fs_blkdev_ops = {
-    .openfs         = &fs_blkdev_openfs,
-    .closefs        = &fs_blkdev_closefs,
-    .openat         = &fs_blkdev_openat,
-    .close          = &fs_blkdev_close,
-    .mmap           = &fs_blkdev_mmap,
-    .munmap         = &fs_blkdev_munmap,
-    .msync          = &fs_blkdev_msync,
-    .mprotect       = &fs_blkdev_mprotect,
-    .fstat          = &fs_blkdev_fstat,
-    .pread          = &fs_blkdev_pread,
-    .pwrite         = &fs_blkdev_pwrite,
-    .ftruncate      = &fs_blkdev_ftruncate,
-    .falloc         = &fs_blkdev_falloc,
-    .fsync          = &fs_blkdev_fsync,
-    .fdatasync      = &fs_blkdev_fdatasync,
-    .flock          = &fs_blkdev_flock,
-    .fcntl_setfl    = &fs_blkdev_fcntl_setfl,
+    .openfs                 = &fs_blkdev_openfs,
+    .closefs                = &fs_blkdev_closefs,
+    .openat                 = &fs_blkdev_openat,
+    .close                  = &fs_blkdev_close,
+    .mmap                   = &fs_blkdev_mmap,
+    .munmap                 = &fs_blkdev_munmap,
+    .mmap_validate_range    = &fs_blkdev_mmap_validate_range,
+    .msync                  = &fs_blkdev_msync,
+    .mprotect               = &fs_blkdev_mprotect,
+    .fstat                  = &fs_blkdev_fstat,
+    .pread                  = &fs_blkdev_pread,
+    .pwrite                 = &fs_blkdev_pwrite,
+    .ftruncate              = &fs_blkdev_ftruncate,
+    .falloc                 = &fs_blkdev_falloc,
+    .fsync                  = &fs_blkdev_fsync,
+    .fdatasync              = &fs_blkdev_fdatasync,
+    .flock                  = &fs_blkdev_flock,
+    .fcntl_setfl            = &fs_blkdev_fcntl_setfl,
 #ifdef HAVE_LINUX_MAGIC_H
-    .fstatfs        = &fs_blkdev_fstatfs
+    .fstatfs                = &fs_blkdev_fstatfs
 #endif
 };
 
@@ -349,6 +353,7 @@ fs_blkdev_openfs(void **ctx, void *args)
 
     for (i = 0; i < ARRAY_SIZE(ret->fd); i++)
         ret->fd[i] = -1;
+    ret->mmap_addr = NULL;
     ret->init = ret->jinit = -1;
 
     *ctx = ret;
@@ -507,24 +512,61 @@ err:
  * for fs_blkdev_openat().
  */
 
+/*
+ * This function is only invoked with an offset argument of 0.
+ */
 static void *
 fs_blkdev_mmap(void *ctx, void *addr, size_t length, int prot, int flags,
                int fd, off_t offset)
 {
     struct blkdev_ctx *bctx = (struct blkdev_ctx *)ctx;
+    void *ret;
 
-    if (fd != FD(bctx))
+    if ((fd != FD(bctx)) || (offset != 0))
         return err_to_errno_p(EINVAL);
 
-    return mmap(addr, length, prot, flags, fd, bctx->hdr.off + offset);
+    ret = mmap(addr, length, prot, flags, fd, bctx->hdr.off + offset);
+    if (ret != NULL)
+        bctx->mmap_addr = ret;
+
+    return ret;
 }
 
+/*
+ * This function is only invoked to unmap the exact range mapped by a previous
+ * call to mmap(), or to truncate a previously mapped range.
+ */
 static int
 fs_blkdev_munmap(void *ctx, void *addr, size_t length)
 {
-    (void)ctx;
+    int ret;
+    struct blkdev_ctx *bctx = (struct blkdev_ctx *)ctx;
 
-    return munmap(addr, length);
+    ret = munmap(addr, length);
+    if ((addr == bctx->mmap_addr) && (ret != 0))
+        bctx->mmap_addr = NULL;
+
+    return ret;
+}
+
+/*
+ * This function must perform any needed address access checks that would not
+ * otherwise necessarily be performed by accessing a byte in the range
+ * [addr, addr + length). It may also perform redundant checks to avoid raising
+ * an exception.
+ */
+static int
+fs_blkdev_mmap_validate_range(void *ctx, void *addr, size_t length)
+{
+    struct blkdev_ctx *bctx = (struct blkdev_ctx *)ctx;
+
+    if ((bctx->mmap_addr == NULL) || ((char *)addr < (char *)(bctx->mmap_addr)))
+        return err_to_errno(EFAULT);
+
+    if ((char *)addr + length > (char *)(bctx->mmap_addr) + DATA_SIZE(bctx))
+        return err_to_errno(ENOSPC);
+
+    return 0;
 }
 
 static int
