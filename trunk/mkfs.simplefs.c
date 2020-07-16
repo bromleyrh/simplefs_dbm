@@ -142,7 +142,7 @@ zero_data_and_journal_areas(int fd)
     }
 
 end:
-    if (totwritten > sizeof(struct disk_header))
+    if (totwritten > (off_t)sizeof(struct disk_header))
         fprintf(stderr, "\rWrote %19" PRIi64 " bytes\n", totwritten);
     return err;
 }
