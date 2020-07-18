@@ -64,6 +64,9 @@ simplefs_dbg_LDADD = -lreadline @libutil_link_dep@
 include scripts/Makefile.am
 include tests/Makefile.am
 
+install-exec-hook:
+	ln -fs mount.simplefs $(bindir)/mount.simplefs-file
+
 .PHONY: distclean-local
 
 distclean-local:

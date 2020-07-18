@@ -19,6 +19,7 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 
+#define MOUNT_DEVICE_ARGV_IDX 1
 #define MOUNT_MOUNTPOINT_ARGV_IDX 2
 
 #define SIMPLEFS_PATH "simplefs"
@@ -27,7 +28,7 @@
 #define SIMPLEFS_MOUNT_PIPE_FD 4
 #define SIMPLEFS_MOUNT_PIPE_MSG_OK "1"
 
-static int parse_cmdline(int, char **, int *, char ***);
+static int parse_cmdline(int, char **, int, int *, char ***);
 
 static int do_mount(char **, int);
 
@@ -36,18 +37,51 @@ static int read_simplefs_pipe(int);
 
 static int redirect_std_fds(const char *);
 
-static int do_start_simplefs(sigset_t *);
+static int do_start_simplefs(char **, sigset_t *);
 
 static int
-parse_cmdline(int argc, char **argv, int *mount_argc, char ***mount_argv)
+parse_cmdline(int argc, char **argv, int file_based, int *mount_argc,
+              char ***mount_argv)
 {
     char **mnt_argv;
 
-    mnt_argv = calloc(argc + 1, sizeof(*mnt_argv));
-    if (mnt_argv == NULL)
-        return -1;
+    if (file_based) {
+        mnt_argv = calloc(argc + 1, sizeof(*mnt_argv));
+        if (mnt_argv == NULL)
+            return -1;
 
-    memcpy(mnt_argv, argv, argc * sizeof(char *));
+        memcpy(mnt_argv, argv, argc * sizeof(char *));
+    } else {
+        char *optstr = NULL;
+        int i;
+
+        for (i = MOUNT_MOUNTPOINT_ARGV_IDX + 1; i < argc - 1; i++) {
+            if (strcmp("-o", argv[i]) == 0) {
+                optstr = argv[i+1];
+                break;
+            }
+        }
+
+        argc = 5;
+        if (optstr != NULL)
+            argc += 2;
+
+        mnt_argv = calloc(argc, sizeof(*mnt_argv));
+        if (mnt_argv == NULL)
+            return -1;
+
+        mnt_argv[0] = argv[0];
+        mnt_argv[1] = "-F";
+        mnt_argv[2] = argv[MOUNT_DEVICE_ARGV_IDX];
+
+        i = 3;
+        if (optstr != NULL) {
+            mnt_argv[i++] = "-o";
+            mnt_argv[i++] = optstr;
+        }
+
+        mnt_argv[i] = argv[MOUNT_MOUNTPOINT_ARGV_IDX];
+    }
 
     *mount_argc = argc;
     *mount_argv = mnt_argv;
@@ -145,7 +179,7 @@ redirect_std_fds(const char *path)
 }
 
 static int
-do_start_simplefs(sigset_t *set)
+do_start_simplefs(char **mount_argv, sigset_t *set)
 {
     int err;
     int pipefd;
@@ -160,10 +194,15 @@ do_start_simplefs(sigset_t *set)
     if (pid == -1)
         return MINUS_ERRNO;
     if (pid == 0) {
-        if ((sigprocmask(SIG_SETMASK, set, NULL) == 0)
-            && (redirect_std_fds("/dev/null") == 0) && (setsid() != -1)) {
+        if ((sigprocmask(SIG_SETMASK, set, NULL) != 0)
+            || (redirect_std_fds("/dev/null") != 0) || (setsid() == -1))
+            exit(EXIT_FAILURE);
+        if (mount_argv == NULL) {
             execlp(SIMPLEFS_PATH, SIMPLEFS_PATH, "-f", "-o",
                    SIMPLEFS_MOUNT_OPTS, ".", NULL);
+        } else {
+            mount_argv[0] = "simplefs";
+            execvp(SIMPLEFS_PATH, mount_argv);
         }
         exit(EXIT_FAILURE);
     }
@@ -187,27 +226,34 @@ main(int argc, char **argv)
     const char *errmsg = "Mounting failed";
     const char *mountpoint;
     int err;
+    int file_based;
     int mount_argc;
     sigset_t oset, set;
 
-    if (parse_cmdline(argc, argv, &mount_argc, &mount_argv) == -1)
+    if (snprintf(buf, sizeof(buf), "%s", argv[0]) >= (int)sizeof(buf))
+        return EXIT_FAILURE;
+    file_based = (strcmp("mount.simplefs-file", basename(buf)) == 0);
+
+    if (parse_cmdline(argc, argv, file_based, &mount_argc, &mount_argv) == -1)
         return EXIT_FAILURE;
 
     mountpoint = mount_argv[MOUNT_MOUNTPOINT_ARGV_IDX];
 
-    if (snprintf(buf, sizeof(buf), "%s", mountpoint) >= (int)sizeof(buf)) {
-        err = -ENAMETOOLONG;
-        errmsg = "Path argument too long";
-        goto err1;
-    }
-    if (chdir(dirname(buf)) == -1) {
-        err = -errno;
-        errmsg = "Error changing directory";
-        goto err1;
-    }
+    if (file_based) {
+        if (snprintf(buf, sizeof(buf), "%s", mountpoint) >= (int)sizeof(buf)) {
+            err = -ENAMETOOLONG;
+            errmsg = "Path argument too long";
+            goto err1;
+        }
+        if (chdir(dirname(buf)) == -1) {
+            err = -errno;
+            errmsg = "Error changing directory";
+            goto err1;
+        }
 
-    snprintf(buf, sizeof(buf), "%s", mountpoint);
-    mountpoint = mount_argv[MOUNT_MOUNTPOINT_ARGV_IDX] = basename(buf);
+        snprintf(buf, sizeof(buf), "%s", mountpoint);
+        mountpoint = mount_argv[MOUNT_MOUNTPOINT_ARGV_IDX] = basename(buf);
+    }
 
     if ((sigfillset(&set) != 0)
         || (sigprocmask(SIG_BLOCK, &set, &oset) == -1)) {
@@ -215,19 +261,23 @@ main(int argc, char **argv)
         return EXIT_FAILURE;
     }
 
-    err = do_mount(mount_argv, 0);
-    if (err)
-        goto err1;
+    if (file_based) {
+        err = do_mount(mount_argv, 0);
+        if (err)
+            goto err1;
 
-    if (chdir(mountpoint) == -1) {
-        err = MINUS_ERRNO;
-        goto err2;
+        if (chdir(mountpoint) == -1) {
+            err = MINUS_ERRNO;
+            goto err2;
+        }
     }
 
-    err = do_start_simplefs(&oset);
+    err = do_start_simplefs(file_based ? NULL : mount_argv, &oset);
     if (err) {
         errmsg = "Error executing simplefs";
-        goto err2;
+        if (file_based)
+            goto err2;
+        goto err1;
     }
 
     free(mount_argv);

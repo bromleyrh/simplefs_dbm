@@ -142,6 +142,7 @@ destroy_mount_data(struct mount_data *md)
 static int
 opt_proc(void *data, const char *arg, int key, struct fuse_args *outargs)
 {
+    size_t i;
     struct mount_data *md = (struct mount_data *)data;
 
     (void)outargs;
@@ -151,12 +152,25 @@ opt_proc(void *data, const char *arg, int key, struct fuse_args *outargs)
             md->mountpoint = strdup(arg);
             return (md->mountpoint == NULL) ? -1 : 0;
         }
-    } else if (key == FUSE_OPT_KEY_OPT) {
-        if (strcmp("ro", arg) == 0)
-            md->ro = 1;
-        else if (strcmp("fmtconv", arg) == 0) {
-            md->fmtconv = 1;
-            return 0;
+        return 1;
+    }
+
+    if (key != FUSE_OPT_KEY_OPT)
+        return 1;
+
+    if (strcmp("ro", arg) == 0)
+        md->ro = 1;
+    else if (strcmp("fmtconv", arg) == 0) {
+        md->fmtconv = 1;
+        return 0;
+    } else {
+        static const char *filter_opts[] = {
+            "nodev", "noexec", "nosuid", "rw", "user"
+        };
+
+        for (i = 0; i < ARRAY_SIZE(filter_opts); i++) {
+            if (strcmp(filter_opts[i], arg) == 0)
+                return 0;
         }
     }
 
