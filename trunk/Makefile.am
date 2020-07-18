@@ -11,18 +11,12 @@ noinst_HEADERS = back_end.h back_end_dbm.h blkdev.h common.h compat.h \
 
 bin_PROGRAMS = mkfs.simplefs mount.simplefs simplefs simplefs_dbg
 
-##if DEBUG
-##AM_CPPFLAGS =
-##AM_CFLAGS = -ggdb3 -O0 -pipe -Wall -Wextra
-##else
-##AM_CPPFLAGS = -DNDEBUG
-##AM_CFLAGS = -O2 -pipe -Wall -Wextra
-##endif
-
 if DEBUG
 AM_CPPFLAGS =
 AM_CFLAGS = -ggdb3 -O0 -pipe -Wall -Wextra
 else
+##AM_CPPFLAGS = -DNDEBUG
+##AM_CFLAGS = -O2 -pipe -Wall -Wextra
 AM_CPPFLAGS = -DNDEBUG
 AM_CFLAGS = -ggdb3 -O0 -pipe -Wall -Wextra
 endif
