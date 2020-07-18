@@ -382,7 +382,6 @@ init_fuse(int argc, char **argv, struct fuse_data *fusedata)
                                    sizeof(simplefs_ops), &fusedata->md,
                                    &fusedata->chan);
     if (fusedata->sess == NULL) {
-        err = -EIO;
         errmsg = "Error mounting FUSE file system";
         goto err2;
     }
@@ -401,7 +400,7 @@ err2:
     destroy_mount_data(&fusedata->md);
 err1:
     error(0, -err, "%s", errmsg);
-    return err;
+    return err ? err : -EIO;
 }
 
 static int
