@@ -586,8 +586,11 @@ fs_blkdev_mprotect(void *ctx, void *addr, size_t len, int prot)
 }
 
 /*
- * This function is only required to set the st_mode and st_size fields of *s
- * appropriately, and is only required to support regular files.
+ * This function is only required to set the st_mode, st_rdev, and st_size
+ * fields of *s appropriately, and is only required to support regular files.
+ * The st_rdev field should be nonzero if the st_size field is undefined for the
+ * file, and zero otherwise. If st_size is undefined, it may be set to any
+ * value.
  */
 static int
 fs_blkdev_fstat(void *ctx, int fd, struct stat *s)
@@ -601,6 +604,7 @@ fs_blkdev_fstat(void *ctx, int fd, struct stat *s)
 
     memset(s, 0, sizeof(*s));
     s->st_mode = S_IFREG;
+    s->st_rdev = (dev_t)~0;
     s->st_size = (fd == FD(bctx)) ? DATA_SIZE(bctx) : JOURNAL_SIZE;
 
     return 0;
