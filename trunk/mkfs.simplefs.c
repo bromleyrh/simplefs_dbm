@@ -19,6 +19,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <termios.h>
 #include <unistd.h>
 
 #include <sys/stat.h>
@@ -89,7 +90,13 @@ query(const char *prompt)
     char *input;
     int res;
 
-    input = readline(prompt);
+    fputs(prompt, stdout);
+    fflush(stdout);
+
+    if (tcflush(STDIN_FILENO, TCIFLUSH) == -1)
+        return -1;
+
+    input = readline(NULL);
     if (input == NULL)
         return -1;
 
