@@ -133,6 +133,8 @@ zero_data_and_journal_areas(int fd)
                 continue;
             if ((res != 0) && (errno != ENOSPC))
                 err = -errno;
+            else
+                totwritten += numwritten;
             goto end;
         }
 
