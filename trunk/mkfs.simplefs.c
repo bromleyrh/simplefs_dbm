@@ -183,8 +183,12 @@ format_device(const char *dev)
     }
 
     fprintf(stderr, "Warning: Device %s will be completely overwritten.\n"
-                    "         All data on %s will be destroyed.\n",
-            dev, dev);
+                    "         All data on %s will be destroyed.\n"
+                    "         It is advised to mount the file system\n"
+                    "         on %s (if any), confirm the intended data\n"
+                    "         will be overwritten, and unmount it before\n"
+                    "         proceeding.\n",
+            dev, dev, dev);
     res = query("Please confirm if formatting should proceed (y/n): ");
     if (res != 1) {
         close(fd);
