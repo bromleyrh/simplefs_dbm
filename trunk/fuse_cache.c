@@ -177,6 +177,7 @@ static int fuse_cache_trans_new(void *);
 static int fuse_cache_trans_abort(void *);
 static int fuse_cache_trans_commit(void *);
 static int fuse_cache_sync(void *);
+static int fuse_cache_ctl(void *, int, void *);
 
 const struct back_end_ops back_end_fuse_cache_ops = {
     .create         = &fuse_cache_create,
@@ -195,7 +196,8 @@ const struct back_end_ops back_end_fuse_cache_ops = {
     .trans_new      = &fuse_cache_trans_new,
     .trans_abort    = &fuse_cache_trans_abort,
     .trans_commit   = &fuse_cache_trans_commit,
-    .sync           = &fuse_cache_sync
+    .sync           = &fuse_cache_sync,
+    .ctl            = &fuse_cache_ctl
 };
 
 /*
@@ -2342,6 +2344,14 @@ fuse_cache_sync(void *ctx)
     check_consistency(cache);
 
     return 0;
+}
+
+static int
+fuse_cache_ctl(void *ctx, int op, void *args)
+{
+    struct fuse_cache *cache = (struct fuse_cache *)ctx;
+
+    return (*(cache->ops->ctl))(cache->ctx, op, args);
 }
 
 void

@@ -80,6 +80,7 @@ static int back_end_dbm_trans_new(void *);
 static int back_end_dbm_trans_abort(void *);
 static int back_end_dbm_trans_commit(void *);
 static int back_end_dbm_sync(void *);
+static int back_end_dbm_ctl(void *, int, void *);
 
 const struct back_end_ops back_end_dbm_ops = {
     .create         = &back_end_dbm_create,
@@ -98,7 +99,8 @@ const struct back_end_ops back_end_dbm_ops = {
     .trans_new      = &back_end_dbm_trans_new,
     .trans_abort    = &back_end_dbm_trans_abort,
     .trans_commit   = &back_end_dbm_trans_commit,
-    .sync           = &back_end_dbm_sync
+    .sync           = &back_end_dbm_sync,
+    .ctl            = &back_end_dbm_ctl
 };
 
 static void
@@ -629,6 +631,32 @@ back_end_dbm_sync(void *ctx)
     struct db_ctx *dbctx = (struct db_ctx *)ctx;
 
     return db_hl_sync(dbctx->dbh);
+}
+
+int
+back_end_dbm_ctl(void *ctx, int op, void *args)
+{
+    int err;
+    struct db_alloc_cb *alloc_cb;
+    struct db_ctx *dbctx = (struct db_ctx *)ctx;
+
+    static const int op_map[] = {
+        [BACK_END_DBM_OP_FOREACH_ALLOC]     = DB_HL_OP_FOREACH_ALLOC,
+        [BACK_END_DBM_OP_SET_ALLOC_HOOK]    = DB_HL_OP_SET_ALLOC_HOOK
+    };
+
+    switch (op) {
+    case BACK_END_DBM_OP_FOREACH_ALLOC:
+    case BACK_END_DBM_OP_SET_ALLOC_HOOK:
+        alloc_cb = (struct db_alloc_cb *)args;
+        err = db_hl_ctl(dbctx->dbh, op_map[op], alloc_cb->alloc_cb,
+                        alloc_cb->alloc_cb_ctx);
+        break;
+    default:
+        err = -EINVAL;
+    }
+
+    return err;
 }
 
 void

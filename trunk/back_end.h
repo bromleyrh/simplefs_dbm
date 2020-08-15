@@ -43,6 +43,7 @@ struct back_end_ops {
     int (*trans_abort)(void *ctx);
     int (*trans_commit)(void *ctx);
     int (*sync)(void *ctx);
+    int (*ctl)(void *ctx, int op, void *args);
 };
 
 int back_end_create(struct back_end **be, size_t key_size,
@@ -86,6 +87,8 @@ int back_end_trans_abort(struct back_end *be);
 int back_end_trans_commit(struct back_end *be);
 
 int back_end_sync(struct back_end *be);
+
+int back_end_ctl(struct back_end *be, int op, void *args);
 
 #endif
 

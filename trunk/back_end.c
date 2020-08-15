@@ -190,4 +190,10 @@ back_end_sync(struct back_end *be)
     return (*(be->ops->sync))(be->ctx);
 }
 
+int
+back_end_ctl(struct back_end *be, int op, void *args)
+{
+    return (*(be->ops->ctl))(be->ctx, op, args);
+}
+
 /* vi: set expandtab sw=4 ts=4: */
