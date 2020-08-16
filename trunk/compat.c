@@ -21,7 +21,25 @@
 #include <string.h>
 #include <syslog.h>
 
+typedef int check_init_fn_t(struct back_end *, int, int);
+typedef int init_fn_t(struct back_end *, int, int);
+
 int used_ino_set(uint64_t *, fuse_ino_t, fuse_ino_t, int);
+
+static check_init_fn_t check_init_ro_or_fmtconv;
+
+static init_fn_t init_ver_2_to_3;
+
+static int
+check_init_ro_or_fmtconv(struct back_end *be, int ro, int fmtconv)
+{
+    (void)be;
+
+    if (ro)
+        return 0;
+
+    return fmtconv ? 1 : -EPROTONOSUPPORT;
+}
 
 /*
  * Format v2 to v3 conversion:
@@ -40,12 +58,8 @@ init_ver_2_to_3(struct back_end *be, int ro, int fmtconv)
     struct db_obj_header hdr;
     uint64_t numinodes, tot_numinodes;
 
-    if (ro)
-        return 0;
-    if (!fmtconv)
-        return -EPROTONOSUPPORT;
-
-    syslog(LOG_NOTICE, "Notice: updating format from version 2 to 3\n");
+    (void)ro;
+    (void)fmtconv;
 
     res = back_end_trans_new(be);
     if (res != 0)
@@ -171,22 +185,35 @@ int
 compat_init(struct back_end *be, uint64_t user_ver, uint64_t fs_ver, int ro,
             int fmtconv)
 {
+    int ret;
     size_t i;
 
     static const struct {
-        uint64_t    user_ver;
-        uint64_t    fs_ver;
-        int         (*init)(struct back_end *, int, int);
+        uint64_t        user_ver;
+        uint64_t        fs_ver;
+        check_init_fn_t *check_init;
+        init_fn_t       *init;
     } conv_fns[] = {
-        {2, 3, &init_ver_2_to_3}
+        {2, 3, &check_init_ro_or_fmtconv, &init_ver_2_to_3}
     }, *conv;
 
     if (user_ver != fs_ver) {
         for (i = 0; i < ARRAY_SIZE(conv_fns); i++) {
             conv = &conv_fns[i];
 
-            if ((conv->user_ver == user_ver) && (conv->fs_ver == fs_ver))
-                return (*(conv->init))(be, ro, fmtconv);
+            if ((conv->user_ver != user_ver) || (conv->fs_ver != fs_ver))
+                continue;
+
+            ret = (*(conv->check_init))(be, ro, fmtconv);
+            if (ret != 1)
+                return ret;
+
+            syslog(LOG_NOTICE,
+                   "Notice: updating format from version %" PRIu64 " to %"
+                   PRIu64 "\n",
+                   conv->user_ver, conv->fs_ver);
+
+            return (*(conv->init))(be, ro, fmtconv);
         }
 
         return -EPROTONOSUPPORT;
