@@ -3,6 +3,7 @@
  */
 
 #include "back_end.h"
+#include "back_end_dbm.h"
 #include "compat.h"
 #include "obj.h"
 
@@ -21,14 +22,22 @@
 #include <string.h>
 #include <syslog.h>
 
+struct foreach_alloc_ctx {
+    FILE        *f;
+    uint64_t    tot_sz;
+};
+
 typedef int check_init_fn_t(struct back_end *, int, int);
 typedef int init_fn_t(struct back_end *, int, int);
 
 int used_ino_set(uint64_t *, fuse_ino_t, fuse_ino_t, int);
 
+static void foreach_alloc_cb(uint64_t, int, void *);
+
 static check_init_fn_t check_init_ro_or_fmtconv;
 
 static init_fn_t init_ver_2_to_3;
+static init_fn_t init_ver_3_to_4;
 
 static int
 check_init_ro_or_fmtconv(struct back_end *be, int ro, int fmtconv)
@@ -184,6 +193,59 @@ err1:
     return res;
 }
 
+static void
+foreach_alloc_cb(uint64_t sz, int dealloc, void *ctx)
+{
+    struct foreach_alloc_ctx *actx;
+
+    if (dealloc)
+        return;
+
+    actx = (struct foreach_alloc_ctx *)ctx;
+
+    actx->tot_sz += sz;
+
+    fprintf(actx->f, "Allocation: %14" PRIu64 " bytes "
+                     "(total %14" PRIu64 " bytes)\n",
+            sz, actx->tot_sz);
+}
+
+static int
+init_ver_3_to_4(struct back_end *be, int ro, int fmtconv)
+{
+    int res;
+    struct db_alloc_cb alloc_cb;
+    struct db_key k;
+    struct db_obj_header hdr;
+    struct foreach_alloc_ctx actx;
+
+    (void)ro;
+    (void)fmtconv;
+
+    k.type = TYPE_HEADER;
+
+    res = back_end_look_up(be, &k, NULL, &hdr, NULL, 0);
+    if (res != 1)
+        return (res == 0) ? -EILSEQ : res;
+
+    actx.f = stderr;
+    actx.tot_sz = 0;
+
+    alloc_cb.alloc_cb = &foreach_alloc_cb;
+    alloc_cb.alloc_cb_ctx = &actx;
+
+    res = back_end_ctl(be, BACK_END_DBM_OP_FOREACH_ALLOC, &alloc_cb);
+    if ((res != 0) && (res != -ENOSPC))
+        return res;
+
+    fprintf(stderr, "Total allocated space: %" PRIu64 " bytes\n", actx.tot_sz);
+
+    hdr.version = 4;
+    hdr.usedbytes = actx.tot_sz;
+
+    return back_end_replace(be, &k, &hdr, sizeof(hdr));
+}
+
 int
 compat_init(struct back_end *be, uint64_t user_ver, uint64_t fs_ver, int ro,
             int fmtconv)
@@ -197,7 +259,8 @@ compat_init(struct back_end *be, uint64_t user_ver, uint64_t fs_ver, int ro,
         check_init_fn_t *check_init;
         init_fn_t       *init;
     } conv_fns[] = {
-        {2, 3, &check_init_ro_or_fmtconv, &init_ver_2_to_3}
+        {2, 3, &check_init_ro_or_fmtconv, &init_ver_2_to_3},
+        {3, 4, &check_init_ro_or_fmtconv, &init_ver_3_to_4}
     }, *conv;
 
     if (user_ver != fs_ver) {

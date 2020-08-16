@@ -48,13 +48,16 @@ struct disk_timespec {
  * - 3
  *   modified I-node number allocation scheme to allow reusing I-node numbers
  *   by storing free I-node number information in bitmaps
+ * - 4
+ *   added used space tracking for statfs() system call
  */
-#define FMT_VERSION 3
+#define FMT_VERSION 4
 
 struct db_obj_header {
     uint64_t    version;
     uint64_t    numinodes;
-    uint8_t     reserved[112];
+    uint64_t    usedbytes;
+    uint8_t     reserved[104];
 } __attribute__((packed));
 
 #define FREE_INO_RANGE_SZ 2048
