@@ -884,25 +884,35 @@ static int
 free_ref_inodes_cb(const void *keyval, void *ctx)
 {
     int err;
-    int nowrite;
     struct free_ref_inodes_ctx *fctx = (struct free_ref_inodes_ctx *)ctx;
     struct fspriv *priv = fctx->priv;
     struct ref_ino *ino = *(struct ref_ino **)keyval;
 
-    nowrite = fctx->nowrite;
+    if (fctx->nowrite) {
+        err = unref_inode(priv->be, &priv->ref_inodes, ino, 0, -INT_MAX,
+                          -INT_MAX, NULL);
+        if (err)
+            goto err1;
+    } else {
+        struct space_alloc_ctx sctx;
 
-    if (!nowrite) {
         err = back_end_trans_new(priv->be);
         if (err)
             goto err1;
-    }
 
-    err = unref_inode(priv->be, &priv->ref_inodes, ino, 0, -INT_MAX, -INT_MAX,
-                      NULL);
-    if (err)
-        goto err2;
+        err = space_alloc_init_op(&sctx, priv->be);
+        if (err)
+            goto err2;
 
-    if (!nowrite) {
+        err = unref_inode(priv->be, &priv->ref_inodes, ino, 0, -INT_MAX,
+                          -INT_MAX, NULL);
+        if (err)
+            goto err3;
+
+        err = space_alloc_finish_op(&sctx, priv->be);
+        if (err)
+            goto err2;
+
         err = back_end_trans_commit(priv->be);
         if (err)
             goto err2;
@@ -912,9 +922,10 @@ free_ref_inodes_cb(const void *keyval, void *ctx)
 
     return 0;
 
+err3:
+    space_alloc_abort_op(priv->be);
 err2:
-    if (!nowrite)
-        back_end_trans_abort(priv->be);
+    back_end_trans_abort(priv->be);
 err1:
     fctx->err = err;
     free(ino);
@@ -1050,6 +1061,7 @@ remove_ulinked_nodes(struct back_end *be)
 
     for (;;) {
         struct db_key k;
+        struct space_alloc_ctx sctx;
 
         ret = back_end_iter_new(&iter, be);
         if (ret != 0)
@@ -1081,21 +1093,31 @@ remove_ulinked_nodes(struct back_end *be)
         if (ret != 0)
             return ret;
 
-        fprintf(stderr, "Warning: removing I-node %" PRIu64 " with no links\n",
+        ret = space_alloc_init_op(&sctx, be);
+        if (ret != 0)
+            goto err1;
+
+        fprintf(stderr, "Warning: Removing I-node %" PRIu64 " with no links\n",
                 (uint64_t)(k.ino));
 
         ret = delete_file(be, k.ino);
         if (ret != 0)
-            goto err;
+            goto err2;
+
+        ret = space_alloc_finish_op(&sctx, be);
+        if (ret != 0)
+            goto err1;
 
         ret = back_end_trans_commit(be);
         if (ret != 0)
-            goto err;
+            goto err1;
     }
 
     return 0;
 
-err:
+err2:
+    space_alloc_abort_op(be);
+err1:
     back_end_trans_abort(be);
     return ret;
 }
@@ -3481,6 +3503,8 @@ simplefs_init(void *userdata, struct fuse_conn_info *conn)
     ret = back_end_open(&priv->be, sizeof(struct db_key), BACK_END_FUSE_CACHE,
                         &db_key_cmp, &args);
     if (ret != 0) {
+        struct space_alloc_ctx sctx;
+
         if (ret != -ENOENT)
             goto err5;
 
@@ -3494,12 +3518,17 @@ simplefs_init(void *userdata, struct fuse_conn_info *conn)
         if (ret != 0)
             goto err5;
 
+        ret = space_alloc_init_op(&sctx, priv->be);
+        if (ret != 0)
+            goto err6;
+
         k.type = TYPE_HEADER;
         hdr.version = FMT_VERSION;
         hdr.numinodes = 1;
+        hdr.usedbytes = dbargs.initusedbytes;
         ret = back_end_insert(priv->be, &k, &hdr, sizeof(hdr));
         if (ret != 0)
-            goto err6;
+            goto err7;
 
         k.type = TYPE_FREE_INO;
         k.ino = FUSE_ROOT_ID;
@@ -3508,11 +3537,15 @@ simplefs_init(void *userdata, struct fuse_conn_info *conn)
         freeino.flags = FREE_INO_LAST_USED;
         ret = back_end_insert(priv->be, &k, &freeino, sizeof(freeino));
         if (ret != 0)
-            goto err6;
+            goto err7;
 
         /* create root directory */
         ret = new_dir(priv->be, &priv->ref_inodes, 0, NULL, getuid(), getgid(),
                       ROOT_DIR_INIT_PERMS, NULL, refinop, 0);
+        if (ret != 0)
+            goto err7;
+
+        ret = space_alloc_finish_op(&sctx, priv->be);
         if (ret != 0)
             goto err6;
 
@@ -3529,6 +3562,8 @@ simplefs_init(void *userdata, struct fuse_conn_info *conn)
             goto err6;
         }
 
+        /* Note: Any space allocation changes must be handled by the format
+           updating code as necessary */
         ret = compat_init(priv->be, hdr.version, FMT_VERSION, md->ro,
                           md->fmtconv);
         if (ret != 0)
@@ -3553,8 +3588,10 @@ simplefs_init(void *userdata, struct fuse_conn_info *conn)
     /* root I-node implicitly looked up on completion of init request */
     ret = inc_refcnt(priv->be, &priv->ref_inodes, FUSE_ROOT_ID, 0, 0, 1,
                      &refinop[0]);
-    if (ret != 0)
-        goto err7;
+    if (ret != 0) {
+        join_worker(priv);
+        goto err6;
+    }
 
     write(SIMPLEFS_MOUNT_PIPE_FD, SIMPLEFS_MOUNT_PIPE_MSG_OK,
           sizeof(SIMPLEFS_MOUNT_PIPE_MSG_OK));
@@ -3568,7 +3605,7 @@ simplefs_init(void *userdata, struct fuse_conn_info *conn)
     return;
 
 err7:
-    join_worker(priv);
+    space_alloc_abort_op(priv->be);
 err6:
     back_end_close(priv->be);
 err5:
