@@ -35,8 +35,11 @@ check_init_ro_or_fmtconv(struct back_end *be, int ro, int fmtconv)
 {
     (void)be;
 
-    if (ro)
+    if (ro) {
+        if (fmtconv)
+            fputs("Warning: Ignoring fmtconv mount flag\n", stderr);
         return 0;
+    }
 
     return fmtconv ? 1 : -EPROTONOSUPPORT;
 }
