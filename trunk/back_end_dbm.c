@@ -289,6 +289,8 @@ back_end_dbm_create(void **ctx, size_t key_size, back_end_key_cmp_t key_cmp,
 
     close(dfd);
 
+    dbargs->initusedbytes = 0; /* FIXME */
+
     *ctx = ret;
     return 0;
 

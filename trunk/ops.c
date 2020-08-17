@@ -153,6 +153,10 @@ struct free_ref_inodes_ctx {
     int             err;
 };
 
+struct space_alloc_ctx {
+    int64_t delta;
+};
+
 #define FSNAME PACKAGE_STRING
 #define LIBNAME "libutil " LIBUTIL_VERSION
 
@@ -280,6 +284,14 @@ static int new_dir_link(struct back_end *, struct ref_inodes *, fuse_ino_t,
                         fuse_ino_t, const char *, struct ref_ino **);
 static int rem_dir_link(struct back_end *, struct ref_inodes *, fuse_ino_t,
                         fuse_ino_t, const char *, struct ref_ino **);
+
+static void space_alloc_cb(uint64_t, int, void *);
+static int space_alloc_set_hook(struct back_end *,
+                                void (*)(uint64_t, int, void *), void *);
+
+static int space_alloc_init_op(struct space_alloc_ctx *, struct back_end *);
+static int space_alloc_abort_op(struct back_end *);
+static int space_alloc_finish_op(struct space_alloc_ctx *, struct back_end *);
 
 static int do_look_up(void *);
 static int do_setattr(void *);
@@ -1783,6 +1795,73 @@ rem_dir_link(struct back_end *be, struct ref_inodes *ref_inodes, fuse_ino_t ino,
         *inop = refinop;
 
     return ret;
+}
+
+static void
+space_alloc_cb(uint64_t sz, int dealloc, void *ctx)
+{
+    struct space_alloc_ctx *actx = (struct space_alloc_ctx *)ctx;
+
+    if (dealloc)
+        actx->delta -= sz;
+    else
+        actx->delta += sz;
+}
+
+static int
+space_alloc_set_hook(struct back_end *be, void (*cb)(uint64_t, int, void *),
+                     void *cbctx)
+{
+    struct db_alloc_cb alloc_cb = {
+        .alloc_cb       = cb,
+        .alloc_cb_ctx   = cbctx
+    };
+
+    return back_end_ctl(be, BACK_END_DBM_OP_SET_ALLOC_HOOK, &alloc_cb);
+}
+
+static int
+space_alloc_init_op(struct space_alloc_ctx *ctx, struct back_end *be)
+{
+    int err;
+
+    err = space_alloc_set_hook(be, &space_alloc_cb, ctx);
+    if (!err)
+        ctx->delta = 0;
+
+    return err;
+}
+
+static int
+space_alloc_abort_op(struct back_end *be)
+{
+    return space_alloc_set_hook(be, NULL, NULL);
+}
+
+static int
+space_alloc_finish_op(struct space_alloc_ctx *ctx, struct back_end *be)
+{
+    int ret;
+    struct db_key k;
+    struct db_obj_header hdr;
+
+    ret = space_alloc_set_hook(be, NULL, NULL);
+    if ((ret != 0) || (ctx->delta == 0))
+        return ret;
+
+    /* FIXME: later, assert that the remaining code in this function never
+       results in any nonzero overall space allocation delta, to guarantee
+       accuracy of the usedbytes field */
+
+    k.type = TYPE_HEADER;
+
+    ret = back_end_look_up(be, &k, NULL, &hdr, NULL, 0);
+    if (ret != 1)
+        return (ret == 0) ? -EILSEQ : ret;
+
+    hdr.usedbytes += ctx->delta;
+
+    return back_end_replace(be, &k, &hdr, sizeof(hdr));
 }
 
 static int
