@@ -1936,6 +1936,7 @@ do_setattr(void *args)
     struct db_key k;
     struct db_obj_stat s;
     struct op_args *opargs = (struct op_args *)args;
+    struct space_alloc_ctx sctx;
 
     k.type = TYPE_STAT;
     k.ino = opargs->ino;
@@ -1955,10 +1956,14 @@ do_setattr(void *args)
         if (ret != 0)
             return ret;
 
+        ret = space_alloc_init_op(&sctx, opargs->be);
+        if (ret != 0)
+            goto err1;
+
         ret = truncate_file(opargs->be, opargs->ino, s.st_size,
                             opargs->attr.st_size);
         if (ret != 0)
-            goto err;
+            goto err2;
         s.st_size = opargs->attr.st_size;
     }
 
@@ -2016,14 +2021,18 @@ do_setattr(void *args)
     ret = back_end_replace(opargs->be, &k, &s, sizeof(s));
     if (ret != 0) {
         if (trunc)
-            goto err;
+            goto err2;
         return ret;
     }
 
     if (trunc) {
+        ret = space_alloc_finish_op(&sctx, opargs->be);
+        if (ret != 0)
+            goto err1;
+
         ret = back_end_trans_commit(opargs->be);
         if (ret != 0)
-            goto err;
+            goto err1;
     }
 
     deserialize_stat(&opargs->attr, &s);
@@ -2032,7 +2041,9 @@ do_setattr(void *args)
 
     return 0;
 
-err:
+err2:
+    space_alloc_abort_op(opargs->be);
+err1:
     back_end_trans_abort(opargs->be);
     return ret;
 }
@@ -2075,11 +2086,16 @@ do_forget(void *args)
     int ret;
     struct op_args *opargs = (struct op_args *)args;
     struct ref_ino refino, *refinop;
+    struct space_alloc_ctx sctx;
     uint64_t to_unref, unref;
 
     ret = back_end_trans_new(opargs->be);
     if (ret != 0)
         return ret;
+
+    ret = space_alloc_init_op(&sctx, opargs->be);
+    if (ret != 0)
+        goto err1;
 
     refino.ino = opargs->ino;
     refinop = &refino;
@@ -2090,7 +2106,7 @@ do_forget(void *args)
     if (ret != 1) {
         if (ret == 0)
             ret = -ENOENT;
-        goto err;
+        goto err2;
     }
 
     for (to_unref = opargs->op_data.nlookup; to_unref > 0; to_unref -= unref) {
@@ -2099,12 +2115,16 @@ do_forget(void *args)
         ret = unref_inode(opargs->be, opargs->ref_inodes, refinop, 0, 0,
                           -(int32_t)unref, NULL);
         if (ret != 0)
-            goto err;
+            goto err2;
     }
+
+    ret = space_alloc_finish_op(&sctx, opargs->be);
+    if (ret != 0)
+        goto err1;
 
     ret = back_end_trans_commit(opargs->be);
     if (ret != 0)
-        goto err;
+        goto err1;
 
     pthread_mutex_lock(&opargs->ref_inodes->ref_inodes_mtx);
     if (!(refinop->nodelete) && (refinop->nlink == 0) && (refinop->refcnt == 0)
@@ -2116,7 +2136,9 @@ do_forget(void *args)
 
     return 0;
 
-err:
+err2:
+    space_alloc_abort_op(opargs->be);
+err1:
     back_end_trans_abort(opargs->be);
     return ret;
 }
@@ -2130,6 +2152,7 @@ do_create_node(void *args)
     struct db_key k;
     struct db_obj_stat ps;
     struct op_args *opargs = (struct op_args *)args;
+    struct space_alloc_ctx sctx;
 
     ctx = opargs->ctx;
 
@@ -2141,6 +2164,10 @@ do_create_node(void *args)
     ret = back_end_trans_new(opargs->be);
     if (ret != 0)
         return ret;
+
+    ret = space_alloc_init_op(&sctx, opargs->be);
+    if (ret != 0)
+        goto err1;
 
     /* POSIX-1.2008, mknod, para. 7:
      * Upon successful completion, mknod() shall mark for update the last data
@@ -2156,7 +2183,7 @@ do_create_node(void *args)
                    mode & ~(ctx->umask), opargs->op_data.mknod_data.rdev, 0,
                    &opargs->attr, opargs->refinop, 1);
     if (ret != 0)
-        goto err1;
+        goto err2;
 
     k.type = TYPE_STAT;
     k.ino = opargs->ino;
@@ -2165,7 +2192,7 @@ do_create_node(void *args)
     if (ret != 1) {
         if (ret == 0)
             ret = -ENOENT;
-        goto err2;
+        goto err3;
     }
 
     /* ", mknod, para. 7:
@@ -2181,19 +2208,25 @@ do_create_node(void *args)
 
     ret = back_end_replace(opargs->be, &k, &ps, sizeof(ps));
     if (ret != 0)
-        goto err2;
+        goto err3;
+
+    ret = space_alloc_finish_op(&sctx, opargs->be);
+    if (ret != 0)
+        goto err3;
 
     ret = back_end_trans_commit(opargs->be);
     if (ret != 0)
-        goto err2;
+        goto err3;
 
     dump_db(opargs->be);
 
     return 0;
 
-err2:
+err3:
     dec_refcnt(opargs->ref_inodes, 0, 0, -1, opargs->refinop[1]);
     dec_refcnt(opargs->ref_inodes, -1, 0, 0, opargs->refinop[0]);
+err2:
+    space_alloc_abort_op(opargs->be);
 err1:
     back_end_trans_abort(opargs->be);
     return ret;
@@ -2208,12 +2241,17 @@ do_create_dir(void *args)
     struct db_key k;
     struct db_obj_stat ps;
     struct op_args *opargs = (struct op_args *)args;
+    struct space_alloc_ctx sctx;
 
     ctx = opargs->ctx;
 
     ret = back_end_trans_new(opargs->be);
     if (ret != 0)
         return ret;
+
+    ret = space_alloc_init_op(&sctx, opargs->be);
+    if (ret != 0)
+        goto err1;
 
     /* POSIX-1.2008, mkdir, para. 6:
      * Upon successful completion, mkdir() shall mark for update the last data
@@ -2224,7 +2262,7 @@ do_create_dir(void *args)
                   opargs->op_data.mknod_data.mode & ~(ctx->umask),
                   &opargs->attr, opargs->refinop, 1);
     if (ret != 0)
-        goto err1;
+        goto err2;
 
     rootdir = (opargs->ino == 0);
 
@@ -2235,7 +2273,7 @@ do_create_dir(void *args)
     if (ret != 1) {
         if (ret == 0)
             ret = -ENOENT;
-        goto err2;
+        goto err3;
     }
 
     /* ", mkdir, para. 6:
@@ -2246,22 +2284,28 @@ do_create_dir(void *args)
 
     ret = back_end_replace(opargs->be, &k, &ps, sizeof(ps));
     if (ret != 0)
-        goto err2;
+        goto err3;
+
+    ret = space_alloc_finish_op(&sctx, opargs->be);
+    if (ret != 0)
+        goto err3;
 
     ret = back_end_trans_commit(opargs->be);
     if (ret != 0)
-        goto err2;
+        goto err3;
 
     dump_db(opargs->be);
 
     return 0;
 
-err2:
+err3:
     dec_refcnt(opargs->ref_inodes, 0, 0, -1, opargs->refinop[3]);
     if (!rootdir)
         dec_refcnt(opargs->ref_inodes, -1, 0, 0, opargs->refinop[2]);
     dec_refcnt(opargs->ref_inodes, -1, 0, 0, opargs->refinop[1]);
     dec_refcnt(opargs->ref_inodes, -1, 0, 0, opargs->refinop[0]);
+err2:
+    space_alloc_abort_op(opargs->be);
 err1:
     back_end_trans_abort(opargs->be);
     return ret;
@@ -2278,10 +2322,15 @@ do_remove_node_link(void *args)
     struct db_obj_stat s;
     struct op_args *opargs = (struct op_args *)args;
     struct ref_ino *refinop;
+    struct space_alloc_ctx sctx;
 
     ret = back_end_trans_new(opargs->be);
     if (ret != 0)
         return ret;
+
+    ret = space_alloc_init_op(&sctx, opargs->be);
+    if (ret != 0)
+        goto err1;
 
     parent = opargs->op_data.link_data.parent;
     name = opargs->op_data.link_data.name;
@@ -2293,18 +2342,18 @@ do_remove_node_link(void *args)
     if (ret != 1) {
         if (ret == 0)
             ret = -ENOENT;
-        goto err1;
+        goto err2;
     }
 
     ret = set_ref_inode_nodelete(opargs->be, opargs->ref_inodes, opargs->ino,
                                  1);
     if (ret != 0)
-        goto err1;
+        goto err2;
 
     ret = rem_node_link(opargs->be, opargs->ref_inodes, opargs->ino, parent,
                         name, &deleted, &refinop);
     if (ret != 0)
-        goto err2;
+        goto err3;
 
     /* POSIX-1.2008, unlink, para. 4:
      * Upon successful completion, unlink() shall mark for update the last data
@@ -2315,7 +2364,7 @@ do_remove_node_link(void *args)
 
     ret = back_end_replace(opargs->be, &k, &s, sizeof(s));
     if (ret != 0)
-        goto err3;
+        goto err4;
 
     k.ino = opargs->ino;
 
@@ -2323,7 +2372,7 @@ do_remove_node_link(void *args)
     if (ret != 1) {
         if (ret == 0)
             ret = -ENOENT;
-        goto err3;
+        goto err4;
     }
 
     if (!deleted) {
@@ -2334,7 +2383,7 @@ do_remove_node_link(void *args)
 
         ret = back_end_replace(opargs->be, &k, &s, sizeof(s));
         if (ret != 0)
-            goto err3;
+            goto err4;
     }
 
     if (s.st_nlink == 0) {
@@ -2342,12 +2391,16 @@ do_remove_node_link(void *args)
 
         ret = back_end_insert(opargs->be, &k, NULL, 0);
         if (ret != 0)
-            goto err3;
+            goto err4;
     }
+
+    ret = space_alloc_finish_op(&sctx, opargs->be);
+    if (ret != 0)
+        goto err4;
 
     ret = back_end_trans_commit(opargs->be);
     if (ret != 0)
-        goto err3;
+        goto err4;
 
     set_ref_inode_nodelete(opargs->be, opargs->ref_inodes, opargs->ino, 0);
 
@@ -2355,10 +2408,12 @@ do_remove_node_link(void *args)
 
     return 0;
 
-err3:
+err4:
     inc_refcnt(opargs->be, opargs->ref_inodes, opargs->ino, 1, 0, 0, &refinop);
-err2:
+err3:
     set_ref_inode_nodelete(opargs->be, opargs->ref_inodes, opargs->ino, 0);
+err2:
+    space_alloc_abort_op(opargs->be);
 err1:
     back_end_trans_abort(opargs->be);
     return ret;
@@ -2373,6 +2428,7 @@ do_remove_dir(void *args)
     struct db_key k;
     struct db_obj_stat s;
     struct op_args *opargs = (struct op_args *)args;
+    struct space_alloc_ctx sctx;
 
     k.type = TYPE_STAT;
     k.ino = opargs->ino;
@@ -2387,18 +2443,22 @@ do_remove_dir(void *args)
     if (ret != 0)
         return ret;
 
+    ret = space_alloc_init_op(&sctx, opargs->be);
+    if (ret != 0)
+        goto err1;
+
     parent = opargs->op_data.link_data.parent;
     name = opargs->op_data.link_data.name;
 
     ret = set_ref_inode_nodelete(opargs->be, opargs->ref_inodes, opargs->ino,
                                  1);
     if (ret != 0)
-        goto err1;
+        goto err2;
 
     ret = rem_dir(opargs->be, opargs->ref_inodes, opargs->ino, parent, name, 1,
                   1);
     if (ret != 0)
-        goto err2;
+        goto err3;
 
     k.ino = parent;
 
@@ -2406,7 +2466,7 @@ do_remove_dir(void *args)
     if (ret != 1) {
         if (ret == 0)
             ret = -ENOENT;
-        goto err3;
+        goto err4;
     }
 
     /* POSIX-1.2008, rmdir, para. 7:
@@ -2417,7 +2477,7 @@ do_remove_dir(void *args)
 
     ret = back_end_replace(opargs->be, &k, &s, sizeof(s));
     if (ret != 0)
-        goto err3;
+        goto err4;
 
     k.ino = opargs->ino;
 
@@ -2425,7 +2485,7 @@ do_remove_dir(void *args)
     if (ret != 1) {
         if (ret == 0)
             ret = -ENOENT;
-        goto err3;
+        goto err4;
     }
 
     if (s.st_nlink == 0) {
@@ -2433,12 +2493,16 @@ do_remove_dir(void *args)
 
         ret = back_end_insert(opargs->be, &k, NULL, 0);
         if (ret != 0)
-            goto err3;
+            goto err4;
     }
+
+    ret = space_alloc_finish_op(&sctx, opargs->be);
+    if (ret != 0)
+        goto err4;
 
     ret = back_end_trans_commit(opargs->be);
     if (ret != 0)
-        goto err3;
+        goto err4;
 
     set_ref_inode_nodelete(opargs->be, opargs->ref_inodes, opargs->ino, 0);
 
@@ -2446,13 +2510,15 @@ do_remove_dir(void *args)
 
     return 0;
 
-err3:
+err4:
     inc_refcnt(opargs->be, opargs->ref_inodes, opargs->ino, 2, 0, 0,
                opargs->refinop);
     inc_refcnt(opargs->be, opargs->ref_inodes, parent, 1, 0, 0,
                opargs->refinop);
-err2:
+err3:
     set_ref_inode_nodelete(opargs->be, opargs->ref_inodes, opargs->ino, 0);
+err2:
+    space_alloc_abort_op(opargs->be);
 err1:
     back_end_trans_abort(opargs->be);
     return ret;
@@ -2469,6 +2535,7 @@ do_create_symlink(void *args)
     struct db_key k;
     struct db_obj_stat ps;
     struct op_args *opargs = (struct op_args *)args;
+    struct space_alloc_ctx sctx;
 
     ctx = opargs->ctx;
 
@@ -2486,6 +2553,10 @@ do_create_symlink(void *args)
     if (ret != 0)
         return ret;
 
+    ret = space_alloc_init_op(&sctx, opargs->be);
+    if (ret != 0)
+        goto err1;
+
     /* POSIX-1.2008, symlink, para. 7:
      * Upon successful completion, symlink() shall mark for update the last data
      * access, last data modification, and last file status change timestamps of
@@ -2494,7 +2565,7 @@ do_create_symlink(void *args)
                    ctx->gid, S_IFLNK | S_IRWXU | S_IRWXG | S_IRWXO, 0,
                    (off_t)len, &opargs->attr, opargs->refinop, 1);
     if (ret != 0)
-        goto err1;
+        goto err2;
 
     k.type = TYPE_PAGE;
     k.ino = opargs->attr.st_ino;
@@ -2502,7 +2573,7 @@ do_create_symlink(void *args)
 
     ret = back_end_insert(opargs->be, &k, link, len + 1);
     if (ret != 0)
-        goto err2;
+        goto err3;
 
     k.type = TYPE_STAT;
     k.ino = parent;
@@ -2511,7 +2582,7 @@ do_create_symlink(void *args)
     if (ret != 1) {
         if (ret == 0)
             ret = -ENOENT;
-        goto err2;
+        goto err3;
     }
 
     /* ", symlink, para. 7:
@@ -2522,19 +2593,25 @@ do_create_symlink(void *args)
 
     ret = back_end_replace(opargs->be, &k, &ps, sizeof(ps));
     if (ret != 0)
-        goto err2;
+        goto err3;
+
+    ret = space_alloc_finish_op(&sctx, opargs->be);
+    if (ret != 0)
+        goto err3;
 
     ret = back_end_trans_commit(opargs->be);
     if (ret != 0)
-        goto err2;
+        goto err3;
 
     dump_db(opargs->be);
 
     return 0;
 
-err2:
+err3:
     dec_refcnt(opargs->ref_inodes, 0, 0, -1, opargs->refinop[1]);
     dec_refcnt(opargs->ref_inodes, -1, 0, 0, opargs->refinop[0]);
+err2:
+    space_alloc_abort_op(opargs->be);
 err1:
     back_end_trans_abort(opargs->be);
     return ret;
@@ -2551,6 +2628,7 @@ do_rename(void *args)
     struct db_obj_stat ds, ps, ss;
     struct op_args *opargs = (struct op_args *)args;
     struct ref_ino *refinop[3];
+    struct space_alloc_ctx sctx;
 
     parent = opargs->op_data.link_data.parent;
     name = opargs->op_data.link_data.name;
@@ -2576,9 +2654,13 @@ do_rename(void *args)
     if (ret != 0)
         return ret;
 
-    ret = set_ref_inode_nodelete(opargs->be, opargs->ref_inodes, ss.st_ino, 1);
+    ret = space_alloc_init_op(&sctx, opargs->be);
     if (ret != 0)
         goto err1;
+
+    ret = set_ref_inode_nodelete(opargs->be, opargs->ref_inodes, ss.st_ino, 1);
+    if (ret != 0)
+        goto err2;
 
     k.type = TYPE_DIRENT;
     k.ino = newparent;
@@ -2587,7 +2669,7 @@ do_rename(void *args)
     ret = back_end_look_up(opargs->be, &k, NULL, &dde, NULL, 0);
     if (ret != 0) {
         if (ret != 1)
-            goto err2;
+            goto err3;
 
         k.type = TYPE_STAT;
         k.ino = dde.ino;
@@ -2596,24 +2678,24 @@ do_rename(void *args)
         if (ret != 1) {
             if (ret == 0)
                 ret = -ENOENT;
-            goto err2;
+            goto err3;
         }
 
         /* delete existing link or directory */
 
         if (!S_ISDIR(ss.st_mode) && S_ISDIR(ds.st_mode)) {
             ret = -EISDIR;
-            goto err2;
+            goto err3;
         }
         if (S_ISDIR(ss.st_mode) && !S_ISDIR(ds.st_mode)) {
             ret = -ENOTDIR;
-            goto err2;
+            goto err3;
         }
 
         ret = set_ref_inode_nodelete(opargs->be, opargs->ref_inodes, ds.st_ino,
                                      1);
         if (ret != 0)
-            goto err2;
+            goto err3;
 
         if (S_ISDIR(ds.st_mode)) {
             ret = rem_dir(opargs->be, opargs->ref_inodes, ds.st_ino, newparent,
@@ -2625,7 +2707,7 @@ do_rename(void *args)
         if (ret != 0) {
             set_ref_inode_nodelete(opargs->be, opargs->ref_inodes, ds.st_ino,
                                    0);
-            goto err2;
+            goto err3;
         }
 
         existing = 1;
@@ -2634,7 +2716,7 @@ do_rename(void *args)
         if (ret != 1) {
             if (ret == 0)
                 ret = -ENOENT;
-            goto err3;
+            goto err4;
         }
 
         if (ds.st_nlink == 0) {
@@ -2642,7 +2724,7 @@ do_rename(void *args)
 
             ret = back_end_insert(opargs->be, &k, NULL, 0);
             if (ret != 0)
-                goto err3;
+                goto err4;
         }
     } else
         existing = 0;
@@ -2651,7 +2733,7 @@ do_rename(void *args)
         ret = new_dir_link(opargs->be, opargs->ref_inodes, ss.st_ino, newparent,
                            newname, &refinop[1]);
         if (ret != 0)
-            goto err3;
+            goto err4;
 
         ret = rem_dir_link(opargs->be, opargs->ref_inodes, ss.st_ino, parent,
                            name, &refinop[2]);
@@ -2659,13 +2741,13 @@ do_rename(void *args)
         ret = new_node_link(opargs->be, opargs->ref_inodes, ss.st_ino,
                             newparent, newname, &refinop[1]);
         if (ret != 0)
-            goto err3;
+            goto err4;
 
         ret = rem_node_link(opargs->be, opargs->ref_inodes, ss.st_ino, parent,
                             name, NULL, &refinop[2]);
     }
     if (ret != 0)
-        goto err4;
+        goto err5;
 
     k.type = TYPE_STAT;
     k.ino = newparent;
@@ -2674,7 +2756,7 @@ do_rename(void *args)
     if (ret != 1) {
         if (ret == 0)
             ret = -ENOENT;
-        goto err5;
+        goto err6;
     }
 
     /* POSIX-1.2008, rename, para. 10:
@@ -2688,7 +2770,7 @@ do_rename(void *args)
     assert(ps.st_ino == k.ino);
     ret = back_end_replace(opargs->be, &k, &ps, sizeof(ps));
     if (ret != 0)
-        goto err5;
+        goto err6;
 
     k.ino = parent;
 
@@ -2696,7 +2778,7 @@ do_rename(void *args)
     if (ret != 1) {
         if (ret == 0)
             ret = -ENOENT;
-        goto err5;
+        goto err6;
     }
 
     /* ", rename, para. 10:
@@ -2707,11 +2789,15 @@ do_rename(void *args)
     assert(ps.st_ino == k.ino);
     ret = back_end_replace(opargs->be, &k, &ps, sizeof(ps));
     if (ret != 0)
-        goto err5;
+        goto err6;
+
+    ret = space_alloc_finish_op(&sctx, opargs->be);
+    if (ret != 0)
+        goto err6;
 
     ret = back_end_trans_commit(opargs->be);
     if (ret != 0)
-        goto err5;
+        goto err6;
 
     if (existing)
         set_ref_inode_nodelete(opargs->be, opargs->ref_inodes, ds.st_ino, 0);
@@ -2719,11 +2805,11 @@ do_rename(void *args)
 
     return 0;
 
-err5:
+err6:
     inc_refcnt(opargs->be, opargs->ref_inodes, ss.st_ino, 1, 0, 0, refinop);
-err4:
+err5:
     dec_refcnt(opargs->ref_inodes, -1, 0, 0, refinop[1]);
-err3:
+err4:
     if (existing) {
         if (S_ISDIR(ds.st_mode)) {
             inc_refcnt(opargs->be, opargs->ref_inodes, ds.st_ino, 2, 0, 0,
@@ -2736,8 +2822,10 @@ err3:
         }
         set_ref_inode_nodelete(opargs->be, opargs->ref_inodes, ds.st_ino, 0);
     }
-err2:
+err3:
     set_ref_inode_nodelete(opargs->be, opargs->ref_inodes, ss.st_ino, 0);
+err2:
+    space_alloc_abort_op(opargs->be);
 err1:
     back_end_trans_abort(opargs->be);
     return ret;
@@ -2753,10 +2841,15 @@ do_create_node_link(void *args)
     struct db_obj_stat ps;
     struct op_args *opargs = (struct op_args *)args;
     struct ref_ino *refinop;
+    struct space_alloc_ctx sctx;
 
     ret = back_end_trans_new(opargs->be);
     if (ret != 0)
         return ret;
+
+    ret = space_alloc_init_op(&sctx, opargs->be);
+    if (ret != 0)
+        goto err1;
 
     newparent = opargs->op_data.link_data.newparent;
     newname = opargs->op_data.link_data.newname;
@@ -2764,7 +2857,7 @@ do_create_node_link(void *args)
     ret = new_node_link(opargs->be, opargs->ref_inodes, opargs->ino, newparent,
                         newname, &refinop);
     if (ret != 0)
-        goto err1;
+        goto err2;
 
     k.type = TYPE_STAT;
     k.ino = opargs->ino;
@@ -2773,7 +2866,7 @@ do_create_node_link(void *args)
     if (ret != 1) {
         if (ret == 0)
             ret = -ENOENT;
-        goto err2;
+        goto err3;
     }
 
     /* POSIX-1.2008, link, para. 5:
@@ -2783,7 +2876,7 @@ do_create_node_link(void *args)
 
     ret = back_end_replace(opargs->be, &k, &opargs->s, sizeof(opargs->s));
     if (ret != 0)
-        goto err2;
+        goto err3;
 
     k.ino = newparent;
 
@@ -2791,7 +2884,7 @@ do_create_node_link(void *args)
     if (ret != 1) {
         if (ret == 0)
             ret = -ENOENT;
-        goto err2;
+        goto err3;
     }
 
     /* ", link, para. 5:
@@ -2804,23 +2897,29 @@ do_create_node_link(void *args)
     assert(ps.st_ino == k.ino);
     ret = back_end_replace(opargs->be, &k, &ps, sizeof(ps));
     if (ret != 0)
-        goto err2;
+        goto err3;
 
     ret = inc_refcnt(opargs->be, opargs->ref_inodes, opargs->ino, 0, 0, 1,
                      opargs->refinop);
     if (ret != 0)
-        goto err2;
+        goto err3;
+
+    ret = space_alloc_finish_op(&sctx, opargs->be);
+    if (ret != 0)
+        goto err4;
 
     ret = back_end_trans_commit(opargs->be);
     if (ret != 0)
-        goto err3;
+        goto err4;
 
     return 0;
 
-err3:
+err4:
     dec_refcnt(opargs->ref_inodes, 0, 0, -1, opargs->refinop[0]);
-err2:
+err3:
     dec_refcnt(opargs->ref_inodes, -1, 0, 0, refinop);
+err2:
+    space_alloc_abort_op(opargs->be);
 err1:
     back_end_trans_abort(opargs->be);
     return ret;
@@ -3032,6 +3131,7 @@ do_write(void *args)
     struct db_key k;
     struct db_obj_stat s;
     struct op_args *opargs = (struct op_args *)args;
+    struct space_alloc_ctx sctx;
 
     k.type = TYPE_STAT;
     k.ino = opargs->ino;
@@ -3043,6 +3143,10 @@ do_write(void *args)
     ret = back_end_trans_new(opargs->be);
     if (ret != 0)
         return ret;
+
+    ret = space_alloc_init_op(&sctx, opargs->be);
+    if (ret != 0)
+        goto err1;
 
     k.type = TYPE_PAGE;
 
@@ -3065,7 +3169,7 @@ do_write(void *args)
         ret = back_end_look_up(opargs->be, &k, NULL, buf, NULL, 0);
         if (ret != 1) {
             if (ret != 0)
-                goto err;
+                goto err2;
 
             memset(buf, 0, pgoff);
             memcpy(buf + pgoff, write_buf + write_size - size, sz);
@@ -3078,7 +3182,7 @@ do_write(void *args)
             ret = back_end_replace(opargs->be, &k, buf, sizeof(buf));
         }
         if (ret != 0)
-            goto err;
+            goto err2;
 
         off += sz;
         size -= sz;
@@ -3096,15 +3200,21 @@ do_write(void *args)
 
     ret = back_end_replace(opargs->be, &k, &s, sizeof(s));
     if (ret != 0)
-        goto err;
+        goto err2;
+
+    ret = space_alloc_finish_op(&sctx, opargs->be);
+    if (ret != 0)
+        goto err2;
 
     ret = back_end_trans_commit(opargs->be);
     if (ret != 0)
-        goto err;
+        goto err2;
 
     return 0;
 
-err:
+err2:
+    space_alloc_abort_op(opargs->be);
+err1:
     back_end_trans_abort(opargs->be);
     return ret;
 }
@@ -3356,12 +3466,17 @@ do_create(void *args)
     struct db_key k;
     struct db_obj_stat ps;
     struct op_args *opargs = (struct op_args *)args;
+    struct space_alloc_ctx sctx;
 
     ctx = opargs->ctx;
 
     ret = back_end_trans_new(opargs->be);
     if (ret != 0)
         return ret;
+
+    ret = space_alloc_init_op(&sctx, opargs->be);
+    if (ret != 0)
+        goto err1;
 
     parent = opargs->op_data.mknod_data.parent;
     name = opargs->op_data.mknod_data.name;
@@ -3374,7 +3489,7 @@ do_create(void *args)
                    ctx->gid, opargs->op_data.mknod_data.mode & ~(ctx->umask), 0,
                    0, &opargs->attr, opargs->refinop, 1);
     if (ret != 0)
-        goto err1;
+        goto err2;
 
     k.type = TYPE_STAT;
     k.ino = parent;
@@ -3383,7 +3498,7 @@ do_create(void *args)
     if (ret != 1) {
         if (ret == 0)
             ret = -ENOENT;
-        goto err2;
+        goto err3;
     }
 
     /* ", open, para. 7:
@@ -3394,26 +3509,32 @@ do_create(void *args)
 
     ret = back_end_replace(opargs->be, &k, &ps, sizeof(ps));
     if (ret != 0)
-        goto err2;
+        goto err3;
 
     ret = inc_refcnt(opargs->be, opargs->ref_inodes, opargs->attr.st_ino, 0, 1,
                      0, &opargs->refinop[2]);
     if (ret != 0)
-        goto err2;
+        goto err3;
+
+    ret = space_alloc_finish_op(&sctx, opargs->be);
+    if (ret != 0)
+        goto err4;
 
     ret = back_end_trans_commit(opargs->be);
     if (ret != 0)
-        goto err3;
+        goto err4;
 
     dump_db(opargs->be);
 
     return 0;
 
-err3:
+err4:
     dec_refcnt(opargs->ref_inodes, 0, -1, 0, opargs->refinop[2]);
-err2:
+err3:
     dec_refcnt(opargs->ref_inodes, 0, 0, -1, opargs->refinop[1]);
     dec_refcnt(opargs->ref_inodes, -1, 0, 0, opargs->refinop[0]);
+err2:
+    space_alloc_abort_op(opargs->be);
 err1:
     back_end_trans_abort(opargs->be);
     return ret;
