@@ -2964,7 +2964,7 @@ do_write(void *args)
         ret = back_end_look_up(opargs->be, &k, NULL, buf, NULL, 0);
         if (ret != 1) {
             if (ret != 0)
-                return ret;
+                goto err;
 
             memset(buf, 0, pgoff);
             memcpy(buf + pgoff, write_buf + write_size - size, sz);
@@ -2977,7 +2977,7 @@ do_write(void *args)
             ret = back_end_replace(opargs->be, &k, buf, sizeof(buf));
         }
         if (ret != 0)
-            return ret;
+            goto err;
 
         off += sz;
         size -= sz;
@@ -2995,7 +2995,7 @@ do_write(void *args)
 
     ret = back_end_replace(opargs->be, &k, &s, sizeof(s));
     if (ret != 0)
-        return ret;
+        goto err;
 
     ret = back_end_trans_commit(opargs->be);
     if (ret != 0)
