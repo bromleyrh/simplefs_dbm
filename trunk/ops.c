@@ -3225,6 +3225,15 @@ do_close(void *args)
     int ret;
     struct op_args *opargs = (struct op_args *)args;
     struct ref_ino refino, *refinop;
+    struct space_alloc_ctx sctx;
+
+    ret = back_end_trans_new(opargs->be);
+    if (ret != 0)
+        return ret;
+
+    ret = space_alloc_init_op(&sctx, opargs->be);
+    if (ret != 0)
+        goto err1;
 
     refino.ino = opargs->ino;
     refinop = &refino;
@@ -3232,12 +3241,23 @@ do_close(void *args)
     pthread_mutex_lock(&opargs->ref_inodes->ref_inodes_mtx);
     ret = avl_tree_search(opargs->ref_inodes->ref_inodes, &refinop, &refinop);
     pthread_mutex_unlock(&opargs->ref_inodes->ref_inodes_mtx);
-    if (ret != 1)
-        return (ret == 0) ? -ENOENT : ret;
+    if (ret != 1) {
+        if (ret == 0)
+            ret = -ENOENT;
+        goto err2;
+    }
 
     ret = unref_inode(opargs->be, opargs->ref_inodes, refinop, 0, -1, 0, NULL);
     if (ret != 0)
-        return ret;
+        goto err2;
+
+    ret = space_alloc_finish_op(&sctx, opargs->be);
+    if (ret != 0)
+        goto err2;
+
+    ret = back_end_trans_commit(opargs->be);
+    if (ret != 0)
+        goto err2;
 
     pthread_mutex_lock(&opargs->ref_inodes->ref_inodes_mtx);
     if (!(refinop->nodelete) && (refinop->nlink == 0) && (refinop->refcnt == 0)
@@ -3248,6 +3268,12 @@ do_close(void *args)
     pthread_mutex_unlock(&opargs->ref_inodes->ref_inodes_mtx);
 
     return 0;
+
+err2:
+    space_alloc_abort_op(opargs->be);
+err1:
+    back_end_trans_abort(opargs->be);
+    return ret;
 }
 
 static int
@@ -3282,6 +3308,15 @@ do_setxattr(void *args)
     size_t size;
     struct db_key k;
     struct op_args *opargs = (struct op_args *)args;
+    struct space_alloc_ctx sctx;
+
+    ret = back_end_trans_new(opargs->be);
+    if (ret != 0)
+        return ret;
+
+    ret = space_alloc_init_op(&sctx, opargs->be);
+    if (ret != 0)
+        goto err1;
 
     flags = opargs->op_data.xattr_data.flags;
 
@@ -3294,12 +3329,36 @@ do_setxattr(void *args)
 
     if ((flags == 0) || (flags == XATTR_CREATE)) {
         ret = back_end_insert(opargs->be, &k, value, size);
+        if (ret == 0)
+            goto end;
         if ((ret != -EADDRINUSE) || (flags == XATTR_CREATE))
-            return ret;
-    } else if (flags != XATTR_REPLACE)
-        return -EINVAL;
+            goto err2;
+    } else if (flags != XATTR_REPLACE) {
+        ret = -EINVAL;
+        goto err2;
+    }
 
-    return back_end_replace(opargs->be, &k, value, size);
+    ret = back_end_replace(opargs->be, &k, value, size);
+    if (ret != 0)
+        goto err2;
+
+end:
+
+    ret = space_alloc_finish_op(&sctx, opargs->be);
+    if (ret != 0)
+        goto err1;
+
+    ret = back_end_trans_commit(opargs->be);
+    if (ret != 0)
+        goto err1;
+
+    return 0;
+
+err2:
+    space_alloc_abort_op(opargs->be);
+err1:
+    back_end_trans_abort(opargs->be);
+    return ret;
 }
 
 static int
@@ -3426,14 +3485,42 @@ err1:
 static int
 do_removexattr(void *args)
 {
+    int ret;
     struct db_key k;
     struct op_args *opargs = (struct op_args *)args;
+    struct space_alloc_ctx sctx;
+
+    ret = back_end_trans_new(opargs->be);
+    if (ret != 0)
+        return ret;
+
+    ret = space_alloc_init_op(&sctx, opargs->be);
+    if (ret != 0)
+        goto err1;
 
     k.type = TYPE_XATTR;
     k.ino = opargs->ino;
     strlcpy(k.name, opargs->op_data.xattr_data.name, sizeof(k.name));
 
-    return back_end_delete(opargs->be, &k);
+    ret = back_end_delete(opargs->be, &k);
+    if (ret != 0)
+        goto err2;
+
+    ret = space_alloc_finish_op(&sctx, opargs->be);
+    if (ret != 0)
+        goto err1;
+
+    ret = back_end_trans_commit(opargs->be);
+    if (ret != 0)
+        goto err1;
+
+    return 0;
+
+err2:
+    space_alloc_abort_op(opargs->be);
+err1:
+    back_end_trans_abort(opargs->be);
+    return ret;
 }
 
 static int
