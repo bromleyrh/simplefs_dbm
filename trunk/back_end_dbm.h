@@ -19,6 +19,8 @@ struct db_args {
     void        *trans_ctx;
     void        (*sync_cb)(int status, void *ctx);
     void        *sync_ctx;
+    int         blkdev;
+    uint64_t    blkdevsz;
     uint64_t    initusedbytes;
 };
 

@@ -5,7 +5,13 @@
 #ifndef _BLKDEV_H
 #define _BLKDEV_H
 
+#include <stdint.h>
+
 struct fs_ops;
+
+struct blkdev_args {
+    uint64_t blkdevsz;
+};
 
 #define DB_HL_USEFSOPS 16
 

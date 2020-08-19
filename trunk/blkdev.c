@@ -65,6 +65,7 @@ STATIC_ASSERT(sizeof(struct disk_header) == 4096);
 #define JFD(bctx) BCTX_FD(bctx, 2)
 
 struct blkdev_ctx {
+    struct blkdev_args  *args;
     struct disk_header  hdr;
     int                 fd[3];
     void                *mmap_addr;
@@ -343,11 +344,11 @@ fs_blkdev_openfs(void **ctx, void *args)
     size_t i;
     struct blkdev_ctx *ret;
 
-    (void)args;
-
     ret = do_malloc(sizeof(*ret));
     if (ret == NULL)
         return -errno;
+
+    ret->args = (struct blkdev_args *)args;
 
     ret->hdr.blkdevsz = 0;
 
@@ -459,7 +460,6 @@ fs_blkdev_openat(void *ctx, int dfd, const char *pathname, int flags,
     }
 
     init = (bfd == &FD(bctx)) ? &bctx->init : &bctx->jinit;
-
     if (create) {
         if (!(*init))
             *init = 1;
@@ -471,6 +471,8 @@ fs_blkdev_openat(void *ctx, int dfd, const char *pathname, int flags,
         res = -ENOENT;
         goto err;
     }
+
+    bctx->args->blkdevsz = bctx->hdr.blkdevsz;
 
 end:
     *bfd = ret;
