@@ -63,6 +63,8 @@ struct fspriv {
     struct back_end     *be;
     struct fifo         *queue;
     pthread_t           worker_td;
+    int                 blkdev;
+    uint64_t            blkdevsz;
     struct ref_inodes   ref_inodes;
     int                 wb_err;
 };
@@ -3692,6 +3694,7 @@ simplefs_init(void *userdata, struct fuse_conn_info *conn)
     dbargs.ro = md->ro;
     dbargs.sync_cb = &sync_cb;
     dbargs.sync_ctx = priv;
+    dbargs.blkdevsz = 0;
 
     args.ops = BACK_END_DBM;
     args.set_trans_cb = &set_trans_cb;
@@ -3783,6 +3786,9 @@ simplefs_init(void *userdata, struct fuse_conn_info *conn)
                 goto err6;
         }
     }
+
+    priv->blkdev = dbargs.blkdev;
+    priv->blkdevsz = dbargs.blkdevsz;
 
     fuse_cache_set_dump_cb(*(struct fuse_cache **)(priv->be), &dump_db_obj,
                            NULL);
@@ -4789,20 +4795,26 @@ simplefs_statfs(fuse_req_t req, fuse_ino_t ino)
 
     priv = md->priv;
 
-    if (statvfs(".", &stbuf) == -1) {
-        ret = errno;
-        goto err;
-    }
-
     opargs.be = priv->be;
 
     ret = do_queue_op(priv, &do_read_header, &opargs);
     if (ret != 0)
         goto err;
 
-    stbuf.f_blocks = (stbuf.f_blocks * stbuf.f_frsize) / PG_SIZE;
-    stbuf.f_bfree = (stbuf.f_bfree * stbuf.f_bsize) / PG_SIZE;
-    stbuf.f_bavail = (stbuf.f_bavail * stbuf.f_bsize) / PG_SIZE;
+    if (priv->blkdev) {
+        stbuf.f_blocks = priv->blkdevsz / PG_SIZE;
+        stbuf.f_bfree = stbuf.f_bavail
+            = (priv->blkdevsz - opargs.hdr.usedbytes) / PG_SIZE;
+    } else {
+        if (statvfs(".", &stbuf) == -1) {
+            ret = errno;
+            goto err;
+        }
+
+        stbuf.f_blocks = (stbuf.f_blocks * stbuf.f_frsize) / PG_SIZE;
+        stbuf.f_bfree = (stbuf.f_bfree * stbuf.f_bsize) / PG_SIZE;
+        stbuf.f_bavail = (stbuf.f_bavail * stbuf.f_bsize) / PG_SIZE;
+    }
 
     stbuf.f_bsize = PG_SIZE;
     stbuf.f_frsize = PG_SIZE;
