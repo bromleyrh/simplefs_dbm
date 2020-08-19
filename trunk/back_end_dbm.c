@@ -166,7 +166,7 @@ do_create(struct dbh **dbh, int dfd, const char *relpath, mode_t mode,
     if (blkdev) {
         return db_hl_create(dbh, relpath, mode, key_size, keycmp, key_ctx,
                             flags | DB_HL_RELPATH | DB_HL_USEFSOPS, dfd,
-                            FS_BLKDEV_OPS);
+                            FS_BLKDEV_OPS, NULL);
     }
 
     return db_hl_create(dbh, relpath, mode, key_size, keycmp, key_ctx,
@@ -182,7 +182,7 @@ do_open(struct dbh **dbh, int dfd, const char *relpath, size_t key_size,
     if (blkdev) {
         return db_hl_open(dbh, relpath, key_size, keycmp, key_ctx,
                           flags | DB_HL_RELPATH | DB_HL_USEFSOPS, dfd,
-                          FS_BLKDEV_OPS);
+                          FS_BLKDEV_OPS, NULL);
     }
 
     return db_hl_open(dbh, relpath, key_size, keycmp, key_ctx,
