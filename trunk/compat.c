@@ -28,7 +28,7 @@ struct foreach_alloc_ctx {
 };
 
 typedef int check_init_fn_t(struct back_end *, int, int);
-typedef int init_fn_t(struct back_end *, int, int);
+typedef int init_fn_t(struct back_end *, size_t, int, int);
 
 int used_ino_set(uint64_t *, fuse_ino_t, fuse_ino_t, int);
 
@@ -60,7 +60,7 @@ check_init_ro_or_fmtconv(struct back_end *be, int ro, int fmtconv)
  * 3. Set numinodes field in header object
  */
 static int
-init_ver_2_to_3(struct back_end *be, int ro, int fmtconv)
+init_ver_2_to_3(struct back_end *be, size_t hdrlen, int ro, int fmtconv)
 {
     int end;
     int res;
@@ -70,6 +70,7 @@ init_ver_2_to_3(struct back_end *be, int ro, int fmtconv)
     struct db_obj_header hdr;
     uint64_t numinodes, tot_numinodes;
 
+    (void)hdrlen;
     (void)ro;
     (void)fmtconv;
 
@@ -211,9 +212,10 @@ foreach_alloc_cb(uint64_t sz, int dealloc, void *ctx)
 }
 
 static int
-init_ver_3_to_4(struct back_end *be, int ro, int fmtconv)
+init_ver_3_to_4(struct back_end *be, size_t hdrlen, int ro, int fmtconv)
 {
     int res;
+    size_t db_hdrlen;
     struct db_alloc_cb alloc_cb;
     struct db_key k;
     struct db_obj_header hdr;
@@ -228,6 +230,10 @@ init_ver_3_to_4(struct back_end *be, int ro, int fmtconv)
     if (res != 1)
         return (res == 0) ? -EILSEQ : res;
 
+    res = back_end_ctl(be, BACK_END_DBM_OP_GET_HDR_LEN, &db_hdrlen);
+    if (res != 0)
+        return res;
+
     actx.f = stderr;
     actx.tot_sz = 0;
 
@@ -238,17 +244,19 @@ init_ver_3_to_4(struct back_end *be, int ro, int fmtconv)
     if ((res != 0) && (res != -ENOSPC))
         return res;
 
-    fprintf(stderr, "Total allocated space: %" PRIu64 " bytes\n", actx.tot_sz);
+    hdr.usedbytes = hdrlen + db_hdrlen + actx.tot_sz;
+
+    fprintf(stderr, "Total allocated space: %" PRIu64 " bytes\n",
+            hdr.usedbytes);
 
     hdr.version = 4;
-    hdr.usedbytes = actx.tot_sz;
 
     return back_end_replace(be, &k, &hdr, sizeof(hdr));
 }
 
 int
-compat_init(struct back_end *be, uint64_t user_ver, uint64_t fs_ver, int ro,
-            int fmtconv)
+compat_init(struct back_end *be, uint64_t user_ver, uint64_t fs_ver,
+            size_t hdrlen, int ro, int fmtconv)
 {
     int ret;
     size_t i;
@@ -279,7 +287,7 @@ compat_init(struct back_end *be, uint64_t user_ver, uint64_t fs_ver, int ro,
                    PRIu64 "\n",
                    conv->user_ver, conv->fs_ver);
 
-            return (*(conv->init))(be, ro, fmtconv);
+            return (*(conv->init))(be, hdrlen, ro, fmtconv);
         }
 
         return -EPROTONOSUPPORT;

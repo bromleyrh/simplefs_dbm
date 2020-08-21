@@ -357,6 +357,8 @@ fs_blkdev_openfs(void **ctx, void *args)
     ret->mmap_addr = NULL;
     ret->init = ret->jinit = -1;
 
+    ret->args->hdrlen = sizeof(struct disk_header);
+
     *ctx = ret;
     return 0;
 }

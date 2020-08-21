@@ -3694,6 +3694,7 @@ simplefs_init(void *userdata, struct fuse_conn_info *conn)
     dbargs.ro = md->ro;
     dbargs.sync_cb = &sync_cb;
     dbargs.sync_ctx = priv;
+    dbargs.hdrlen = 0;
     dbargs.blkdevsz = 0;
 
     args.ops = BACK_END_DBM;
@@ -3714,6 +3715,7 @@ simplefs_init(void *userdata, struct fuse_conn_info *conn)
     ret = back_end_open(&priv->be, sizeof(struct db_key), BACK_END_FUSE_CACHE,
                         &db_key_cmp, &args);
     if (ret != 0) {
+        size_t db_hdrlen;
         struct space_alloc_ctx sctx;
 
         if (ret != -ENOENT)
@@ -3724,10 +3726,20 @@ simplefs_init(void *userdata, struct fuse_conn_info *conn)
                   "system)\n", stderr);
         }
 
+        sctx.delta = 0;
+
+        dbargs.alloc_cb.alloc_cb = &space_alloc_cb;
+        dbargs.alloc_cb.alloc_cb_ctx = &sctx;
+
         ret = back_end_create(&priv->be, sizeof(struct db_key),
                               BACK_END_FUSE_CACHE, &db_key_cmp, &args);
         if (ret != 0)
             goto err5;
+
+        ret = back_end_ctl(priv->be, BACK_END_DBM_OP_GET_HDR_LEN, &db_hdrlen);
+        if (ret != 0)
+            goto err6;
+        hdr.usedbytes = dbargs.hdrlen + db_hdrlen + sctx.delta;
 
         ret = space_alloc_init_op(&sctx, priv->be);
         if (ret != 0)
@@ -3736,7 +3748,6 @@ simplefs_init(void *userdata, struct fuse_conn_info *conn)
         k.type = TYPE_HEADER;
         hdr.version = FMT_VERSION;
         hdr.numinodes = 1;
-        hdr.usedbytes = dbargs.initusedbytes;
         ret = back_end_insert(priv->be, &k, &hdr, sizeof(hdr));
         if (ret != 0)
             goto err7;
@@ -3775,8 +3786,8 @@ simplefs_init(void *userdata, struct fuse_conn_info *conn)
 
         /* Note: Any space allocation changes must be handled by the format
            updating code as necessary */
-        ret = compat_init(priv->be, hdr.version, FMT_VERSION, md->ro,
-                          md->fmtconv);
+        ret = compat_init(priv->be, hdr.version, FMT_VERSION, dbargs.hdrlen,
+                          md->ro, md->fmtconv);
         if (ret != 0)
             goto err6;
 

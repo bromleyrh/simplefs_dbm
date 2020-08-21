@@ -45,6 +45,9 @@ struct db_iter {
     struct db_ctx   *dbctx;
 };
 
+#define DB_HL_USEFSOPS 16
+#define DB_HL_ALLOCHOOK 32
+
 int db_hl_get_trans_state(struct dbh *);
 
 static void trans_cb(struct dbh *, int, int, int, void *);
@@ -55,9 +58,10 @@ static int get_dir_relpath_components(const char *, int *, const char **,
 static int is_blkdev(int, const char *);
 
 static int do_create(struct dbh **, int, const char *, mode_t, size_t,
-                     back_end_key_cmp_t, void *, int, int, uint64_t *);
+                     back_end_key_cmp_t, void *, int, int, size_t *,
+                     uint64_t *, struct db_alloc_cb *);
 static int do_open(struct dbh **, int, const char *, size_t, back_end_key_cmp_t,
-                   void *, int, int, uint64_t *);
+                   void *, int, int, size_t *, uint64_t *);
 
 static int get_next_elem(void *, void *, size_t *, const void *,
                          struct db_ctx *);
@@ -161,7 +165,8 @@ is_blkdev(int dfd, const char *pathname)
 static int
 do_create(struct dbh **dbh, int dfd, const char *relpath, mode_t mode,
           size_t key_size, back_end_key_cmp_t key_cmp, void *key_ctx, int flags,
-          int blkdev, uint64_t *blkdev_size)
+          int blkdev, size_t *hdr_len, uint64_t *blkdev_size,
+          struct db_alloc_cb *alloc_cb)
 {
     db_hl_key_cmp_t keycmp = (db_hl_key_cmp_t)key_cmp;
     int err;
@@ -170,10 +175,14 @@ do_create(struct dbh **dbh, int dfd, const char *relpath, mode_t mode,
         struct blkdev_args args;
 
         err = db_hl_create(dbh, relpath, mode, key_size, keycmp, key_ctx,
-                           flags | DB_HL_RELPATH | DB_HL_USEFSOPS, dfd,
-                           FS_BLKDEV_OPS, &args);
-        if (!err)
+                           flags | DB_HL_RELPATH | DB_HL_USEFSOPS
+                           | DB_HL_ALLOCHOOK,
+                           dfd, FS_BLKDEV_OPS, &args, alloc_cb->alloc_cb,
+                           alloc_cb->alloc_cb_ctx);
+        if (!err) {
+            *hdr_len = args.hdrlen;
             *blkdev_size = args.blkdevsz;
+        }
         return err;
     }
 
@@ -184,7 +193,7 @@ do_create(struct dbh **dbh, int dfd, const char *relpath, mode_t mode,
 static int
 do_open(struct dbh **dbh, int dfd, const char *relpath, size_t key_size,
         back_end_key_cmp_t key_cmp, void *key_ctx, int flags, int blkdev,
-        uint64_t *blkdev_size)
+        size_t *hdr_len, uint64_t *blkdev_size)
 {
     db_hl_key_cmp_t keycmp = (db_hl_key_cmp_t)key_cmp;
     int err;
@@ -195,8 +204,10 @@ do_open(struct dbh **dbh, int dfd, const char *relpath, size_t key_size,
         err = db_hl_open(dbh, relpath, key_size, keycmp, key_ctx,
                          flags | DB_HL_RELPATH | DB_HL_USEFSOPS, dfd,
                          FS_BLKDEV_OPS, &args);
-        if (!err)
+        if (!err) {
+            *hdr_len = args.hdrlen;
             *blkdev_size = args.blkdevsz;
+        }
         return err;
     }
 
@@ -246,6 +257,7 @@ back_end_dbm_create(void **ctx, size_t key_size, back_end_key_cmp_t key_cmp,
     int blkdev;
     int dfd;
     int err;
+    size_t hdrlen;
     struct db_args *dbargs = (struct db_args *)args;
     struct db_ctx *ret;
     uint64_t blkdevsz;
@@ -282,7 +294,8 @@ back_end_dbm_create(void **ctx, size_t key_size, back_end_key_cmp_t key_cmp,
     ret->key_ctx->last_key_valid = 0;
 
     err = do_create(&ret->dbh, dfd, relpath, dbargs->db_mode, key_size, key_cmp,
-                    ret->key_ctx, 0, blkdev, &blkdevsz);
+                    ret->key_ctx, 0, blkdev, &hdrlen, &blkdevsz,
+                    &dbargs->alloc_cb);
     if (err)
         goto err4;
 
@@ -304,8 +317,8 @@ back_end_dbm_create(void **ctx, size_t key_size, back_end_key_cmp_t key_cmp,
     close(dfd);
 
     dbargs->blkdev = blkdev;
+    dbargs->hdrlen = hdrlen;
     dbargs->blkdevsz = blkdevsz;
-    dbargs->initusedbytes = 0; /* FIXME */
 
     *ctx = ret;
     return 0;
@@ -332,6 +345,7 @@ back_end_dbm_open(void **ctx, size_t key_size, back_end_key_cmp_t key_cmp,
     int blkdev;
     int dfd;
     int err;
+    size_t hdrlen;
     struct db_args *dbargs = (struct db_args *)args;
     struct db_ctx *ret;
     uint64_t blkdevsz;
@@ -369,7 +383,7 @@ back_end_dbm_open(void **ctx, size_t key_size, back_end_key_cmp_t key_cmp,
 
     /* test for journal replay by attempting read-only open */
     err = do_open(&ret->dbh, dfd, relpath, key_size, key_cmp, ret->key_ctx,
-                  DB_HL_RDONLY, blkdev, &blkdevsz);
+                  DB_HL_RDONLY, blkdev, &hdrlen, &blkdevsz);
     if (!(dbargs->ro)) {
         if (err) {
             if (err != -EROFS)
@@ -382,7 +396,7 @@ back_end_dbm_open(void **ctx, size_t key_size, back_end_key_cmp_t key_cmp,
         }
 
         err = do_open(&ret->dbh, dfd, relpath, key_size, key_cmp, ret->key_ctx,
-                      DB_HL_RELPATH, blkdev, &blkdevsz);
+                      DB_HL_RELPATH, blkdev, &hdrlen, &blkdevsz);
     }
     if (err)
         goto err4;
@@ -405,6 +419,7 @@ back_end_dbm_open(void **ctx, size_t key_size, back_end_key_cmp_t key_cmp,
     close(dfd);
 
     dbargs->blkdev = blkdev;
+    dbargs->hdrlen = hdrlen;
     dbargs->blkdevsz = blkdevsz;
 
     *ctx = ret;
@@ -662,17 +677,17 @@ back_end_dbm_ctl(void *ctx, int op, void *args)
     struct db_alloc_cb *alloc_cb;
     struct db_ctx *dbctx = (struct db_ctx *)ctx;
 
-    static const int op_map[] = {
-        [BACK_END_DBM_OP_FOREACH_ALLOC]     = DB_HL_OP_FOREACH_ALLOC,
-        [BACK_END_DBM_OP_SET_ALLOC_HOOK]    = DB_HL_OP_SET_ALLOC_HOOK
-    };
-
     switch (op) {
+    case BACK_END_DBM_OP_GET_HDR_LEN:
+        err = db_hl_ctl(dbctx->dbh, DB_HL_OP_GET_HDR_LEN, (size_t *)args);
+        break;
     case BACK_END_DBM_OP_FOREACH_ALLOC:
     case BACK_END_DBM_OP_SET_ALLOC_HOOK:
         alloc_cb = (struct db_alloc_cb *)args;
-        err = db_hl_ctl(dbctx->dbh, op_map[op], alloc_cb->alloc_cb,
-                        alloc_cb->alloc_cb_ctx);
+        err = db_hl_ctl(dbctx->dbh,
+                        (op == BACK_END_DBM_OP_FOREACH_ALLOC)
+                        ? DB_HL_OP_FOREACH_ALLOC : DB_HL_OP_SET_ALLOC_HOOK,
+                        alloc_cb->alloc_cb, alloc_cb->alloc_cb_ctx);
         break;
     default:
         err = -EINVAL;
