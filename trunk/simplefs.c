@@ -215,9 +215,7 @@ parse_cmdline(struct fuse_args *args, struct fuse_data *fusedata)
         FUSE_OPT_END
     };
 
-    fusedata->md.db_pathname = NULL;
-    fusedata->md.mountpoint = NULL;
-    fusedata->md.ro = 0;
+    memset(&fusedata->md, 0, sizeof(fusedata->md));
 
     if (fuse_opt_parse(args, &fusedata->md, opts, &opt_proc) == -1)
         goto err1;
