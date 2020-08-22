@@ -713,7 +713,7 @@ fs_blkdev_fstatfs(void *ctx, int fd, struct statfs *buf)
 
     memset(buf, 0, sizeof(*buf));
     /* Return f_type value other than NFS_SUPER_MAGIC */
-    buf->f_type = NFS_SUPER_MAGIC - 1;
+    buf->f_type = ~NFS_SUPER_MAGIC;
 
     return 0;
 }
