@@ -210,6 +210,8 @@ struct space_alloc_ctx {
 static pthread_mutex_t mtx = PTHREAD_MUTEX_INITIALIZER;
 static int init;
 
+static const char null_data[PG_SIZE];
+
 #define ASSERT_UNDER_TRANS(be) (assert(back_end_trans_new(be) == -EBUSY))
 
 static void verror(int, const char *, va_list);
@@ -378,6 +380,8 @@ static void simplefs_removexattr(fuse_req_t, fuse_ino_t, const char *);
 static void simplefs_access(fuse_req_t, fuse_ino_t, int);
 static void simplefs_create(fuse_req_t, fuse_ino_t, const char *, mode_t,
                             struct fuse_file_info *);
+static void simplefs_fallocate(fuse_req_t, fuse_ino_t, int, off_t, off_t,
+                               struct fuse_file_info *);
 
 static void
 verror(int err, const char *fmt, va_list ap)
@@ -3170,6 +3174,7 @@ do_write(void *args)
     size = write_size = opargs->op_data.rdwr_data.size;
     while (size > 0) {
         char buf[PG_SIZE];
+        const char *bufp;
         size_t pgoff;
         size_t sz;
 
@@ -3186,18 +3191,25 @@ do_write(void *args)
             if (ret != 0)
                 goto err2;
 
-            memset(buf, 0, pgoff);
-            memcpy(buf + pgoff, write_buf + write_size - size, sz);
-            memset(buf + pgoff + sz, 0, sizeof(buf) - pgoff - sz);
+            if (write_buf == null_data)
+                bufp = null_data;
+            else {
+                memset(buf, 0, pgoff);
+                memcpy(buf + pgoff, write_buf + write_size - size, sz);
+                memset(buf + pgoff + sz, 0, sizeof(buf) - pgoff - sz);
+                bufp = buf;
+            }
 
-            ret = back_end_insert(opargs->be, &k, buf, sizeof(buf));
-        } else {
+            ret = back_end_insert(opargs->be, &k, bufp, sizeof(buf));
+            if (ret != 0)
+                goto err2;
+        } else if (write_buf != null_data) {
             memcpy(buf + pgoff, write_buf + write_size - size, sz);
 
             ret = back_end_replace(opargs->be, &k, buf, sizeof(buf));
+            if (ret != 0)
+                goto err2;
         }
-        if (ret != 0)
-            goto err2;
 
         off += sz;
         size -= sz;
@@ -5150,6 +5162,55 @@ err1:
         fuse_reply_err(req, -ret);
 }
 
+/*
+ * This function implements posix_fallocate() and equivalent fallocate() calls
+ * only.
+ */
+static void
+simplefs_fallocate(fuse_req_t req, fuse_ino_t ino, int mode, off_t offset,
+                   off_t length, struct fuse_file_info *fi)
+{
+    int ret;
+    struct fspriv *priv;
+    struct mount_data *md = fuse_req_userdata(req);
+    struct op_args opargs;
+
+    /* VFS handles file descriptor access mode check on Linux */
+    (void)fi;
+
+    if (mode != 0) {
+        ret = -EOPNOTSUPP;
+        goto err;
+    }
+    if ((offset < 0) || (length <= 0)) {
+        ret = -EINVAL;
+        goto err;
+    }
+
+    priv = md->priv;
+
+    opargs.be = priv->be;
+
+    opargs.ino = ino;
+
+    opargs.op_data.rdwr_data.buf = (char *)null_data;
+    opargs.op_data.rdwr_data.size = length;
+    opargs.op_data.rdwr_data.off = offset;
+
+    ret = do_queue_op(priv, &do_write, &opargs);
+    if (ret != 0)
+        goto err;
+
+    ret = fuse_reply_err(req, 0);
+    if ((ret != 0) && (ret != -ENOENT))
+        goto err;
+
+    return;
+
+err:
+    fuse_reply_err(req, -ret);
+}
+
 struct fuse_lowlevel_ops simplefs_ops = {
     .init           = &simplefs_init,
     .destroy        = &simplefs_destroy,
@@ -5181,7 +5242,8 @@ struct fuse_lowlevel_ops simplefs_ops = {
     .listxattr      = &simplefs_listxattr,
     .removexattr    = &simplefs_removexattr,
     .access         = &simplefs_access,
-    .create         = &simplefs_create
+    .create         = &simplefs_create,
+    .fallocate      = &simplefs_fallocate
 };
 
 /* vi: set expandtab sw=4 ts=4: */
