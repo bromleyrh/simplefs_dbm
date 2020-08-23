@@ -1240,7 +1240,8 @@ truncate_file(struct back_end *be, fuse_ino_t ino, off_t oldsize, off_t newsize)
             return ret;
     }
 
-    if ((newnumpg > 0) && (lastpgsz = newsize % PG_SIZE) > 0) {
+    lastpgsz = newsize % PG_SIZE;
+    if (lastpgsz > 0) {
         char buf[PG_SIZE];
 
         k.pgno = newnumpg - 1;
