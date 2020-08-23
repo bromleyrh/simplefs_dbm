@@ -1225,6 +1225,8 @@ truncate_file(struct back_end *be, fuse_ino_t ino, off_t oldsize, off_t newsize)
     k.ino = ino;
 
     for (i = oldnumpg - 1; i > newnumpg; i--) {
+        /* FIXME: use iterator to improve efficiency */
+
         k.pgno = i;
 
         ret = back_end_delete(be, &k);
