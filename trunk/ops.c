@@ -1232,6 +1232,14 @@ truncate_file(struct back_end *be, fuse_ino_t ino, off_t oldsize, off_t newsize)
             return ret;
     }
 
+    if (oldnumpg > newnumpg) {
+        k.pgno = newnumpg;
+
+        ret = back_end_delete(be, &k);
+        if ((ret != 0) && (ret != -EADDRNOTAVAIL))
+            return ret;
+    }
+
     if ((newnumpg > 0) && (lastpgsz = newsize % PG_SIZE) > 0) {
         char buf[PG_SIZE];
 
