@@ -1249,7 +1249,9 @@ truncate_file(struct back_end *be, fuse_ino_t ino, off_t oldsize, off_t newsize)
         if (ret != 1)
             return (ret == 0) ? -ENOENT : ret;
 
-        return back_end_replace(be, &k, buf, lastpgsz);
+        memset(buf + lastpgsz, 0, sizeof(buf) - lastpgsz);
+
+        return back_end_replace(be, &k, buf, sizeof(buf));
     }
 
     return 0;
