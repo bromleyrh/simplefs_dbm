@@ -358,6 +358,7 @@ fs_blkdev_openfs(void **ctx, void *args)
     ret->init = ret->jinit = -1;
 
     ret->args->hdrlen = sizeof(struct disk_header);
+    ret->args->jlen = JOURNAL_SIZE;
 
     *ctx = ret;
     return 0;

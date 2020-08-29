@@ -50,8 +50,10 @@ struct disk_timespec {
  *   by storing free I-node number information in bitmaps
  * - 4
  *   added used space tracking for statfs() system call
+ * - 5
+ *   removed journal area size from free bytes count
  */
-#define FMT_VERSION 4
+#define FMT_VERSION 5
 
 struct db_obj_header {
     uint64_t    version;

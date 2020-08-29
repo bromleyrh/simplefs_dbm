@@ -7,6 +7,7 @@
 
 #include "back_end.h"
 
+#include <stddef.h>
 #include <stdint.h>
 
 #include <sys/types.h>
@@ -27,6 +28,7 @@ struct db_args {
     void                *sync_ctx;
     int                 blkdev;
     size_t              hdrlen;
+    size_t              jlen;
     uint64_t            blkdevsz;
     struct db_alloc_cb  alloc_cb;
 };

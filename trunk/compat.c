@@ -28,16 +28,27 @@ struct foreach_alloc_ctx {
 };
 
 typedef int check_init_fn_t(struct back_end *, int, int);
-typedef int init_fn_t(struct back_end *, size_t, int, int);
+typedef int init_fn_t(struct back_end *, size_t, size_t, int, int);
 
 int used_ino_set(uint64_t *, fuse_ino_t, fuse_ino_t, int);
 
 static void foreach_alloc_cb(uint64_t, int, void *);
 
+static check_init_fn_t check_init_default;
 static check_init_fn_t check_init_ro_or_fmtconv;
 
 static init_fn_t init_ver_2_to_3;
 static init_fn_t init_ver_3_to_4;
+static init_fn_t init_ver_4_to_5;
+
+static int
+check_init_default(struct back_end *be, int ro, int fmtconv)
+{
+    (void)be;
+    (void)fmtconv;
+
+    return !ro;
+}
 
 static int
 check_init_ro_or_fmtconv(struct back_end *be, int ro, int fmtconv)
@@ -60,7 +71,8 @@ check_init_ro_or_fmtconv(struct back_end *be, int ro, int fmtconv)
  * 3. Set numinodes field in header object
  */
 static int
-init_ver_2_to_3(struct back_end *be, size_t hdrlen, int ro, int fmtconv)
+init_ver_2_to_3(struct back_end *be, size_t hdrlen, size_t jlen, int ro,
+                int fmtconv)
 {
     int end;
     int res;
@@ -71,6 +83,7 @@ init_ver_2_to_3(struct back_end *be, size_t hdrlen, int ro, int fmtconv)
     uint64_t numinodes, tot_numinodes;
 
     (void)hdrlen;
+    (void)jlen;
     (void)ro;
     (void)fmtconv;
 
@@ -212,7 +225,8 @@ foreach_alloc_cb(uint64_t sz, int dealloc, void *ctx)
 }
 
 static int
-init_ver_3_to_4(struct back_end *be, size_t hdrlen, int ro, int fmtconv)
+init_ver_3_to_4(struct back_end *be, size_t hdrlen, size_t jlen, int ro,
+                int fmtconv)
 {
     int res;
     size_t db_hdrlen;
@@ -221,6 +235,7 @@ init_ver_3_to_4(struct back_end *be, size_t hdrlen, int ro, int fmtconv)
     struct db_obj_header hdr;
     struct foreach_alloc_ctx actx;
 
+    (void)jlen;
     (void)ro;
     (void)fmtconv;
 
@@ -254,9 +269,39 @@ init_ver_3_to_4(struct back_end *be, size_t hdrlen, int ro, int fmtconv)
     return back_end_replace(be, &k, &hdr, sizeof(hdr));
 }
 
+static int
+init_ver_4_to_5(struct back_end *be, size_t hdrlen, size_t jlen, int ro,
+                int fmtconv)
+{
+    int res;
+    struct db_key k;
+    struct db_obj_header hdr;
+
+    (void)hdrlen;
+    (void)ro;
+    (void)fmtconv;
+
+    k.type = TYPE_HEADER;
+
+    res = back_end_look_up(be, &k, NULL, &hdr, NULL, 0);
+    if (res != 1)
+        return (res == 0) ? -EILSEQ : res;
+
+    hdr.usedbytes += jlen;
+
+    fprintf(stderr,
+            "Journal area size: %zu bytes\n"
+            "Total allocated space: %" PRIu64 " bytes\n",
+            jlen, hdr.usedbytes);
+
+    hdr.version = 5;
+
+    return back_end_replace(be, &k, &hdr, sizeof(hdr));
+}
+
 int
 compat_init(struct back_end *be, uint64_t user_ver, uint64_t fs_ver,
-            size_t hdrlen, int ro, int fmtconv)
+            size_t hdrlen, size_t jlen, int ro, int fmtconv)
 {
     int ret;
     size_t i;
@@ -268,7 +313,8 @@ compat_init(struct back_end *be, uint64_t user_ver, uint64_t fs_ver,
         init_fn_t       *init;
     } conv_fns[] = {
         {2, 3, &check_init_ro_or_fmtconv, &init_ver_2_to_3},
-        {3, 4, &check_init_ro_or_fmtconv, &init_ver_3_to_4}
+        {3, 4, &check_init_ro_or_fmtconv, &init_ver_3_to_4},
+        {4, 5, &check_init_default,       &init_ver_4_to_5}
     }, *conv;
 
     if (user_ver != fs_ver) {
@@ -287,7 +333,7 @@ compat_init(struct back_end *be, uint64_t user_ver, uint64_t fs_ver,
                    PRIu64 "\n",
                    conv->user_ver, conv->fs_ver);
 
-            return (*(conv->init))(be, hdrlen, ro, fmtconv);
+            return (*(conv->init))(be, hdrlen, jlen, ro, fmtconv);
         }
 
         return -EPROTONOSUPPORT;
