@@ -32,6 +32,7 @@ spec_to_h = scripts/spec_to_h.pl
 BUILT_SOURCES =
 check_LTLIBRARIES =
 check_PROGRAMS =
+TESTS =
 
 CLEANFILES =
 

@@ -4,7 +4,15 @@
 
 ## Process this file with automake to produce Makefile.in
 
+EXTRA_DIST += tests/defs
+
 check_PROGRAMS += tests/fuse_cache_test tests/rem_dir_creat_test
+
+TESTS_ENVIRONMENT = TESTDIR=tests; export TESTDIR;
+
+defs = tests/defs
+
+TESTS += $(defs)/fuse_cache_test.sh
 
 include tests/libtestperf/Makefile.am
 
