@@ -2,8 +2,8 @@
  * ops.c
  *
  * Note: All of the requests handled by simplefs are uninterruptible to simplify
- * error handling. Checks for the -ENOENT error return from fuse_reply_*() are
- * added for robustness, but this condition should never occur.
+ * error handling. Checks for the -ENOENT error return from reply_*() are added
+ * for robustness, but this condition should never occur.
  */
 
 #include "config.h"
@@ -15,6 +15,7 @@
 #include "fuse_cache.h"
 #include "obj.h"
 #include "ops.h"
+#include "request.h"
 #include "simplefs.h"
 #include "util.h"
 
@@ -25,9 +26,6 @@
 #include <files/acc_ctl.h>
 
 #include <myutil/version.h>
-
-#include <fuse.h>
-#include <fuse_lowlevel.h>
 
 #include <assert.h>
 #include <errno.h>
@@ -79,7 +77,7 @@ struct queue_elem {
 };
 
 struct ref_ino {
-    fuse_ino_t  ino;
+    inum_t      ino;
     uint64_t    nlink;
     uint64_t    refcnt;
     uint64_t    nlookup;
@@ -87,12 +85,12 @@ struct ref_ino {
 };
 
 struct op_args {
-    fuse_req_t              req;
-    const struct fuse_ctx   *ctx;
+    void                    *req;
+    const struct ctx        *ctx;
     struct back_end         *be;
     struct ref_inodes       *ref_inodes;
     struct ref_ino          *refinop[4];
-    fuse_ino_t              ino;
+    inum_t                  ino;
     struct db_key           k;
     struct db_obj_header    hdr;
     struct db_obj_stat      s;
@@ -102,7 +100,7 @@ struct op_args {
         uint64_t            nlookup;        /* forget() */
         int                 to_set;         /* setattr() */
         struct {
-            fuse_ino_t      parent;
+            inum_t          parent;
             const char      *name;
             dev_t           rdev;
             mode_t          mode;
@@ -110,9 +108,9 @@ struct op_args {
         } mknod_data;                       /* create(), mkdir(), symlink(),
                                                mknod() */
         struct {
-            fuse_ino_t      parent;
+            inum_t          parent;
             const char      *name;
-            fuse_ino_t      newparent;
+            inum_t          newparent;
             const char      *newname;
         } link_data;                        /* link(), rename(), unlink(),
                                                rmdir() */
@@ -142,12 +140,12 @@ struct op_args {
 };
 
 struct open_dir {
-    char        cur_name[NAME_MAX+1];
-    fuse_ino_t  ino;
+    char    cur_name[NAME_MAX+1];
+    inum_t  ino;
 };
 
 struct open_file {
-    fuse_ino_t ino;
+    inum_t ino;
 };
 
 struct free_ref_inodes_ctx {
@@ -202,6 +200,7 @@ struct space_alloc_ctx {
 
 #define UNREF_MAX INT32_MAX
 
+#define ROOT_ID 1 /* FIXME */
 #define ROOT_DIR_INIT_PERMS (S_IRWXU)
 
 #if 0 && !defined(NDEBUG)
@@ -236,21 +235,21 @@ static int dump_db(struct back_end *);
 
 static int ref_inode_cmp(const void *, const void *, void *);
 
-static fuse_ino_t free_ino_find(uint64_t *, fuse_ino_t);
-static int get_ino(struct back_end *, fuse_ino_t *);
-static int release_ino(struct back_end *, fuse_ino_t);
+static inum_t free_ino_find(uint64_t *, inum_t);
+static int get_ino(struct back_end *, inum_t *);
+static int release_ino(struct back_end *, inum_t);
 
 static uint64_t adj_refcnt(uint64_t *, int32_t);
 static int unref_inode(struct back_end *, struct ref_inodes *, struct ref_ino *,
                        int32_t, int32_t, int32_t, int *);
 static int free_ref_inodes_cb(const void *, void *);
 
-static int inc_refcnt(struct back_end *, struct ref_inodes *, fuse_ino_t,
-                      int32_t, int32_t, int32_t, struct ref_ino **);
+static int inc_refcnt(struct back_end *, struct ref_inodes *, inum_t, int32_t,
+                      int32_t, int32_t, struct ref_ino **);
 static int dec_refcnt(struct ref_inodes *, int32_t, int32_t, int32_t,
                       struct ref_ino *);
 static int set_ref_inode_nodelete(struct back_end *, struct ref_inodes *,
-                                  fuse_ino_t, int);
+                                  inum_t, int);
 
 static int remove_ulinked_nodes(struct back_end *);
 
@@ -263,32 +262,31 @@ static void deserialize_stat(struct stat *, struct db_obj_stat *);
 
 static int add_xattr_name(char **, size_t *, size_t *, const char *);
 
-static int truncate_file(struct back_end *, fuse_ino_t, off_t, off_t);
-static int delete_file(struct back_end *, fuse_ino_t);
+static int truncate_file(struct back_end *, inum_t, off_t, off_t);
+static int delete_file(struct back_end *, inum_t);
 
 static void free_iov(struct iovec *, int);
 
 static void abort_init(int, const char *, ...);
 
-static int new_node(struct back_end *, struct ref_inodes *, fuse_ino_t,
+static int new_node(struct back_end *, struct ref_inodes *, inum_t,
                     const char *, uid_t, gid_t, mode_t, dev_t, off_t,
                     struct stat *, struct ref_ino **, int);
 
-static int new_node_link(struct back_end *, struct ref_inodes *, fuse_ino_t,
-                         fuse_ino_t, const char *, struct ref_ino **);
-static int rem_node_link(struct back_end *, struct ref_inodes *, fuse_ino_t,
-                         fuse_ino_t, const char *, int *, struct ref_ino **);
+static int new_node_link(struct back_end *, struct ref_inodes *, inum_t, inum_t,
+                         const char *, struct ref_ino **);
+static int rem_node_link(struct back_end *, struct ref_inodes *, inum_t, inum_t,
+                         const char *, int *, struct ref_ino **);
 
-static int new_dir(struct back_end *, struct ref_inodes *, fuse_ino_t,
-                   const char *, uid_t, gid_t, mode_t, struct stat *,
-                   struct ref_ino **, int);
-static int rem_dir(struct back_end *, struct ref_inodes *, fuse_ino_t,
-                   fuse_ino_t, const char *, int, int);
+static int new_dir(struct back_end *, struct ref_inodes *, inum_t, const char *,
+                   uid_t, gid_t, mode_t, struct stat *, struct ref_ino **, int);
+static int rem_dir(struct back_end *, struct ref_inodes *, inum_t, inum_t,
+                   const char *, int, int);
 
-static int new_dir_link(struct back_end *, struct ref_inodes *, fuse_ino_t,
-                        fuse_ino_t, const char *, struct ref_ino **);
-static int rem_dir_link(struct back_end *, struct ref_inodes *, fuse_ino_t,
-                        fuse_ino_t, const char *, struct ref_ino **);
+static int new_dir_link(struct back_end *, struct ref_inodes *, inum_t, inum_t,
+                        const char *, struct ref_ino **);
+static int rem_dir_link(struct back_end *, struct ref_inodes *, inum_t, inum_t,
+                        const char *, struct ref_ino **);
 
 static void space_alloc_cb(uint64_t, int, void *);
 static int space_alloc_set_hook(struct back_end *,
@@ -323,66 +321,43 @@ static int do_removexattr(void *);
 static int do_access(void *);
 static int do_create(void *);
 
-static void simplefs_init(void *, struct fuse_conn_info *);
+static void simplefs_init(void *);
 static void simplefs_destroy(void *);
-static void simplefs_lookup(fuse_req_t, fuse_ino_t, const char *);
-#if FUSE_USE_VERSION == 32
-static void simplefs_forget(fuse_req_t, fuse_ino_t, uint64_t);
-#else
-static void simplefs_forget(fuse_req_t, fuse_ino_t, unsigned long);
-#endif
-static void simplefs_getattr(fuse_req_t, fuse_ino_t, struct fuse_file_info *);
-static void simplefs_setattr(fuse_req_t, fuse_ino_t, struct stat *, int,
-                             struct fuse_file_info *);
-static void simplefs_readlink(fuse_req_t, fuse_ino_t);
-static void simplefs_mknod(fuse_req_t, fuse_ino_t, const char *, mode_t, dev_t);
-static void simplefs_mkdir(fuse_req_t, fuse_ino_t, const char *, mode_t);
-static void simplefs_unlink(fuse_req_t, fuse_ino_t, const char *);
-static void simplefs_rmdir(fuse_req_t, fuse_ino_t, const char *);
-static void simplefs_symlink(fuse_req_t, const char *, fuse_ino_t,
-                             const char *);
-#if FUSE_USE_VERSION == 32
-static void simplefs_rename(fuse_req_t, fuse_ino_t, const char *, fuse_ino_t,
-                            const char *, unsigned int);
-#else
-static void simplefs_rename(fuse_req_t, fuse_ino_t, const char *, fuse_ino_t,
-                            const char *);
-#endif
-static void simplefs_link(fuse_req_t, fuse_ino_t, fuse_ino_t, const char *);
-static void simplefs_open(fuse_req_t, fuse_ino_t, struct fuse_file_info *);
-static void simplefs_read(fuse_req_t, fuse_ino_t, size_t, off_t,
-                          struct fuse_file_info *);
-static void simplefs_write(fuse_req_t, fuse_ino_t, const char *, size_t, off_t,
-                           struct fuse_file_info *);
-static void simplefs_flush(fuse_req_t, fuse_ino_t, struct fuse_file_info *);
-static void simplefs_opendir(fuse_req_t, fuse_ino_t, struct fuse_file_info *);
-static void simplefs_readdir(fuse_req_t, fuse_ino_t, size_t, off_t,
-                             struct fuse_file_info *);
-static void simplefs_release(fuse_req_t, fuse_ino_t, struct fuse_file_info *);
-static void simplefs_fsync(fuse_req_t, fuse_ino_t, int,
-                           struct fuse_file_info *);
-static void simplefs_releasedir(fuse_req_t, fuse_ino_t,
-                                struct fuse_file_info *);
-static void simplefs_fsyncdir(fuse_req_t, fuse_ino_t, int,
-                              struct fuse_file_info *);
-static void simplefs_statfs(fuse_req_t, fuse_ino_t);
-#ifdef __APPLE__
-static void simplefs_setxattr(fuse_req_t, fuse_ino_t, const char *,
-                              const char *, size_t, int, uint32_t);
-static void simplefs_getxattr(fuse_req_t, fuse_ino_t, const char *, size_t,
-                              uint32_t);
-#else
-static void simplefs_setxattr(fuse_req_t, fuse_ino_t, const char *,
-                              const char *, size_t, int);
-static void simplefs_getxattr(fuse_req_t, fuse_ino_t, const char *, size_t);
-#endif
-static void simplefs_listxattr(fuse_req_t, fuse_ino_t, size_t);
-static void simplefs_removexattr(fuse_req_t, fuse_ino_t, const char *);
-static void simplefs_access(fuse_req_t, fuse_ino_t, int);
-static void simplefs_create(fuse_req_t, fuse_ino_t, const char *, mode_t,
-                            struct fuse_file_info *);
-static void simplefs_fallocate(fuse_req_t, fuse_ino_t, int, off_t, off_t,
-                               struct fuse_file_info *);
+static void simplefs_lookup(void *, inum_t, const char *);
+static void simplefs_forget(void *, inum_t, uint64_t);
+static void simplefs_getattr(void *, inum_t, struct file_info *);
+static void simplefs_setattr(void *, inum_t, struct stat *, int,
+                             struct file_info *);
+static void simplefs_readlink(void *, inum_t);
+static void simplefs_mknod(void *, inum_t, const char *, mode_t, dev_t);
+static void simplefs_mkdir(void *, inum_t, const char *, mode_t);
+static void simplefs_unlink(void *, inum_t, const char *);
+static void simplefs_rmdir(void *, inum_t, const char *);
+static void simplefs_symlink(void *, const char *, inum_t, const char *);
+static void simplefs_rename(void *, inum_t, const char *, inum_t, const char *);
+static void simplefs_link(void *, inum_t, inum_t, const char *);
+static void simplefs_open(void *, inum_t, struct file_info *);
+static void simplefs_read(void *, inum_t, size_t, off_t, struct file_info *);
+static void simplefs_write(void *, inum_t, const char *, size_t, off_t,
+                           struct file_info *);
+static void simplefs_flush(void *, inum_t, struct file_info *);
+static void simplefs_opendir(void *, inum_t, struct file_info *);
+static void simplefs_readdir(void *, inum_t, size_t, off_t, struct file_info *);
+static void simplefs_release(void *, inum_t, struct file_info *);
+static void simplefs_fsync(void *, inum_t, int, struct file_info *);
+static void simplefs_releasedir(void *, inum_t, struct file_info *);
+static void simplefs_fsyncdir(void *, inum_t, int, struct file_info *);
+static void simplefs_statfs(void *, inum_t);
+static void simplefs_setxattr(void *, inum_t, const char *, const char *,
+                              size_t, int);
+static void simplefs_getxattr(void *, inum_t, const char *, size_t);
+static void simplefs_listxattr(void *, inum_t, size_t);
+static void simplefs_removexattr(void *, inum_t, const char *);
+static void simplefs_access(void *, inum_t, int);
+static void simplefs_create(void *, inum_t, const char *, mode_t,
+                            struct file_info *);
+static void simplefs_fallocate(void *, inum_t, int, off_t, off_t,
+                               struct file_info *);
 
 static void
 verror(int err, const char *fmt, va_list ap)
@@ -647,7 +622,7 @@ ref_inode_cmp(const void *k1, const void *k2, void *ctx)
 }
 
 void
-used_ino_set(uint64_t *used_ino, fuse_ino_t base, fuse_ino_t ino, int val)
+used_ino_set(uint64_t *used_ino, inum_t base, inum_t ino, int val)
 {
     int idx, wordidx;
     uint64_t mask;
@@ -662,12 +637,12 @@ used_ino_set(uint64_t *used_ino, fuse_ino_t base, fuse_ino_t ino, int val)
         used_ino[wordidx] &= ~mask;
 }
 
-static fuse_ino_t
-free_ino_find(uint64_t *used_ino, fuse_ino_t base)
+static inum_t
+free_ino_find(uint64_t *used_ino, inum_t base)
 {
-    fuse_ino_t ino;
     int idx;
     int maxidx;
+    inum_t ino;
     static const uint64_t filled = ~(uint64_t)0;
     uint64_t word;
 
@@ -709,10 +684,10 @@ free_ino_find(uint64_t *used_ino, fuse_ino_t base)
 }
 
 static int
-get_ino(struct back_end *be, fuse_ino_t *ino)
+get_ino(struct back_end *be, inum_t *ino)
 {
-    fuse_ino_t ret;
     int res;
+    inum_t ret;
     struct back_end_iter *iter;
     struct db_key k;
     struct db_obj_free_ino freeino;
@@ -790,7 +765,7 @@ get_ino(struct back_end *be, fuse_ino_t *ino)
 }
 
 static int
-release_ino(struct back_end *be, fuse_ino_t ino)
+release_ino(struct back_end *be, inum_t ino)
 {
     int res;
     struct db_key k;
@@ -798,8 +773,7 @@ release_ino(struct back_end *be, fuse_ino_t ino)
     struct db_obj_header hdr;
 
     k.type = TYPE_FREE_INO;
-    k.ino = (ino - FUSE_ROOT_ID) / FREE_INO_RANGE_SZ * FREE_INO_RANGE_SZ
-            + FUSE_ROOT_ID;
+    k.ino = (ino - ROOT_ID) / FREE_INO_RANGE_SZ * FREE_INO_RANGE_SZ + ROOT_ID;
     res = back_end_look_up(be, &k, &k, &freeino, NULL, 0);
     if (res != 1) {
         if (res != 0)
@@ -940,7 +914,7 @@ err1:
 }
 
 static int
-inc_refcnt(struct back_end *be, struct ref_inodes *ref_inodes, fuse_ino_t ino,
+inc_refcnt(struct back_end *be, struct ref_inodes *ref_inodes, inum_t ino,
            int32_t nlink, int32_t nref, int32_t nlookup, struct ref_ino **inop)
 {
     int ret;
@@ -1024,7 +998,7 @@ dec_refcnt(struct ref_inodes *ref_inodes, int32_t nlink, int32_t nref,
 
 static int
 set_ref_inode_nodelete(struct back_end *be, struct ref_inodes *ref_inodes,
-                       fuse_ino_t ino, int nodelete)
+                       inum_t ino, int nodelete)
 {
     int ret;
     struct ref_ino refino, *refinop;
@@ -1210,7 +1184,7 @@ add_xattr_name(char **names, size_t *len, size_t *size, const char *name)
  * in case of an error.
  */
 static int
-truncate_file(struct back_end *be, fuse_ino_t ino, off_t oldsize, off_t newsize)
+truncate_file(struct back_end *be, inum_t ino, off_t oldsize, off_t newsize)
 {
     int ret;
     size_t lastpgsz;
@@ -1270,7 +1244,7 @@ truncate_file(struct back_end *be, fuse_ino_t ino, off_t oldsize, off_t newsize)
  * in case of an error.
  */
 static int
-delete_file(struct back_end *be, fuse_ino_t ino)
+delete_file(struct back_end *be, inum_t ino)
 {
     int ret;
     struct db_key k;
@@ -1351,12 +1325,12 @@ abort_init(int err, const char *fmt, ...)
  * - Sets lookup count of new node to 1
  */
 static int
-new_node(struct back_end *be, struct ref_inodes *ref_inodes, fuse_ino_t parent,
+new_node(struct back_end *be, struct ref_inodes *ref_inodes, inum_t parent,
          const char *name, uid_t uid, gid_t gid, mode_t mode, dev_t rdev,
          off_t size, struct stat *attr, struct ref_ino **inop, int notrans)
 {
-    fuse_ino_t ino;
     int ret;
+    inum_t ino;
     struct db_key k;
     struct db_obj_stat ps, s;
     struct ref_ino *refinop[2];
@@ -1450,9 +1424,8 @@ err1:
  * changes in case of an error.
  */
 static int
-new_node_link(struct back_end *be, struct ref_inodes *ref_inodes,
-              fuse_ino_t ino, fuse_ino_t newparent, const char *newname,
-              struct ref_ino **inop)
+new_node_link(struct back_end *be, struct ref_inodes *ref_inodes, inum_t ino,
+              inum_t newparent, const char *newname, struct ref_ino **inop)
 {
     int ret;
     struct db_key k;
@@ -1501,13 +1474,13 @@ new_node_link(struct back_end *be, struct ref_inodes *ref_inodes,
  * - Sets lookup count of new directory to 1
  */
 static int
-new_dir(struct back_end *be, struct ref_inodes *ref_inodes, fuse_ino_t parent,
+new_dir(struct back_end *be, struct ref_inodes *ref_inodes, inum_t parent,
         const char *name, uid_t uid, gid_t gid, mode_t mode, struct stat *attr,
         struct ref_ino **inop, int notrans)
 {
-    fuse_ino_t ino;
     int ret;
     int rootdir = (parent == 0);
+    inum_t ino;
     struct db_key k;
     struct db_obj_stat s;
     struct ref_ino *refinop[4];
@@ -1519,7 +1492,7 @@ new_dir(struct back_end *be, struct ref_inodes *ref_inodes, fuse_ino_t parent,
     }
 
     if (rootdir)
-        parent = ino = FUSE_ROOT_ID;
+        parent = ino = ROOT_ID;
     else {
         ret = get_ino(be, &ino);
         if (ret != 0)
@@ -1619,8 +1592,8 @@ err1:
  * - Decrements link count of parent directory
  */
 static int
-rem_dir(struct back_end *be, struct ref_inodes *ref_inodes, fuse_ino_t ino,
-        fuse_ino_t parent, const char *name, int notrans, int nodelete)
+rem_dir(struct back_end *be, struct ref_inodes *ref_inodes, inum_t ino,
+        inum_t parent, const char *name, int notrans, int nodelete)
 {
     int ret;
     struct db_key k;
@@ -1705,8 +1678,8 @@ err1:
  * in case of an error.
  */
 static int
-new_dir_link(struct back_end *be, struct ref_inodes *ref_inodes, fuse_ino_t ino,
-             fuse_ino_t newparent, const char *newname, struct ref_ino **inop)
+new_dir_link(struct back_end *be, struct ref_inodes *ref_inodes, inum_t ino,
+             inum_t newparent, const char *newname, struct ref_ino **inop)
 {
     int ret;
     struct db_key k;
@@ -1756,8 +1729,8 @@ new_dir_link(struct back_end *be, struct ref_inodes *ref_inodes, fuse_ino_t ino,
  * in case of an error.
  */
 static int
-rem_node_link(struct back_end *be, struct ref_inodes *ref_inodes,
-              fuse_ino_t ino, fuse_ino_t parent, const char *name, int *deleted,
+rem_node_link(struct back_end *be, struct ref_inodes *ref_inodes, inum_t ino,
+              inum_t parent, const char *name, int *deleted,
               struct ref_ino **inop)
 {
     int ret;
@@ -1798,8 +1771,8 @@ rem_node_link(struct back_end *be, struct ref_inodes *ref_inodes,
  * in case of an error.
  */
 static int
-rem_dir_link(struct back_end *be, struct ref_inodes *ref_inodes, fuse_ino_t ino,
-             fuse_ino_t parent, const char *name, struct ref_ino **inop)
+rem_dir_link(struct back_end *be, struct ref_inodes *ref_inodes, inum_t ino,
+             inum_t parent, const char *name, struct ref_ino **inop)
 {
     int ret;
     struct db_key k;
@@ -1966,7 +1939,7 @@ do_setattr(void *args)
         return (ret == 0) ? -ENOENT : ret;
 
     to_set = opargs->op_data.to_set;
-    trunc = !!(to_set & FUSE_SET_ATTR_SIZE);
+    trunc = !!(to_set & REQUEST_SET_ATTR_SIZE);
 
     if (trunc) {
         if (!S_ISREG(s.st_mode))
@@ -1987,15 +1960,15 @@ do_setattr(void *args)
         s.st_size = opargs->attr.st_size;
     }
 
-    if (to_set & FUSE_SET_ATTR_MODE)
+    if (to_set & REQUEST_SET_ATTR_MODE)
         s.st_mode = (s.st_mode & ~ALLPERMS) | (opargs->attr.st_mode & ALLPERMS);
 
-    if (to_set & FUSE_SET_ATTR_UID)
+    if (to_set & REQUEST_SET_ATTR_UID)
         s.st_uid = opargs->attr.st_uid;
-    if (to_set & FUSE_SET_ATTR_GID)
+    if (to_set & REQUEST_SET_ATTR_GID)
         s.st_gid = opargs->attr.st_gid;
 
-    if ((to_set & (FUSE_SET_ATTR_MTIME_NOW | FUSE_SET_ATTR_MTIME)) == 0) {
+    if ((to_set & (REQUEST_SET_ATTR_MTIME_NOW | REQUEST_SET_ATTR_MTIME)) == 0) {
         /* POSIX-1.2008, ftruncate, para. 3:
          * Upon successful completion, if fildes refers to a regular file,
          * ftruncate() shall mark for update the last data modification and last
@@ -2008,15 +1981,15 @@ do_setattr(void *args)
         if (trunc)
             do_set_ts(&s.st_mtim, NULL);
     } else {
-        if (to_set & FUSE_SET_ATTR_MTIME_NOW)
+        if (to_set & REQUEST_SET_ATTR_MTIME_NOW)
             do_set_ts(&s.st_mtim, NULL);
-        if (to_set & FUSE_SET_ATTR_MTIME)
+        if (to_set & REQUEST_SET_ATTR_MTIME)
             do_set_ts(&s.st_mtim, &opargs->attr.st_mtim);
     }
 
-    if (to_set & FUSE_SET_ATTR_ATIME_NOW)
+    if (to_set & REQUEST_SET_ATTR_ATIME_NOW)
         do_set_ts(&s.st_atim, NULL);
-    if (to_set & FUSE_SET_ATTR_ATIME)
+    if (to_set & REQUEST_SET_ATTR_ATIME)
         do_set_ts(&s.st_atim, &opargs->attr.st_atim);
 
     /* ", ftruncate, para. 3:
@@ -2166,7 +2139,7 @@ err1:
 static int
 do_create_node(void *args)
 {
-    const struct fuse_ctx *ctx;
+    const struct ctx *ctx;
     int mode;
     int ret;
     struct db_key k;
@@ -2255,7 +2228,7 @@ err1:
 static int
 do_create_dir(void *args)
 {
-    const struct fuse_ctx *ctx;
+    const struct ctx *ctx;
     int ret;
     int rootdir;
     struct db_key k;
@@ -2335,9 +2308,9 @@ static int
 do_remove_node_link(void *args)
 {
     const char *name;
-    fuse_ino_t parent;
     int deleted;
     int ret;
+    inum_t parent;
     struct db_key k;
     struct db_obj_stat s;
     struct op_args *opargs = (struct op_args *)args;
@@ -2443,8 +2416,8 @@ static int
 do_remove_dir(void *args)
 {
     const char *name;
-    fuse_ino_t parent;
     int ret;
+    inum_t parent;
     struct db_key k;
     struct db_obj_stat s;
     struct op_args *opargs = (struct op_args *)args;
@@ -2548,9 +2521,9 @@ static int
 do_create_symlink(void *args)
 {
     const char *link, *name;
-    const struct fuse_ctx *ctx;
-    fuse_ino_t parent;
+    const struct ctx *ctx;
     int ret;
+    inum_t parent;
     size_t len;
     struct db_key k;
     struct db_obj_stat ps;
@@ -2641,8 +2614,8 @@ static int
 do_rename(void *args)
 {
     const char *name, *newname;
-    fuse_ino_t parent, newparent;
     int existing, ret;
+    inum_t parent, newparent;
     struct db_key k;
     struct db_obj_dirent dde, sde;
     struct db_obj_stat ds, ps, ss;
@@ -2855,8 +2828,8 @@ static int
 do_create_node_link(void *args)
 {
     const char *newname;
-    fuse_ino_t newparent;
     int ret;
+    inum_t newparent;
     struct db_key k;
     struct db_obj_stat ps;
     struct op_args *opargs = (struct op_args *)args;
@@ -3007,8 +2980,8 @@ do_read_entries(void *args)
         s.st_ino = buf.de.ino;
 
         remsize = bufsize - buflen;
-        entsize = fuse_add_direntry(opargs->req, readdir_buf + buflen, remsize,
-                                    k.name, &s, off + 1);
+        entsize = add_direntry(opargs->req, readdir_buf + buflen, remsize,
+                               k.name, &s, off + 1);
         if (entsize > remsize)
             goto end1;
 
@@ -3575,9 +3548,9 @@ static int
 do_create(void *args)
 {
     const char *name;
-    const struct fuse_ctx *ctx;
-    fuse_ino_t parent;
+    const struct ctx *ctx;
     int ret;
+    inum_t parent;
     struct db_key k;
     struct db_obj_stat ps;
     struct op_args *opargs = (struct op_args *)args;
@@ -3682,7 +3655,7 @@ set_trans_cb(void *args, void (*cb)(int, int, int, void *), void *ctx)
  * issued, and the FUSE processing loop blocks until the init request returns.
  */
 static void
-simplefs_init(void *userdata, struct fuse_conn_info *conn)
+simplefs_init(void *rctx)
 {
     int ret;
     struct db_args dbargs;
@@ -3691,16 +3664,8 @@ simplefs_init(void *userdata, struct fuse_conn_info *conn)
     struct db_obj_header hdr;
     struct fspriv *priv;
     struct fuse_cache_args args;
-    struct mount_data *md = (struct mount_data *)userdata;
+    struct mount_data *md = (struct mount_data *)rctx;
     struct ref_ino *refinop[4];
-
-#if FUSE_USE_VERSION == 32
-    conn->want = FUSE_CAP_ASYNC_READ | FUSE_CAP_EXPORT_SUPPORT
-                 | FUSE_CAP_WRITEBACK_CACHE;
-#else
-    conn->want = FUSE_CAP_ASYNC_READ | FUSE_CAP_BIG_WRITES
-                 | FUSE_CAP_EXPORT_SUPPORT;
-#endif
 
     priv = do_malloc(sizeof(*priv));
     if (priv == NULL) {
@@ -3779,9 +3744,9 @@ simplefs_init(void *userdata, struct fuse_conn_info *conn)
             goto err7;
 
         k.type = TYPE_FREE_INO;
-        k.ino = FUSE_ROOT_ID;
+        k.ino = ROOT_ID;
         memset(freeino.used_ino, 0, sizeof(freeino.used_ino));
-        used_ino_set(freeino.used_ino, k.ino, FUSE_ROOT_ID, 1);
+        used_ino_set(freeino.used_ino, k.ino, ROOT_ID, 1);
         freeino.flags = FREE_INO_LAST_USED;
         ret = back_end_insert(priv->be, &k, &freeino, sizeof(freeino));
         if (ret != 0)
@@ -3837,7 +3802,7 @@ simplefs_init(void *userdata, struct fuse_conn_info *conn)
         goto err6;
 
     /* root I-node implicitly looked up on completion of init request */
-    ret = inc_refcnt(priv->be, &priv->ref_inodes, FUSE_ROOT_ID, 0, 0, 1,
+    ret = inc_refcnt(priv->be, &priv->ref_inodes, ROOT_ID, 0, 0, 1,
                      &refinop[0]);
     if (ret != 0) {
         join_worker(priv);
@@ -3927,12 +3892,12 @@ simplefs_destroy(void *userdata)
 }
 
 static void
-simplefs_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
+simplefs_lookup(void *req, inum_t parent, const char *name)
 {
     int ret;
+    struct entry_param e;
     struct fspriv *priv;
-    struct fuse_entry_param e;
-    struct mount_data *md = fuse_req_userdata(req);
+    struct mount_data *md = req_userdata(req);
     struct op_args opargs;
 
     priv = md->priv;
@@ -3959,11 +3924,11 @@ simplefs_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
     e.generation = 1;
     e.attr_timeout = e.entry_timeout = CACHE_TIMEOUT;
 
-    ret = fuse_reply_entry(req, &e);
+    ret = reply_entry(req, &e);
     if (ret != 0) {
         if (e.ino != 0) {
-            /* In the unlikely event that fuse_reply_entry() returns an error,
-               this code will revert the changes made to the reference-counting
+            /* In the unlikely event that reply_entry() returns an error, this
+               code will revert the changes made to the reference-counting
                structures in memory by do_look_up() without performing any
                necessary file deletion if all reference counts become 0. This
                will result in a resource leak in the file system. */
@@ -3976,19 +3941,15 @@ simplefs_lookup(fuse_req_t req, fuse_ino_t parent, const char *name)
     return;
 
 err:
-    fuse_reply_err(req, -ret);
+    reply_err(req, -ret);
 }
 
 static void
-#if FUSE_USE_VERSION == 32
-simplefs_forget(fuse_req_t req, fuse_ino_t ino, uint64_t nlookup)
-#else
-simplefs_forget(fuse_req_t req, fuse_ino_t ino, unsigned long nlookup)
-#endif
+simplefs_forget(void *req, inum_t ino, uint64_t nlookup)
 {
     int initialized;
     struct fspriv *priv;
-    struct mount_data *md = fuse_req_userdata(req);
+    struct mount_data *md = req_userdata(req);
     struct op_args opargs;
 
     pthread_mutex_lock(&mtx);
@@ -4011,15 +3972,15 @@ simplefs_forget(fuse_req_t req, fuse_ino_t ino, unsigned long nlookup)
 
     do_queue_op(priv, &do_forget, &opargs);
 
-    fuse_reply_none(req);
+    reply_none(req);
 }
 
 static void
-simplefs_getattr(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
+simplefs_getattr(void *req, inum_t ino, struct file_info *fi)
 {
     int ret;
     struct fspriv *priv;
-    struct mount_data *md = fuse_req_userdata(req);
+    struct mount_data *md = req_userdata(req);
     struct op_args opargs;
     struct stat attr;
 
@@ -4045,23 +4006,23 @@ simplefs_getattr(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
     if (S_ISDIR(attr.st_mode))
         attr.st_size = opargs.s.num_ents;
 
-    ret = fuse_reply_attr(req, &attr, CACHE_TIMEOUT);
+    ret = reply_attr(req, &attr, CACHE_TIMEOUT);
     if ((ret != 0) && (ret != -ENOENT))
         goto err;
 
     return;
 
 err:
-    fuse_reply_err(req, -ret);
+    reply_err(req, -ret);
 }
 
 static void
-simplefs_setattr(fuse_req_t req, fuse_ino_t ino, struct stat *attr, int to_set,
-                 struct fuse_file_info *fi)
+simplefs_setattr(void *req, inum_t ino, struct stat *attr, int to_set,
+                 struct file_info *fi)
 {
     int ret;
     struct fspriv *priv;
-    struct mount_data *md = fuse_req_userdata(req);
+    struct mount_data *md = req_userdata(req);
     struct op_args opargs;
 
     /* VFS handles file descriptor access mode check for ftruncate() on Linux */
@@ -4080,23 +4041,23 @@ simplefs_setattr(fuse_req_t req, fuse_ino_t ino, struct stat *attr, int to_set,
     if (ret != 0)
         goto err;
 
-    ret = fuse_reply_attr(req, &opargs.attr, CACHE_TIMEOUT);
+    ret = reply_attr(req, &opargs.attr, CACHE_TIMEOUT);
     if ((ret != 0) && (ret != -ENOENT))
         goto err;
 
     return;
 
 err:
-    fuse_reply_err(req, -ret);
+    reply_err(req, -ret);
 }
 
 static void
-simplefs_readlink(fuse_req_t req, fuse_ino_t ino)
+simplefs_readlink(void *req, inum_t ino)
 {
     const char *link;
     int ret;
     struct fspriv *priv;
-    struct mount_data *md = fuse_req_userdata(req);
+    struct mount_data *md = req_userdata(req);
     struct op_args opargs;
 
     priv = md->priv;
@@ -4111,7 +4072,7 @@ simplefs_readlink(fuse_req_t req, fuse_ino_t ino)
 
     link = (const char *)(opargs.op_data.rdwr_data.buf);
 
-    ret = fuse_reply_readlink(req, link);
+    ret = reply_readlink(req, link);
     free((void *)link);
     if ((ret != 0) && (ret != -ENOENT))
         goto err;
@@ -4119,22 +4080,22 @@ simplefs_readlink(fuse_req_t req, fuse_ino_t ino)
     return;
 
 err:
-    fuse_reply_err(req, -ret);
+    reply_err(req, -ret);
 }
 
 static void
-simplefs_mknod(fuse_req_t req, fuse_ino_t parent, const char *name, mode_t mode,
+simplefs_mknod(void *req, inum_t parent, const char *name, mode_t mode,
                dev_t rdev)
 {
     int ret;
+    struct entry_param e;
     struct fspriv *priv;
-    struct fuse_entry_param e;
-    struct mount_data *md = fuse_req_userdata(req);
+    struct mount_data *md = req_userdata(req);
     struct op_args opargs;
 
     priv = md->priv;
 
-    opargs.ctx = fuse_req_ctx(req);
+    opargs.ctx = req_ctx(req);
 
     opargs.be = priv->be;
     opargs.ref_inodes = &priv->ref_inodes;
@@ -4154,7 +4115,7 @@ simplefs_mknod(fuse_req_t req, fuse_ino_t parent, const char *name, mode_t mode,
     e.generation = 1;
     e.attr = opargs.attr;
     e.attr_timeout = e.entry_timeout = CACHE_TIMEOUT;
-    ret = fuse_reply_entry(req, &e);
+    ret = reply_entry(req, &e);
     if (ret != 0) {
         dec_refcnt(&priv->ref_inodes, 0, 0, -1, opargs.refinop[1]);
         if (ret != -ENOENT)
@@ -4164,21 +4125,21 @@ simplefs_mknod(fuse_req_t req, fuse_ino_t parent, const char *name, mode_t mode,
     return;
 
 err:
-    fuse_reply_err(req, -ret);
+    reply_err(req, -ret);
 }
 
 static void
-simplefs_mkdir(fuse_req_t req, fuse_ino_t parent, const char *name, mode_t mode)
+simplefs_mkdir(void *req, inum_t parent, const char *name, mode_t mode)
 {
     int ret;
+    struct entry_param e;
     struct fspriv *priv;
-    struct fuse_entry_param e;
-    struct mount_data *md = fuse_req_userdata(req);
+    struct mount_data *md = req_userdata(req);
     struct op_args opargs;
 
     priv = md->priv;
 
-    opargs.ctx = fuse_req_ctx(req);
+    opargs.ctx = req_ctx(req);
 
     opargs.be = priv->be;
     opargs.ref_inodes = &priv->ref_inodes;
@@ -4197,7 +4158,7 @@ simplefs_mkdir(fuse_req_t req, fuse_ino_t parent, const char *name, mode_t mode)
     e.generation = 1;
     e.attr = opargs.attr;
     e.attr_timeout = e.entry_timeout = CACHE_TIMEOUT;
-    ret = fuse_reply_entry(req, &e);
+    ret = reply_entry(req, &e);
     if (ret != 0) {
         dec_refcnt(&priv->ref_inodes, 0, 0, -1, opargs.refinop[3]);
         if (ret != -ENOENT)
@@ -4207,15 +4168,15 @@ simplefs_mkdir(fuse_req_t req, fuse_ino_t parent, const char *name, mode_t mode)
     return;
 
 err:
-    fuse_reply_err(req, -ret);
+    reply_err(req, -ret);
 }
 
 static void
-simplefs_unlink(fuse_req_t req, fuse_ino_t parent, const char *name)
+simplefs_unlink(void *req, inum_t parent, const char *name)
 {
     int ret;
     struct fspriv *priv;
-    struct mount_data *md = fuse_req_userdata(req);
+    struct mount_data *md = req_userdata(req);
     struct op_args opargs;
 
     priv = md->priv;
@@ -4245,22 +4206,22 @@ simplefs_unlink(fuse_req_t req, fuse_ino_t parent, const char *name)
     if (ret != 0)
         goto err;
 
-    ret = fuse_reply_err(req, 0);
+    ret = reply_err(req, 0);
     if ((ret != 0) && (ret != -ENOENT))
         goto err;
 
     return;
 
 err:
-    fuse_reply_err(req, -ret);
+    reply_err(req, -ret);
 }
 
 static void
-simplefs_rmdir(fuse_req_t req, fuse_ino_t parent, const char *name)
+simplefs_rmdir(void *req, inum_t parent, const char *name)
 {
     int ret;
     struct fspriv *priv;
-    struct mount_data *md = fuse_req_userdata(req);
+    struct mount_data *md = req_userdata(req);
     struct op_args opargs;
 
     if ((strcmp(name, ".") == 0) || (strcmp(name, "..") == 0)) {
@@ -4295,29 +4256,28 @@ simplefs_rmdir(fuse_req_t req, fuse_ino_t parent, const char *name)
     if (ret != 0)
         goto err;
 
-    ret = fuse_reply_err(req, 0);
+    ret = reply_err(req, 0);
     if ((ret != 0) && (ret != -ENOENT))
         goto err;
 
     return;
 
 err:
-    fuse_reply_err(req, -ret);
+    reply_err(req, -ret);
 }
 
 static void
-simplefs_symlink(fuse_req_t req, const char *link, fuse_ino_t parent,
-                 const char *name)
+simplefs_symlink(void *req, const char *link, inum_t parent, const char *name)
 {
     int ret;
+    struct entry_param e;
     struct fspriv *priv;
-    struct fuse_entry_param e;
-    struct mount_data *md = fuse_req_userdata(req);
+    struct mount_data *md = req_userdata(req);
     struct op_args opargs;
 
     priv = md->priv;
 
-    opargs.ctx = fuse_req_ctx(req);
+    opargs.ctx = req_ctx(req);
 
     opargs.be = priv->be;
     opargs.ref_inodes = &priv->ref_inodes;
@@ -4335,7 +4295,7 @@ simplefs_symlink(fuse_req_t req, const char *link, fuse_ino_t parent,
     e.generation = 1;
     e.attr = opargs.attr;
     e.attr_timeout = e.entry_timeout = CACHE_TIMEOUT;
-    ret = fuse_reply_entry(req, &e);
+    ret = reply_entry(req, &e);
     if (ret != 0) {
         dec_refcnt(&priv->ref_inodes, 0, 0, -1, opargs.refinop[1]);
         if (ret != -ENOENT)
@@ -4345,27 +4305,18 @@ simplefs_symlink(fuse_req_t req, const char *link, fuse_ino_t parent,
     return;
 
 err:
-    fuse_reply_err(req, -ret);
+    reply_err(req, -ret);
 }
 
 static void
-#if FUSE_USE_VERSION == 32
-simplefs_rename(fuse_req_t req, fuse_ino_t parent, const char *name,
-                fuse_ino_t newparent, const char *newname, unsigned int flags)
-#else
-simplefs_rename(fuse_req_t req, fuse_ino_t parent, const char *name,
-                fuse_ino_t newparent, const char *newname)
-#endif
+simplefs_rename(void *req, inum_t parent, const char *name, inum_t newparent,
+                const char *newname)
 {
     int ret;
     struct fspriv *priv;
-    struct mount_data *md = fuse_req_userdata(req);
+    struct mount_data *md = req_userdata(req);
     struct op_args opargs;
 
-#if FUSE_USE_VERSION == 32
-    (void)flags;
-
-#endif
     if ((strcmp(name, ".") == 0) || (strcmp(name, "..") == 0)
         || (strcmp(newname, ".") == 0) || (strcmp(newname, "..") == 0)) {
         ret = EINVAL;
@@ -4386,24 +4337,23 @@ simplefs_rename(fuse_req_t req, fuse_ino_t parent, const char *name,
     if (ret != 0)
         goto err;
 
-    ret = fuse_reply_err(req, 0);
+    ret = reply_err(req, 0);
     if ((ret != 0) && (ret != -ENOENT))
         goto err;
 
     return;
 
 err:
-    fuse_reply_err(req, -ret);
+    reply_err(req, -ret);
 }
 
 static void
-simplefs_link(fuse_req_t req, fuse_ino_t ino, fuse_ino_t newparent,
-              const char *newname)
+simplefs_link(void *req, inum_t ino, inum_t newparent, const char *newname)
 {
     int ret;
+    struct entry_param e;
     struct fspriv *priv;
-    struct fuse_entry_param e;
-    struct mount_data *md = fuse_req_userdata(req);
+    struct mount_data *md = req_userdata(req);
     struct op_args opargs;
 
     priv = md->priv;
@@ -4428,7 +4378,7 @@ simplefs_link(fuse_req_t req, fuse_ino_t ino, fuse_ino_t newparent,
         e.attr.st_size = opargs.s.num_ents;
     e.attr_timeout = e.entry_timeout = CACHE_TIMEOUT;
 
-    ret = fuse_reply_entry(req, &e);
+    ret = reply_entry(req, &e);
     if (ret != 0) {
         dec_refcnt(&priv->ref_inodes, 0, 0, -1, opargs.refinop[0]);
         if (ret != -ENOENT)
@@ -4438,16 +4388,16 @@ simplefs_link(fuse_req_t req, fuse_ino_t ino, fuse_ino_t newparent,
     return;
 
 err:
-    fuse_reply_err(req, -ret);
+    reply_err(req, -ret);
 }
 
 static void
-simplefs_open(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
+simplefs_open(void *req, inum_t ino, struct file_info *fi)
 {
     int interrupted = 0;
     int ret;
     struct fspriv *priv;
-    struct mount_data *md = fuse_req_userdata(req);
+    struct mount_data *md = req_userdata(req);
     struct op_args opargs;
     struct open_file *ofile;
 
@@ -4478,7 +4428,7 @@ simplefs_open(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
     fi->fh = (uintptr_t)ofile;
     fi->keep_cache = KEEP_CACHE_OPEN;
 
-    ret = fuse_reply_open(req, fi);
+    ret = reply_open(req, fi);
     if (ret != 0) {
         if (ret == -ENOENT)
             interrupted = 1;
@@ -4493,24 +4443,24 @@ err2:
     free(ofile);
 err1:
     if (!interrupted)
-        fuse_reply_err(req, -ret);
+        reply_err(req, -ret);
 }
 
 static void
-simplefs_read(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off,
-              struct fuse_file_info *fi)
+simplefs_read(void *req, inum_t ino, size_t size, off_t off,
+              struct file_info *fi)
 {
     int count;
     int ret;
     struct fspriv *priv;
     struct iovec *iov;
-    struct mount_data *md = fuse_req_userdata(req);
+    struct mount_data *md = req_userdata(req);
     struct op_args opargs;
 
     (void)fi; /* VFS handles file descriptor access mode check on Linux */
 
     if (size == 0) {
-        ret = fuse_reply_iov(req, NULL, 0);
+        ret = reply_iov(req, NULL, 0);
         if ((ret != 0) && (ret != -ENOENT))
             goto err;
         return;
@@ -4532,7 +4482,7 @@ simplefs_read(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off,
     iov = opargs.op_data.rdwr_data.iov;
     count = opargs.op_data.rdwr_data.count;
 
-    ret = fuse_reply_iov(req, iov, count);
+    ret = reply_iov(req, iov, count);
     free_iov(iov, count);
     if ((ret != 0) && (ret != -ENOENT))
         goto err;
@@ -4540,16 +4490,16 @@ simplefs_read(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off,
     return;
 
 err:
-    fuse_reply_err(req, -ret);
+    reply_err(req, -ret);
 }
 
 static void
-simplefs_write(fuse_req_t req, fuse_ino_t ino, const char *buf, size_t size,
-               off_t off, struct fuse_file_info *fi)
+simplefs_write(void *req, inum_t ino, const char *buf, size_t size, off_t off,
+               struct file_info *fi)
 {
     int ret;
     struct fspriv *priv;
-    struct mount_data *md = fuse_req_userdata(req);
+    struct mount_data *md = req_userdata(req);
     struct op_args opargs;
 
     /* VFS handles file descriptor access mode check on Linux */
@@ -4557,7 +4507,7 @@ simplefs_write(fuse_req_t req, fuse_ino_t ino, const char *buf, size_t size,
     (void)fi;
 
     if (size == 0) {
-        ret = fuse_reply_write(req, 0);
+        ret = reply_write(req, 0);
         if ((ret != 0) && (ret != -ENOENT))
             goto err;
         return;
@@ -4577,40 +4527,40 @@ simplefs_write(fuse_req_t req, fuse_ino_t ino, const char *buf, size_t size,
     if (ret != 0)
         goto err;
 
-    ret = fuse_reply_write(req, size);
+    ret = reply_write(req, size);
     if ((ret != 0) && (ret != -ENOENT))
         goto err;
 
     return;
 
 err:
-    fuse_reply_err(req, -ret);
+    reply_err(req, -ret);
 }
 
 static void
-simplefs_flush(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
+simplefs_flush(void *req, inum_t ino, struct file_info *fi)
 {
     int ret;
     struct fspriv *priv;
-    struct mount_data *md = fuse_req_userdata(req);
+    struct mount_data *md = req_userdata(req);
 
     (void)ino;
     (void)fi;
 
     priv = md->priv;
 
-    ret = fuse_reply_err(req, -(priv->wb_err));
+    ret = reply_err(req, -(priv->wb_err));
     if ((ret != 0) && (ret != -ENOENT))
-        fuse_reply_err(req, -ret);
+        reply_err(req, -ret);
 }
 
 static void
-simplefs_opendir(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
+simplefs_opendir(void *req, inum_t ino, struct file_info *fi)
 {
     int interrupted = 0;
     int ret;
     struct fspriv *priv;
-    struct mount_data *md = fuse_req_userdata(req);
+    struct mount_data *md = req_userdata(req);
     struct op_args opargs;
     struct open_dir *odir;
 
@@ -4637,7 +4587,7 @@ simplefs_opendir(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
     fi->fh = (uintptr_t)odir;
     fi->keep_cache = KEEP_CACHE_OPEN;
 
-    ret = fuse_reply_open(req, fi);
+    ret = reply_open(req, fi);
     if (ret != 0) {
         if (ret == -ENOENT)
             interrupted = 1;
@@ -4652,24 +4602,24 @@ err2:
     free(odir);
 err1:
     if (!interrupted)
-        fuse_reply_err(req, -ret);
+        reply_err(req, -ret);
 }
 
 static void
-simplefs_readdir(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off,
-                 struct fuse_file_info *fi)
+simplefs_readdir(void *req, inum_t ino, size_t size, off_t off,
+                 struct file_info *fi)
 {
     char *buf;
     int ret;
     struct fspriv *priv;
-    struct mount_data *md = fuse_req_userdata(req);
+    struct mount_data *md = req_userdata(req);
     struct op_args opargs;
     struct open_dir *odir = (struct open_dir *)(uintptr_t)(fi->fh);
 
     (void)ino;
 
     if ((off > 0) && (odir->cur_name[0] == '\0')) {
-        ret = fuse_reply_buf(req, NULL, 0);
+        ret = reply_buf(req, NULL, 0);
         if ((ret != 0) && (ret != -ENOENT))
             goto err;
         return;
@@ -4698,7 +4648,7 @@ simplefs_readdir(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off,
         goto err;
     }
 
-    ret = fuse_reply_buf(req, buf, opargs.op_data.readdir_data.buflen);
+    ret = reply_buf(req, buf, opargs.op_data.readdir_data.buflen);
     free(buf);
     if ((ret != 0) && (ret != -ENOENT))
         goto err;
@@ -4706,15 +4656,15 @@ simplefs_readdir(fuse_req_t req, fuse_ino_t ino, size_t size, off_t off,
     return;
 
 err:
-    fuse_reply_err(req, -ret);
+    reply_err(req, -ret);
 }
 
 static void
-simplefs_release(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
+simplefs_release(void *req, inum_t ino, struct file_info *fi)
 {
     int ret;
     struct fspriv *priv;
-    struct mount_data *md = fuse_req_userdata(req);
+    struct mount_data *md = req_userdata(req);
     struct op_args opargs;
     struct open_file *ofile;
 
@@ -4731,16 +4681,15 @@ simplefs_release(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
 
     free(ofile);
 
-    fuse_reply_err(req, -ret);
+    reply_err(req, -ret);
 }
 
 static void
-simplefs_fsync(fuse_req_t req, fuse_ino_t ino, int datasync,
-               struct fuse_file_info *fi)
+simplefs_fsync(void *req, inum_t ino, int datasync, struct file_info *fi)
 {
     int ret;
     struct fspriv *priv;
-    struct mount_data *md = fuse_req_userdata(req);
+    struct mount_data *md = req_userdata(req);
     struct op_args opargs;
 
     (void)ino;
@@ -4759,17 +4708,17 @@ simplefs_fsync(fuse_req_t req, fuse_ino_t ino, int datasync,
             ret = priv->wb_err;
     }
 
-    ret = fuse_reply_err(req, -ret);
+    ret = reply_err(req, -ret);
     if ((ret != 0) && (ret != -ENOENT))
-        fuse_reply_err(req, -ret);
+        reply_err(req, -ret);
 }
 
 static void
-simplefs_releasedir(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
+simplefs_releasedir(void *req, inum_t ino, struct file_info *fi)
 {
     int ret;
     struct fspriv *priv;
-    struct mount_data *md = fuse_req_userdata(req);
+    struct mount_data *md = req_userdata(req);
     struct op_args opargs;
     struct open_dir *odir;
 
@@ -4786,16 +4735,15 @@ simplefs_releasedir(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
 
     free(odir);
 
-    fuse_reply_err(req, -ret);
+    reply_err(req, -ret);
 }
 
 static void
-simplefs_fsyncdir(fuse_req_t req, fuse_ino_t ino, int datasync,
-                  struct fuse_file_info *fi)
+simplefs_fsyncdir(void *req, inum_t ino, int datasync, struct file_info *fi)
 {
     int ret;
     struct fspriv *priv;
-    struct mount_data *md = fuse_req_userdata(req);
+    struct mount_data *md = req_userdata(req);
     struct op_args opargs;
 
     (void)ino;
@@ -4814,17 +4762,17 @@ simplefs_fsyncdir(fuse_req_t req, fuse_ino_t ino, int datasync,
             ret = priv->wb_err;
     }
 
-    ret = fuse_reply_err(req, -ret);
+    ret = reply_err(req, -ret);
     if ((ret != 0) && (ret != -ENOENT))
-        fuse_reply_err(req, -ret);
+        reply_err(req, -ret);
 }
 
 static void
-simplefs_statfs(fuse_req_t req, fuse_ino_t ino)
+simplefs_statfs(void *req, inum_t ino)
 {
     int ret;
     struct fspriv *priv;
-    struct mount_data *md = fuse_req_userdata(req);
+    struct mount_data *md = req_userdata(req);
     struct op_args opargs;
     struct statvfs stbuf;
 
@@ -4866,38 +4814,25 @@ simplefs_statfs(fuse_req_t req, fuse_ino_t ino)
 
     stbuf.f_namemax = NAME_MAX;
 
-    ret = fuse_reply_statfs(req, &stbuf);
+    ret = reply_statfs(req, &stbuf);
     if ((ret != 0) && (ret != -ENOENT))
         goto err;
 
     return;
 
 err:
-    fuse_reply_err(req, -ret);
+    reply_err(req, -ret);
 }
 
-#ifdef __APPLE__
 static void
-simplefs_setxattr(fuse_req_t req, fuse_ino_t ino, const char *name,
-                  const char *value, size_t size, int flags, uint32_t position)
-#else
-static void
-simplefs_setxattr(fuse_req_t req, fuse_ino_t ino, const char *name,
-                  const char *value, size_t size, int flags)
-#endif
+simplefs_setxattr(void *req, inum_t ino, const char *name, const char *value,
+                  size_t size, int flags)
 {
     int ret;
     struct fspriv *priv;
-    struct mount_data *md = fuse_req_userdata(req);
+    struct mount_data *md = req_userdata(req);
     struct op_args opargs;
 
-#ifdef __APPLE__
-    if (position > 0) {
-        ret = -ENOTSUP;
-        goto err;
-    }
-
-#endif
     priv = md->priv;
 
     opargs.be = priv->be;
@@ -4913,39 +4848,26 @@ simplefs_setxattr(fuse_req_t req, fuse_ino_t ino, const char *name,
     if (ret != 0)
         goto err;
 
-    ret = fuse_reply_err(req, -ret);
+    ret = reply_err(req, -ret);
     if ((ret != 0) && (ret != -ENOENT))
         goto err;
 
     return;
 
 err:
-    fuse_reply_err(req, -ret);
+    reply_err(req, -ret);
 }
 
-#ifdef __APPLE__
 static void
-simplefs_getxattr(fuse_req_t req, fuse_ino_t ino, const char *name, size_t size,
-                  uint32_t position)
-#else
-static void
-simplefs_getxattr(fuse_req_t req, fuse_ino_t ino, const char *name, size_t size)
-#endif
+simplefs_getxattr(void *req, inum_t ino, const char *name, size_t size)
 {
     char *value;
     int ret;
     size_t valsize;
     struct fspriv *priv;
-    struct mount_data *md = fuse_req_userdata(req);
+    struct mount_data *md = req_userdata(req);
     struct op_args opargs;
 
-#ifdef __APPLE__
-    if (position > 0) {
-        ret = -ENOTSUP;
-        goto err;
-    }
-
-#endif
     priv = md->priv;
 
     opargs.be = priv->be;
@@ -4965,7 +4887,7 @@ simplefs_getxattr(fuse_req_t req, fuse_ino_t ino, const char *name, size_t size)
     valsize = opargs.op_data.xattr_data.size;
 
     if (size == 0) {
-        ret = fuse_reply_xattr(req, valsize);
+        ret = reply_xattr(req, valsize);
         if ((ret != 0) && (ret != -ENOENT))
             goto err;
         return;
@@ -4973,7 +4895,7 @@ simplefs_getxattr(fuse_req_t req, fuse_ino_t ino, const char *name, size_t size)
 
     value = opargs.op_data.xattr_data.value;
 
-    ret = fuse_reply_buf(req, value, valsize);
+    ret = reply_buf(req, value, valsize);
 
     if (value != NULL)
         free(value);
@@ -4984,17 +4906,17 @@ simplefs_getxattr(fuse_req_t req, fuse_ino_t ino, const char *name, size_t size)
     return;
 
 err:
-    fuse_reply_err(req, -ret);
+    reply_err(req, -ret);
 }
 
 static void
-simplefs_listxattr(fuse_req_t req, fuse_ino_t ino, size_t size)
+simplefs_listxattr(void *req, inum_t ino, size_t size)
 {
     char *value;
     int ret;
     size_t bufsize;
     struct fspriv *priv;
-    struct mount_data *md = fuse_req_userdata(req);
+    struct mount_data *md = req_userdata(req);
     struct op_args opargs;
 
     priv = md->priv;
@@ -5012,7 +4934,7 @@ simplefs_listxattr(fuse_req_t req, fuse_ino_t ino, size_t size)
     bufsize = opargs.op_data.xattr_data.size;
 
     if (size == 0) {
-        ret = fuse_reply_xattr(req, bufsize);
+        ret = reply_xattr(req, bufsize);
         if ((ret != 0) && (ret != -ENOENT))
             goto err;
         return;
@@ -5020,7 +4942,7 @@ simplefs_listxattr(fuse_req_t req, fuse_ino_t ino, size_t size)
 
     value = opargs.op_data.xattr_data.value;
 
-    ret = fuse_reply_buf(req, value, bufsize);
+    ret = reply_buf(req, value, bufsize);
 
     if (value != NULL)
         free(value);
@@ -5031,15 +4953,15 @@ simplefs_listxattr(fuse_req_t req, fuse_ino_t ino, size_t size)
     return;
 
 err:
-    fuse_reply_err(req, -ret);
+    reply_err(req, -ret);
 }
 
 static void
-simplefs_removexattr(fuse_req_t req, fuse_ino_t ino, const char *name)
+simplefs_removexattr(void *req, inum_t ino, const char *name)
 {
     int ret;
     struct fspriv *priv;
-    struct mount_data *md = fuse_req_userdata(req);
+    struct mount_data *md = req_userdata(req);
     struct op_args opargs;
 
     priv = md->priv;
@@ -5057,22 +4979,22 @@ simplefs_removexattr(fuse_req_t req, fuse_ino_t ino, const char *name)
         goto err;
     }
 
-    ret = fuse_reply_err(req, -ret);
+    ret = reply_err(req, -ret);
     if ((ret != 0) && (ret != -ENOENT))
         goto err;
 
     return;
 
 err:
-    fuse_reply_err(req, -ret);
+    reply_err(req, -ret);
 }
 
 static void
-simplefs_access(fuse_req_t req, fuse_ino_t ino, int mask)
+simplefs_access(void *req, inum_t ino, int mask)
 {
     int ret;
     struct fspriv *priv;
-    struct mount_data *md = fuse_req_userdata(req);
+    struct mount_data *md = req_userdata(req);
     struct op_args opargs;
 
     priv = md->priv;
@@ -5087,25 +5009,25 @@ simplefs_access(fuse_req_t req, fuse_ino_t ino, int mask)
     if (ret != 0)
         goto err;
 
-    ret = fuse_reply_err(req, -ret);
+    ret = reply_err(req, -ret);
     if ((ret != 0) && (ret != -ENOENT))
         goto err;
 
     return;
 
 err:
-    fuse_reply_err(req, -ret);
+    reply_err(req, -ret);
 }
 
 static void
-simplefs_create(fuse_req_t req, fuse_ino_t parent, const char *name,
-                mode_t mode, struct fuse_file_info *fi)
+simplefs_create(void *req, inum_t parent, const char *name, mode_t mode,
+                struct file_info *fi)
 {
     int interrupted = 0;
     int ret;
+    struct entry_param e;
     struct fspriv *priv;
-    struct fuse_entry_param e;
-    struct mount_data *md = fuse_req_userdata(req);
+    struct mount_data *md = req_userdata(req);
     struct op_args opargs;
     struct open_file *ofile;
 
@@ -5116,7 +5038,7 @@ simplefs_create(fuse_req_t req, fuse_ino_t parent, const char *name,
 
     priv = md->priv;
 
-    opargs.ctx = fuse_req_ctx(req);
+    opargs.ctx = req_ctx(req);
 
     opargs.be = priv->be;
     opargs.ref_inodes = &priv->ref_inodes;
@@ -5144,7 +5066,7 @@ simplefs_create(fuse_req_t req, fuse_ino_t parent, const char *name,
     e.generation = 1;
     e.attr = opargs.attr;
     e.attr_timeout = e.entry_timeout = CACHE_TIMEOUT;
-    ret = fuse_reply_create(req, &e, fi);
+    ret = reply_create(req, &e, fi);
     if (ret != 0) {
         if (ret == -ENOENT)
             interrupted = 1;
@@ -5160,7 +5082,7 @@ err2:
     free(ofile);
 err1:
     if (!interrupted)
-        fuse_reply_err(req, -ret);
+        reply_err(req, -ret);
 }
 
 /*
@@ -5168,12 +5090,12 @@ err1:
  * only.
  */
 static void
-simplefs_fallocate(fuse_req_t req, fuse_ino_t ino, int mode, off_t offset,
-                   off_t length, struct fuse_file_info *fi)
+simplefs_fallocate(void *req, inum_t ino, int mode, off_t offset, off_t length,
+                   struct file_info *fi)
 {
     int ret;
     struct fspriv *priv;
-    struct mount_data *md = fuse_req_userdata(req);
+    struct mount_data *md = req_userdata(req);
     struct op_args opargs;
 
     /* VFS handles file descriptor access mode check on Linux */
@@ -5202,17 +5124,17 @@ simplefs_fallocate(fuse_req_t req, fuse_ino_t ino, int mode, off_t offset,
     if (ret != 0)
         goto err;
 
-    ret = fuse_reply_err(req, 0);
+    ret = reply_err(req, 0);
     if ((ret != 0) && (ret != -ENOENT))
         goto err;
 
     return;
 
 err:
-    fuse_reply_err(req, -ret);
+    reply_err(req, -ret);
 }
 
-struct fuse_lowlevel_ops simplefs_ops = {
+struct request_ops request_simplefs_ops = {
     .init           = &simplefs_init,
     .destroy        = &simplefs_destroy,
     .lookup         = &simplefs_lookup,

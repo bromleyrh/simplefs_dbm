@@ -5,6 +5,7 @@
 #define _GNU_SOURCE
 
 #include "ops.h"
+#include "request.h"
 #include "simplefs.h"
 
 #define NO_ASSERT
@@ -35,7 +36,10 @@ struct fuse_data {
     struct mount_data   md;
     struct fuse_chan    *chan;
     struct fuse_session *sess;
+    struct request_ctx  *ctx;
 };
+
+extern struct fuse_lowlevel_ops request_fuse_ops;
 
 static struct fuse_session *sess;
 
@@ -376,11 +380,19 @@ init_fuse(int argc, char **argv, struct fuse_data *fusedata)
         goto err2;
     }
 
-    fusedata->sess = do_fuse_mount(fusedata->mountpoint, &args, &simplefs_ops,
-                                   sizeof(simplefs_ops), &fusedata->md,
-                                   &fusedata->chan);
+    err = request_new(&fusedata->ctx, REQUEST_DEFAULT, REPLY_DEFAULT,
+                      &fusedata->md);
+    if (err) {
+        errmsg = "Error initializing FUSE file system";
+        goto err2;
+    }
+
+    fusedata->sess = do_fuse_mount(fusedata->mountpoint, &args,
+                                   &request_fuse_ops, sizeof(request_fuse_ops),
+                                   fusedata->ctx, &fusedata->chan);
     if (fusedata->sess == NULL) {
         errmsg = "Error mounting FUSE file system";
+        request_end(fusedata->ctx);
         goto err2;
     }
 
@@ -421,8 +433,9 @@ static void
 terminate_fuse(struct fuse_data *fusedata)
 {
     do_fuse_unmount(fusedata->mountpoint, fusedata->chan, fusedata->sess);
-
     fuse_session_destroy(fusedata->sess);
+
+    request_end(fusedata->ctx);
 
     free((void *)(fusedata->mountpoint));
 }

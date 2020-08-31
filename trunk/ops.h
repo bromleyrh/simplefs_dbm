@@ -5,10 +5,10 @@
 #ifndef _OPS_H
 #define _OPS_H
 
-#include <fuse.h>
-#include <fuse_lowlevel.h>
+#include "request.h"
 
-extern struct fuse_lowlevel_ops simplefs_ops;
+extern struct request_ops request_simplefs_ops;
+#define REQUEST_SIMPLEFS ((void *)&request_simplefs_ops)
 
 int mount_status(void);
 
