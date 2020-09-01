@@ -41,8 +41,6 @@ struct fuse_data {
 
 extern struct fuse_lowlevel_ops request_fuse_ops;
 
-static struct fuse_session *sess;
-
 static void int_handler(int);
 
 static int set_up_signal_handlers(void);
@@ -74,6 +72,18 @@ static int open_log(const char *);
 #else
 #define DEFAULT_FUSE_OPTIONS "default_permissions"
 #endif
+
+static void
+simplefs_exit(void *sctx)
+{
+    struct fuse_data *fusedata = (struct fuse_data *)sctx;
+
+    fuse_session_exit(fusedata->sess);
+}
+
+static const struct sess_ops sess_default_ops = {
+    .exit = &simplefs_exit
+};
 
 static void
 int_handler(int signum)
@@ -381,7 +391,7 @@ init_fuse(int argc, char **argv, struct fuse_data *fusedata)
     }
 
     err = request_new(&fusedata->ctx, REQUEST_DEFAULT, REPLY_DEFAULT,
-                      &fusedata->md);
+                      &fusedata->md, &sess_default_ops, &fusedata);
     if (err) {
         errmsg = "Error initializing FUSE file system";
         goto err2;
@@ -454,12 +464,6 @@ open_log(const char *mountpoint)
     return 0;
 }
 
-void
-simplefs_exit()
-{
-    fuse_session_exit(sess);
-}
-
 int
 main(int argc, char **argv)
 {
@@ -479,8 +483,6 @@ main(int argc, char **argv)
         return EXIT_FAILURE;
 
     status = EXIT_FAILURE;
-
-    sess = fusedata.sess;
 
     ret = process_fuse_events(&fusedata);
 

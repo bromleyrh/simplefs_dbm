@@ -23,10 +23,16 @@
 #include <fuse.h>
 #include <fuse_lowlevel.h>
 
+struct session {
+    void                    *sctx;
+    const struct sess_ops   *sess_ops;
+};
+
 struct request_ctx {
     void                        *rctx;
     const struct request_ops    *req_ops;
     const struct reply_ops      *reply_ops;
+    struct session              sess;
 };
 
 struct request {
@@ -145,7 +151,8 @@ static size_t add_direntry_fuse(void *, char *, size_t, const char *,
 
 int
 request_new(struct request_ctx **ctx, const struct request_ops *req_ops,
-            const struct reply_ops *reply_ops, void *rctx)
+            const struct reply_ops *reply_ops, void *rctx,
+            const struct sess_ops *sess_ops, void *sctx)
 {
     int err;
     struct request_ctx *ret;
@@ -166,6 +173,9 @@ request_new(struct request_ctx **ctx, const struct request_ops *req_ops,
     ret->req_ops = req_ops;
     ret->reply_ops = reply_ops;
 
+    ret->sess.sctx = sctx;
+    ret->sess.sess_ops = sess_ops;
+
     *ctx = ret;
     return 0;
 }
@@ -180,7 +190,7 @@ request_end(struct request_ctx *ctx)
 void
 request_init(struct request_ctx *ctx, inum_t root_id)
 {
-    (*(ctx->req_ops->init))(ctx->rctx, root_id);
+    (*(ctx->req_ops->init))(ctx->rctx, &ctx->sess, root_id);
 }
 
 void
@@ -514,6 +524,12 @@ req_userdata(void *req)
     struct request *r = (struct request *)req;
 
     return r->ctx->rctx;
+}
+
+void
+sess_exit(struct session *sess)
+{
+    (*(sess->sess_ops->exit))(sess->sctx);
 }
 
 static void

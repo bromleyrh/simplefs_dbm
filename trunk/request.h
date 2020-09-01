@@ -16,6 +16,8 @@
 
 struct request_ctx;
 
+struct session;
+
 typedef unsigned long inum_t;
 
 struct entry_param {
@@ -43,7 +45,7 @@ struct request_ops {
     int (*new)(void *rctx);
     void (*end)(void *rctx);
 
-    void (*init)(void *rctx, inum_t root_id);
+    void (*init)(void *rctx, struct session *sess, inum_t root_id);
     void (*destroy)(void *rctx);
     void (*lookup)(void *req, inum_t parent, const char *name);
     void (*forget)(void *req, inum_t ino, uint64_t nlookup);
@@ -109,6 +111,10 @@ struct reply_ops {
     const struct ctx *(*req_ctx)(void *req);
 };
 
+struct sess_ops {
+    void (*exit)(void *sctx);
+};
+
 #define REQUEST_SET_ATTR_MODE 1
 #define REQUEST_SET_ATTR_UID 2
 #define REQUEST_SET_ATTR_GID 4
@@ -124,7 +130,8 @@ extern const struct reply_ops reply_default_ops;
 #define REPLY_DEFAULT ((void *)&reply_default_ops)
 
 int request_new(struct request_ctx **ctx, const struct request_ops *req_ops,
-                const struct reply_ops *reply_ops, void *rctx);
+                const struct reply_ops *reply_ops, void *rctx,
+                const struct sess_ops *sess_ops, void *sctx);
 void request_end(struct request_ctx *ctx);
 
 void request_init(struct request_ctx *ctx, inum_t root_id);
@@ -207,6 +214,8 @@ size_t add_direntry(void *req, char *buf, size_t bufsize, const char *name,
 
 void *req_userdata(void *req);
 const struct ctx *req_ctx(void *req);
+
+void sess_exit(struct session *sess);
 
 #endif
 

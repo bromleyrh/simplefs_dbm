@@ -13,8 +13,6 @@ struct mount_data {
     void        *priv;
 };
 
-void simplefs_exit(void);
-
 #endif
 
 /* vi: set expandtab sw=4 ts=4: */

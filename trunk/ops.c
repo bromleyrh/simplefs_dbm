@@ -268,7 +268,7 @@ static int delete_file(struct back_end *, inum_t, inum_t);
 
 static void free_iov(struct iovec *, int);
 
-static void abort_init(int, const char *, ...);
+static void abort_init(struct session *, int, const char *, ...);
 
 static int new_node(struct back_end *, struct ref_inodes *, inum_t,
                     const char *, uid_t, gid_t, mode_t, dev_t, off_t,
@@ -324,7 +324,7 @@ static int do_removexattr(void *);
 static int do_access(void *);
 static int do_create(void *);
 
-static void simplefs_init(void *, inum_t);
+static void simplefs_init(void *, struct session *, inum_t);
 static void simplefs_destroy(void *);
 static void simplefs_lookup(void *, inum_t, const char *);
 static void simplefs_forget(void *, inum_t, uint64_t);
@@ -1311,7 +1311,7 @@ free_iov(struct iovec *iov, int count)
 }
 
 static void
-abort_init(int err, const char *fmt, ...)
+abort_init(struct session *sess, int err, const char *fmt, ...)
 {
     va_list ap;
 
@@ -1319,7 +1319,7 @@ abort_init(int err, const char *fmt, ...)
     verror(err, fmt, ap);
     va_end(ap);
 
-    simplefs_exit();
+    sess_exit(sess);
 }
 
 /*
@@ -3671,7 +3671,7 @@ set_trans_cb(void *args, void (*cb)(int, int, int, void *), void *ctx)
  * issued, and the FUSE processing loop blocks until the init request returns.
  */
 static void
-simplefs_init(void *rctx, inum_t root_id)
+simplefs_init(void *rctx, struct session *sess, inum_t root_id)
 {
     int ret;
     struct db_args dbargs;
@@ -3855,7 +3855,7 @@ err1:
     pthread_mutex_lock(&mtx);
     init = ret;
     pthread_mutex_unlock(&mtx);
-    abort_init(-ret, "Error mounting FUSE file system");
+    abort_init(sess, -ret, "Error mounting FUSE file system");
 }
 
 static void
