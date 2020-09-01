@@ -614,13 +614,18 @@ request_fuse_forget(fuse_req_t req, fuse_ino_t ino, unsigned long nlookup)
 static void
 request_fuse_getattr(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
 {
-    struct file_info filei;
+    struct file_info filei, *fileip;
     struct request_ctx *ctx = fuse_req_userdata(req);
     REQUEST_FUSE(r);
 
-    init_file_info(&filei, fi);
+    if (fi == NULL)
+        fileip = NULL;
+    else {
+        init_file_info(&filei, fi);
+        fileip = &filei;
+    }
 
-    request_getattr(ctx, &r, ino, &filei);
+    request_getattr(ctx, &r, ino, fileip);
 }
 
 #define FLAG_MAP_ENTRY(fl) \
@@ -630,7 +635,7 @@ static void
 request_fuse_setattr(fuse_req_t req, fuse_ino_t ino, struct stat *attr,
                      int to_set, struct fuse_file_info *fi)
 {
-    struct file_info filei;
+    struct file_info filei, *fileip;
     int set;
     size_t i;
     struct request_ctx *ctx = fuse_req_userdata(req);
@@ -658,9 +663,14 @@ request_fuse_setattr(fuse_req_t req, fuse_ino_t ino, struct stat *attr,
             set |= fl->flag;
     }
 
-    init_file_info(&filei, fi);
+    if (fi == NULL)
+        fileip = NULL;
+    else {
+        init_file_info(&filei, fi);
+        fileip = &filei;
+    }
 
-    request_setattr(ctx, &r, ino, attr, set, &filei);
+    request_setattr(ctx, &r, ino, attr, set, fileip);
 }
 
 #undef FLAG_MAP_ENTRY
