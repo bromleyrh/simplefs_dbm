@@ -178,9 +178,9 @@ request_end(struct request_ctx *ctx)
 }
 
 void
-request_init(struct request_ctx *ctx)
+request_init(struct request_ctx *ctx, inum_t root_id)
 {
-    (*(ctx->req_ops->init))(ctx->rctx);
+    (*(ctx->req_ops->init))(ctx->rctx, root_id);
 }
 
 void
@@ -562,7 +562,7 @@ request_fuse_init(void *userdata, struct fuse_conn_info *conn)
                  | FUSE_CAP_EXPORT_SUPPORT;
 #endif
 
-    request_init(ctx);
+    request_init(ctx, FUSE_ROOT_ID);
 }
 
 static void

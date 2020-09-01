@@ -64,6 +64,7 @@ struct fspriv {
     pthread_t           worker_td;
     int                 blkdev;
     uint64_t            blkdevsz;
+    inum_t              root_id;
     struct ref_inodes   ref_inodes;
     int                 wb_err;
 };
@@ -88,6 +89,7 @@ struct op_args {
     void                    *req;
     const struct ctx        *ctx;
     struct back_end         *be;
+    inum_t                  root_id;
     struct ref_inodes       *ref_inodes;
     struct ref_ino          *refinop[4];
     inum_t                  ino;
@@ -200,7 +202,6 @@ struct space_alloc_ctx {
 
 #define UNREF_MAX INT32_MAX
 
-#define ROOT_ID 1 /* FIXME */
 #define ROOT_DIR_INIT_PERMS (S_IRWXU)
 
 #if 0 && !defined(NDEBUG)
@@ -237,21 +238,21 @@ static int ref_inode_cmp(const void *, const void *, void *);
 
 static inum_t free_ino_find(uint64_t *, inum_t);
 static int get_ino(struct back_end *, inum_t *);
-static int release_ino(struct back_end *, inum_t);
+static int release_ino(struct back_end *, inum_t, inum_t);
 
 static uint64_t adj_refcnt(uint64_t *, int32_t);
-static int unref_inode(struct back_end *, struct ref_inodes *, struct ref_ino *,
-                       int32_t, int32_t, int32_t, int *);
+static int unref_inode(struct back_end *, inum_t, struct ref_inodes *,
+                       struct ref_ino *, int32_t, int32_t, int32_t, int *);
 static int free_ref_inodes_cb(const void *, void *);
 
 static int inc_refcnt(struct back_end *, struct ref_inodes *, inum_t, int32_t,
                       int32_t, int32_t, struct ref_ino **);
 static int dec_refcnt(struct ref_inodes *, int32_t, int32_t, int32_t,
                       struct ref_ino *);
-static int set_ref_inode_nodelete(struct back_end *, struct ref_inodes *,
-                                  inum_t, int);
+static int set_ref_inode_nodelete(struct back_end *, inum_t,
+                                  struct ref_inodes *, inum_t, int);
 
-static int remove_ulinked_nodes(struct back_end *);
+static int remove_ulinked_nodes(struct back_end *, inum_t);
 
 static void do_set_ts(struct disk_timespec *, struct timespec *);
 static void set_ts(struct disk_timespec *, struct disk_timespec *,
@@ -263,7 +264,7 @@ static void deserialize_stat(struct stat *, struct db_obj_stat *);
 static int add_xattr_name(char **, size_t *, size_t *, const char *);
 
 static int truncate_file(struct back_end *, inum_t, off_t, off_t);
-static int delete_file(struct back_end *, inum_t);
+static int delete_file(struct back_end *, inum_t, inum_t);
 
 static void free_iov(struct iovec *, int);
 
@@ -275,18 +276,20 @@ static int new_node(struct back_end *, struct ref_inodes *, inum_t,
 
 static int new_node_link(struct back_end *, struct ref_inodes *, inum_t, inum_t,
                          const char *, struct ref_ino **);
-static int rem_node_link(struct back_end *, struct ref_inodes *, inum_t, inum_t,
-                         const char *, int *, struct ref_ino **);
+static int rem_node_link(struct back_end *, inum_t, struct ref_inodes *,
+                         inum_t, inum_t, const char *, int *,
+                         struct ref_ino **);
 
-static int new_dir(struct back_end *, struct ref_inodes *, inum_t, const char *,
-                   uid_t, gid_t, mode_t, struct stat *, struct ref_ino **, int);
-static int rem_dir(struct back_end *, struct ref_inodes *, inum_t, inum_t,
-                   const char *, int, int);
+static int new_dir(struct back_end *, inum_t, struct ref_inodes *, inum_t,
+                   const char *, uid_t, gid_t, mode_t, struct stat *,
+                   struct ref_ino **, int);
+static int rem_dir(struct back_end *, inum_t, struct ref_inodes *, inum_t,
+                   inum_t, const char *, int, int);
 
 static int new_dir_link(struct back_end *, struct ref_inodes *, inum_t, inum_t,
                         const char *, struct ref_ino **);
-static int rem_dir_link(struct back_end *, struct ref_inodes *, inum_t, inum_t,
-                        const char *, struct ref_ino **);
+static int rem_dir_link(struct back_end *, inum_t, struct ref_inodes *, inum_t,
+                        inum_t, const char *, struct ref_ino **);
 
 static void space_alloc_cb(uint64_t, int, void *);
 static int space_alloc_set_hook(struct back_end *,
@@ -321,7 +324,7 @@ static int do_removexattr(void *);
 static int do_access(void *);
 static int do_create(void *);
 
-static void simplefs_init(void *);
+static void simplefs_init(void *, inum_t);
 static void simplefs_destroy(void *);
 static void simplefs_lookup(void *, inum_t, const char *);
 static void simplefs_forget(void *, inum_t, uint64_t);
@@ -765,7 +768,7 @@ get_ino(struct back_end *be, inum_t *ino)
 }
 
 static int
-release_ino(struct back_end *be, inum_t ino)
+release_ino(struct back_end *be, inum_t root_id, inum_t ino)
 {
     int res;
     struct db_key k;
@@ -773,7 +776,7 @@ release_ino(struct back_end *be, inum_t ino)
     struct db_obj_header hdr;
 
     k.type = TYPE_FREE_INO;
-    k.ino = (ino - ROOT_ID) / FREE_INO_RANGE_SZ * FREE_INO_RANGE_SZ + ROOT_ID;
+    k.ino = (ino - root_id) / FREE_INO_RANGE_SZ * FREE_INO_RANGE_SZ + root_id;
     res = back_end_look_up(be, &k, &k, &freeino, NULL, 0);
     if (res != 1) {
         if (res != 0)
@@ -816,7 +819,7 @@ adj_refcnt(uint64_t *refcnt, int32_t delta)
  * in case of an error, unless nlink is 0.
  */
 static int
-unref_inode(struct back_end *be, struct ref_inodes *ref_inodes,
+unref_inode(struct back_end *be, inum_t root_id, struct ref_inodes *ref_inodes,
             struct ref_ino *ino, int32_t nlink, int32_t nref, int32_t nlookup,
             int *deleted)
 {
@@ -840,7 +843,7 @@ unref_inode(struct back_end *be, struct ref_inodes *ref_inodes,
     pthread_mutex_unlock(&ref_inodes->ref_inodes_mtx);
 
     if ((nlinkp == 0) && (refcntp == 0) && (nlookupp == 0)) {
-        ret = delete_file(be, ino->ino);
+        ret = delete_file(be, root_id, ino->ino);
         if ((ret == 0) && (deleted != NULL))
             *deleted = 1;
         return ret;
@@ -870,8 +873,8 @@ free_ref_inodes_cb(const void *keyval, void *ctx)
     struct ref_ino *ino = *(struct ref_ino **)keyval;
 
     if (fctx->nowrite) {
-        err = unref_inode(priv->be, &priv->ref_inodes, ino, 0, -INT_MAX,
-                          -INT_MAX, NULL);
+        err = unref_inode(priv->be, priv->root_id, &priv->ref_inodes, ino, 0,
+                          -INT_MAX, -INT_MAX, NULL);
         if (err)
             goto err1;
     } else {
@@ -885,8 +888,8 @@ free_ref_inodes_cb(const void *keyval, void *ctx)
         if (err)
             goto err2;
 
-        err = unref_inode(priv->be, &priv->ref_inodes, ino, 0, -INT_MAX,
-                          -INT_MAX, NULL);
+        err = unref_inode(priv->be, priv->root_id, &priv->ref_inodes, ino, 0,
+                          -INT_MAX, -INT_MAX, NULL);
         if (err)
             goto err3;
 
@@ -997,8 +1000,8 @@ dec_refcnt(struct ref_inodes *ref_inodes, int32_t nlink, int32_t nref,
 }
 
 static int
-set_ref_inode_nodelete(struct back_end *be, struct ref_inodes *ref_inodes,
-                       inum_t ino, int nodelete)
+set_ref_inode_nodelete(struct back_end *be, inum_t root_id,
+                       struct ref_inodes *ref_inodes, inum_t ino, int nodelete)
 {
     int ret;
     struct ref_ino refino, *refinop;
@@ -1025,7 +1028,7 @@ set_ref_inode_nodelete(struct back_end *be, struct ref_inodes *ref_inodes,
     pthread_mutex_unlock(&ref_inodes->ref_inodes_mtx);
 
     if (!nodelete && (nlink == 0) && (refcnt == 0) && (nlookup == 0))
-        return delete_file(be, ino);
+        return delete_file(be, root_id, ino);
 
     return 0;
 
@@ -1035,7 +1038,7 @@ err:
 }
 
 static int
-remove_ulinked_nodes(struct back_end *be)
+remove_ulinked_nodes(struct back_end *be, inum_t root_id)
 {
     int ret;
     struct back_end_iter *iter;
@@ -1081,7 +1084,7 @@ remove_ulinked_nodes(struct back_end *be)
         fprintf(stderr, "Warning: Removing I-node %" PRIu64 " with no links\n",
                 (uint64_t)(k.ino));
 
-        ret = delete_file(be, k.ino);
+        ret = delete_file(be, root_id, k.ino);
         if (ret != 0)
             goto err2;
 
@@ -1244,7 +1247,7 @@ truncate_file(struct back_end *be, inum_t ino, off_t oldsize, off_t newsize)
  * in case of an error.
  */
 static int
-delete_file(struct back_end *be, inum_t ino)
+delete_file(struct back_end *be, inum_t root_id, inum_t ino)
 {
     int ret;
     struct db_key k;
@@ -1293,7 +1296,7 @@ delete_file(struct back_end *be, inum_t ino)
     if (ret != 0)
         return ret;
 
-    return release_ino(be, ino);
+    return release_ino(be, root_id, ino);
 }
 
 static void
@@ -1474,9 +1477,9 @@ new_node_link(struct back_end *be, struct ref_inodes *ref_inodes, inum_t ino,
  * - Sets lookup count of new directory to 1
  */
 static int
-new_dir(struct back_end *be, struct ref_inodes *ref_inodes, inum_t parent,
-        const char *name, uid_t uid, gid_t gid, mode_t mode, struct stat *attr,
-        struct ref_ino **inop, int notrans)
+new_dir(struct back_end *be, inum_t root_id, struct ref_inodes *ref_inodes,
+        inum_t parent, const char *name, uid_t uid, gid_t gid, mode_t mode,
+        struct stat *attr, struct ref_ino **inop, int notrans)
 {
     int ret;
     int rootdir = (parent == 0);
@@ -1492,7 +1495,7 @@ new_dir(struct back_end *be, struct ref_inodes *ref_inodes, inum_t parent,
     }
 
     if (rootdir)
-        parent = ino = ROOT_ID;
+        parent = ino = root_id;
     else {
         ret = get_ino(be, &ino);
         if (ret != 0)
@@ -1592,8 +1595,8 @@ err1:
  * - Decrements link count of parent directory
  */
 static int
-rem_dir(struct back_end *be, struct ref_inodes *ref_inodes, inum_t ino,
-        inum_t parent, const char *name, int notrans, int nodelete)
+rem_dir(struct back_end *be, inum_t root_id, struct ref_inodes *ref_inodes,
+        inum_t ino, inum_t parent, const char *name, int notrans, int nodelete)
 {
     int ret;
     struct db_key k;
@@ -1614,7 +1617,7 @@ rem_dir(struct back_end *be, struct ref_inodes *ref_inodes, inum_t ino,
         return (ret == 0) ? -ENOENT : ret;
 
     if (!nodelete) {
-        ret = set_ref_inode_nodelete(be, ref_inodes, ino, 1);
+        ret = set_ref_inode_nodelete(be, root_id, ref_inodes, ino, 1);
         if (ret != 0)
             return ret;
     }
@@ -1627,15 +1630,16 @@ rem_dir(struct back_end *be, struct ref_inodes *ref_inodes, inum_t ino,
             goto err1;
     }
 
-    ret = rem_dir_link(be, ref_inodes, ino, parent, name, &refinop[0]);
+    ret = rem_dir_link(be, root_id, ref_inodes, ino, parent, name, &refinop[0]);
     if (ret != 0)
         goto err2;
 
-    ret = rem_dir_link(be, ref_inodes, parent, ino, NAME_PARENT_DIR,
+    ret = rem_dir_link(be, root_id, ref_inodes, parent, ino, NAME_PARENT_DIR,
                        &refinop[1]);
     if (ret != 0)
         goto err3;
-    ret = rem_dir_link(be, ref_inodes, ino, ino, NAME_CUR_DIR, &refinop[2]);
+    ret = rem_dir_link(be, root_id, ref_inodes, ino, ino, NAME_CUR_DIR,
+                       &refinop[2]);
     if (ret != 0)
         goto err4;
 
@@ -1651,7 +1655,7 @@ rem_dir(struct back_end *be, struct ref_inodes *ref_inodes, inum_t ino,
     }
 
     if (!nodelete)
-        set_ref_inode_nodelete(be, ref_inodes, ino, 0);
+        set_ref_inode_nodelete(be, root_id, ref_inodes, ino, 0);
 
     return 0;
 
@@ -1666,7 +1670,7 @@ err2:
         back_end_trans_abort(be);
 err1:
     if (!nodelete)
-        set_ref_inode_nodelete(be, ref_inodes, ino, 0);
+        set_ref_inode_nodelete(be, root_id, ref_inodes, ino, 0);
     return ret;
 }
 
@@ -1729,9 +1733,9 @@ new_dir_link(struct back_end *be, struct ref_inodes *ref_inodes, inum_t ino,
  * in case of an error.
  */
 static int
-rem_node_link(struct back_end *be, struct ref_inodes *ref_inodes, inum_t ino,
-              inum_t parent, const char *name, int *deleted,
-              struct ref_ino **inop)
+rem_node_link(struct back_end *be, inum_t root_id,
+              struct ref_inodes *ref_inodes, inum_t ino, inum_t parent,
+              const char *name, int *deleted, struct ref_ino **inop)
 {
     int ret;
     struct db_key k;
@@ -1756,7 +1760,7 @@ rem_node_link(struct back_end *be, struct ref_inodes *ref_inodes, inum_t ino,
     if (ret != 1)
         return (ret == 0) ? -ENOENT : ret;
 
-    ret = unref_inode(be, ref_inodes, refinop, -1, 0, 0, deleted);
+    ret = unref_inode(be, root_id, ref_inodes, refinop, -1, 0, 0, deleted);
     if (ret == 0)
         *inop = refinop;
 
@@ -1771,8 +1775,8 @@ rem_node_link(struct back_end *be, struct ref_inodes *ref_inodes, inum_t ino,
  * in case of an error.
  */
 static int
-rem_dir_link(struct back_end *be, struct ref_inodes *ref_inodes, inum_t ino,
-             inum_t parent, const char *name, struct ref_ino **inop)
+rem_dir_link(struct back_end *be, inum_t root_id, struct ref_inodes *ref_inodes,
+             inum_t ino, inum_t parent, const char *name, struct ref_ino **inop)
 {
     int ret;
     struct db_key k;
@@ -1805,7 +1809,7 @@ rem_dir_link(struct back_end *be, struct ref_inodes *ref_inodes, inum_t ino,
     if (ret != 1)
         return (ret == 0) ? -ENOENT : ret;
 
-    ret = unref_inode(be, ref_inodes, refinop, -1, 0, 0, NULL);
+    ret = unref_inode(be, root_id, ref_inodes, refinop, -1, 0, 0, NULL);
     if (ret == 0)
         *inop = refinop;
 
@@ -2105,8 +2109,8 @@ do_forget(void *args)
     for (to_unref = opargs->op_data.nlookup; to_unref > 0; to_unref -= unref) {
         unref = MIN(UNREF_MAX, to_unref);
 
-        ret = unref_inode(opargs->be, opargs->ref_inodes, refinop, 0, 0,
-                          -(int32_t)unref, NULL);
+        ret = unref_inode(opargs->be, opargs->root_id, opargs->ref_inodes,
+                          refinop, 0, 0, -(int32_t)unref, NULL);
         if (ret != 0)
             goto err2;
     }
@@ -2250,7 +2254,7 @@ do_create_dir(void *args)
      * Upon successful completion, mkdir() shall mark for update the last data
      * access, last data modification, and last file status change timestamps of
      * the directory. */
-    ret = new_dir(opargs->be, opargs->ref_inodes, opargs->ino,
+    ret = new_dir(opargs->be, opargs->root_id, opargs->ref_inodes, opargs->ino,
                   opargs->op_data.mknod_data.name, ctx->uid, ctx->gid,
                   opargs->op_data.mknod_data.mode & ~(ctx->umask),
                   &opargs->attr, opargs->refinop, 1);
@@ -2338,13 +2342,13 @@ do_remove_node_link(void *args)
         goto err2;
     }
 
-    ret = set_ref_inode_nodelete(opargs->be, opargs->ref_inodes, opargs->ino,
-                                 1);
+    ret = set_ref_inode_nodelete(opargs->be, opargs->root_id,
+                                 opargs->ref_inodes, opargs->ino, 1);
     if (ret != 0)
         goto err2;
 
-    ret = rem_node_link(opargs->be, opargs->ref_inodes, opargs->ino, parent,
-                        name, &deleted, &refinop);
+    ret = rem_node_link(opargs->be, opargs->root_id, opargs->ref_inodes,
+                        opargs->ino, parent, name, &deleted, &refinop);
     if (ret != 0)
         goto err3;
 
@@ -2395,7 +2399,8 @@ do_remove_node_link(void *args)
     if (ret != 0)
         goto err4;
 
-    set_ref_inode_nodelete(opargs->be, opargs->ref_inodes, opargs->ino, 0);
+    set_ref_inode_nodelete(opargs->be, opargs->root_id, opargs->ref_inodes,
+                           opargs->ino, 0);
 
     dump_db(opargs->be);
 
@@ -2404,7 +2409,8 @@ do_remove_node_link(void *args)
 err4:
     inc_refcnt(opargs->be, opargs->ref_inodes, opargs->ino, 1, 0, 0, &refinop);
 err3:
-    set_ref_inode_nodelete(opargs->be, opargs->ref_inodes, opargs->ino, 0);
+    set_ref_inode_nodelete(opargs->be, opargs->root_id, opargs->ref_inodes,
+                           opargs->ino, 0);
 err2:
     space_alloc_abort_op(opargs->be);
 err1:
@@ -2443,13 +2449,13 @@ do_remove_dir(void *args)
     parent = opargs->op_data.link_data.parent;
     name = opargs->op_data.link_data.name;
 
-    ret = set_ref_inode_nodelete(opargs->be, opargs->ref_inodes, opargs->ino,
-                                 1);
+    ret = set_ref_inode_nodelete(opargs->be, opargs->root_id,
+                                 opargs->ref_inodes, opargs->ino, 1);
     if (ret != 0)
         goto err2;
 
-    ret = rem_dir(opargs->be, opargs->ref_inodes, opargs->ino, parent, name, 1,
-                  1);
+    ret = rem_dir(opargs->be, opargs->root_id, opargs->ref_inodes, opargs->ino,
+                  parent, name, 1, 1);
     if (ret != 0)
         goto err3;
 
@@ -2497,7 +2503,8 @@ do_remove_dir(void *args)
     if (ret != 0)
         goto err4;
 
-    set_ref_inode_nodelete(opargs->be, opargs->ref_inodes, opargs->ino, 0);
+    set_ref_inode_nodelete(opargs->be, opargs->root_id, opargs->ref_inodes,
+                           opargs->ino, 0);
 
     dump_db(opargs->be);
 
@@ -2509,7 +2516,8 @@ err4:
     inc_refcnt(opargs->be, opargs->ref_inodes, parent, 1, 0, 0,
                opargs->refinop);
 err3:
-    set_ref_inode_nodelete(opargs->be, opargs->ref_inodes, opargs->ino, 0);
+    set_ref_inode_nodelete(opargs->be, opargs->root_id, opargs->ref_inodes,
+                           opargs->ino, 0);
 err2:
     space_alloc_abort_op(opargs->be);
 err1:
@@ -2651,7 +2659,8 @@ do_rename(void *args)
     if (ret != 0)
         goto err1;
 
-    ret = set_ref_inode_nodelete(opargs->be, opargs->ref_inodes, ss.st_ino, 1);
+    ret = set_ref_inode_nodelete(opargs->be, opargs->root_id,
+                                 opargs->ref_inodes, ss.st_ino, 1);
     if (ret != 0)
         goto err2;
 
@@ -2685,21 +2694,22 @@ do_rename(void *args)
             goto err3;
         }
 
-        ret = set_ref_inode_nodelete(opargs->be, opargs->ref_inodes, ds.st_ino,
-                                     1);
+        ret = set_ref_inode_nodelete(opargs->be, opargs->root_id,
+                                     opargs->ref_inodes, ds.st_ino, 1);
         if (ret != 0)
             goto err3;
 
         if (S_ISDIR(ds.st_mode)) {
-            ret = rem_dir(opargs->be, opargs->ref_inodes, ds.st_ino, newparent,
-                          newname, 1, 1);
+            ret = rem_dir(opargs->be, opargs->root_id, opargs->ref_inodes,
+                          ds.st_ino, newparent, newname, 1, 1);
         } else {
-            ret = rem_node_link(opargs->be, opargs->ref_inodes, ds.st_ino,
-                                newparent, newname, NULL, &refinop[0]);
+            ret = rem_node_link(opargs->be, opargs->root_id, opargs->ref_inodes,
+                                ds.st_ino, newparent, newname, NULL,
+                                &refinop[0]);
         }
         if (ret != 0) {
-            set_ref_inode_nodelete(opargs->be, opargs->ref_inodes, ds.st_ino,
-                                   0);
+            set_ref_inode_nodelete(opargs->be, opargs->root_id,
+                                   opargs->ref_inodes, ds.st_ino, 0);
             goto err3;
         }
 
@@ -2728,16 +2738,16 @@ do_rename(void *args)
         if (ret != 0)
             goto err4;
 
-        ret = rem_dir_link(opargs->be, opargs->ref_inodes, ss.st_ino, parent,
-                           name, &refinop[2]);
+        ret = rem_dir_link(opargs->be, opargs->root_id, opargs->ref_inodes,
+                           ss.st_ino, parent, name, &refinop[2]);
     } else {
         ret = new_node_link(opargs->be, opargs->ref_inodes, ss.st_ino,
                             newparent, newname, &refinop[1]);
         if (ret != 0)
             goto err4;
 
-        ret = rem_node_link(opargs->be, opargs->ref_inodes, ss.st_ino, parent,
-                            name, NULL, &refinop[2]);
+        ret = rem_node_link(opargs->be, opargs->root_id, opargs->ref_inodes,
+                            ss.st_ino, parent, name, NULL, &refinop[2]);
     }
     if (ret != 0)
         goto err5;
@@ -2792,9 +2802,12 @@ do_rename(void *args)
     if (ret != 0)
         goto err6;
 
-    if (existing)
-        set_ref_inode_nodelete(opargs->be, opargs->ref_inodes, ds.st_ino, 0);
-    set_ref_inode_nodelete(opargs->be, opargs->ref_inodes, ss.st_ino, 0);
+    if (existing) {
+        set_ref_inode_nodelete(opargs->be, opargs->root_id, opargs->ref_inodes,
+                               ds.st_ino, 0);
+    }
+    set_ref_inode_nodelete(opargs->be, opargs->root_id, opargs->ref_inodes,
+                           ss.st_ino, 0);
 
     return 0;
 
@@ -2813,10 +2826,12 @@ err4:
             inc_refcnt(opargs->be, opargs->ref_inodes, ds.st_ino, 1, 0, 0,
                        refinop);
         }
-        set_ref_inode_nodelete(opargs->be, opargs->ref_inodes, ds.st_ino, 0);
+        set_ref_inode_nodelete(opargs->be, opargs->root_id, opargs->ref_inodes,
+                               ds.st_ino, 0);
     }
 err3:
-    set_ref_inode_nodelete(opargs->be, opargs->ref_inodes, ss.st_ino, 0);
+    set_ref_inode_nodelete(opargs->be, opargs->root_id, opargs->ref_inodes,
+                           ss.st_ino, 0);
 err2:
     space_alloc_abort_op(opargs->be);
 err1:
@@ -3248,7 +3263,8 @@ do_close(void *args)
         goto err2;
     }
 
-    ret = unref_inode(opargs->be, opargs->ref_inodes, refinop, 0, -1, 0, NULL);
+    ret = unref_inode(opargs->be, opargs->root_id, opargs->ref_inodes, refinop,
+                      0, -1, 0, NULL);
     if (ret != 0)
         goto err2;
 
@@ -3655,7 +3671,7 @@ set_trans_cb(void *args, void (*cb)(int, int, int, void *), void *ctx)
  * issued, and the FUSE processing loop blocks until the init request returns.
  */
 static void
-simplefs_init(void *rctx)
+simplefs_init(void *rctx, inum_t root_id)
 {
     int ret;
     struct db_args dbargs;
@@ -3673,6 +3689,7 @@ simplefs_init(void *rctx)
         goto err1;
     }
 
+    priv->root_id = root_id;
     priv->wb_err = 0;
 
     ret = fifo_new(&priv->queue, sizeof(struct queue_elem *), 1024);
@@ -3744,17 +3761,17 @@ simplefs_init(void *rctx)
             goto err7;
 
         k.type = TYPE_FREE_INO;
-        k.ino = ROOT_ID;
+        k.ino = root_id;
         memset(freeino.used_ino, 0, sizeof(freeino.used_ino));
-        used_ino_set(freeino.used_ino, k.ino, ROOT_ID, 1);
+        used_ino_set(freeino.used_ino, k.ino, root_id, 1);
         freeino.flags = FREE_INO_LAST_USED;
         ret = back_end_insert(priv->be, &k, &freeino, sizeof(freeino));
         if (ret != 0)
             goto err7;
 
         /* create root directory */
-        ret = new_dir(priv->be, &priv->ref_inodes, 0, NULL, getuid(), getgid(),
-                      ROOT_DIR_INIT_PERMS, NULL, refinop, 0);
+        ret = new_dir(priv->be, root_id, &priv->ref_inodes, 0, NULL, getuid(),
+                      getgid(), ROOT_DIR_INIT_PERMS, NULL, refinop, 0);
         if (ret != 0)
             goto err7;
 
@@ -3782,8 +3799,10 @@ simplefs_init(void *rctx)
         if (ret != 0)
             goto err6;
 
+        /* FIXME: validate root I-node number */
+
         if (!(dbargs.ro)) {
-            ret = remove_ulinked_nodes(priv->be);
+            ret = remove_ulinked_nodes(priv->be, root_id);
             if (ret != 0)
                 goto err6;
         }
@@ -3802,7 +3821,7 @@ simplefs_init(void *rctx)
         goto err6;
 
     /* root I-node implicitly looked up on completion of init request */
-    ret = inc_refcnt(priv->be, &priv->ref_inodes, ROOT_ID, 0, 0, 1,
+    ret = inc_refcnt(priv->be, &priv->ref_inodes, root_id, 0, 0, 1,
                      &refinop[0]);
     if (ret != 0) {
         join_worker(priv);
@@ -3964,6 +3983,7 @@ simplefs_forget(void *req, inum_t ino, uint64_t nlookup)
     priv = md->priv;
 
     opargs.be = priv->be;
+    opargs.root_id = priv->root_id;
     opargs.ref_inodes = &priv->ref_inodes;
 
     opargs.ino = ino;
@@ -4142,6 +4162,7 @@ simplefs_mkdir(void *req, inum_t parent, const char *name, mode_t mode)
     opargs.ctx = req_ctx(req);
 
     opargs.be = priv->be;
+    opargs.root_id = priv->root_id;
     opargs.ref_inodes = &priv->ref_inodes;
 
     opargs.ino = parent;
@@ -4182,6 +4203,7 @@ simplefs_unlink(void *req, inum_t parent, const char *name)
     priv = md->priv;
 
     opargs.be = priv->be;
+    opargs.root_id = priv->root_id;
     opargs.ref_inodes = &priv->ref_inodes;
 
     opargs.k.type = TYPE_DIRENT;
@@ -4232,6 +4254,7 @@ simplefs_rmdir(void *req, inum_t parent, const char *name)
     priv = md->priv;
 
     opargs.be = priv->be;
+    opargs.root_id = priv->root_id;
     opargs.ref_inodes = &priv->ref_inodes;
 
     opargs.k.type = TYPE_DIRENT;
@@ -4326,6 +4349,7 @@ simplefs_rename(void *req, inum_t parent, const char *name, inum_t newparent,
     priv = md->priv;
 
     opargs.be = priv->be;
+    opargs.root_id = priv->root_id;
     opargs.ref_inodes = &priv->ref_inodes;
 
     opargs.op_data.link_data.parent = parent;
@@ -4409,6 +4433,7 @@ simplefs_open(void *req, inum_t ino, struct file_info *fi)
     priv = md->priv;
 
     opargs.be = priv->be;
+    opargs.root_id = priv->root_id;
     opargs.ref_inodes = &priv->ref_inodes;
 
     opargs.ino = ino;
@@ -4567,6 +4592,7 @@ simplefs_opendir(void *req, inum_t ino, struct file_info *fi)
     priv = md->priv;
 
     opargs.be = priv->be;
+    opargs.root_id = priv->root_id;
     opargs.ref_inodes = &priv->ref_inodes;
 
     opargs.ino = ino;
@@ -4673,6 +4699,7 @@ simplefs_release(void *req, inum_t ino, struct file_info *fi)
     ofile = (struct open_file *)(uintptr_t)(fi->fh);
 
     opargs.be = priv->be;
+    opargs.root_id = priv->root_id;
     opargs.ref_inodes = &priv->ref_inodes;
 
     opargs.ino = ino;
@@ -4727,6 +4754,7 @@ simplefs_releasedir(void *req, inum_t ino, struct file_info *fi)
     odir = (struct open_dir *)(uintptr_t)(fi->fh);
 
     opargs.be = priv->be;
+    opargs.root_id = priv->root_id;
     opargs.ref_inodes = &priv->ref_inodes;
 
     opargs.ino = ino;
@@ -5041,6 +5069,7 @@ simplefs_create(void *req, inum_t parent, const char *name, mode_t mode,
     opargs.ctx = req_ctx(req);
 
     opargs.be = priv->be;
+    opargs.root_id = priv->root_id;
     opargs.ref_inodes = &priv->ref_inodes;
 
     opargs.op_data.mknod_data.parent = parent;

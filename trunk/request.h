@@ -43,7 +43,7 @@ struct request_ops {
     int (*new)(void *rctx);
     void (*end)(void *rctx);
 
-    void (*init)(void *rctx);
+    void (*init)(void *rctx, inum_t root_id);
     void (*destroy)(void *rctx);
     void (*lookup)(void *req, inum_t parent, const char *name);
     void (*forget)(void *req, inum_t ino, uint64_t nlookup);
@@ -127,7 +127,7 @@ int request_new(struct request_ctx **ctx, const struct request_ops *req_ops,
                 const struct reply_ops *reply_ops, void *rctx);
 void request_end(struct request_ctx *ctx);
 
-void request_init(struct request_ctx *ctx);
+void request_init(struct request_ctx *ctx, inum_t root_id);
 void request_destroy(struct request_ctx *ctx);
 void request_lookup(struct request_ctx *ctx, void *req, inum_t parent,
                     const char *name);
