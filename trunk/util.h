@@ -7,6 +7,7 @@
 
 #include "config.h"
 
+#include <forensics.h>
 #include <io_ext.h>
 
 #include <errno.h>
@@ -62,6 +63,8 @@
 #ifndef CLOCK_MONOTONIC_RAW
 #define CLOCK_MONOTONIC_RAW 3
 #endif
+
+void write_backtrace(FILE *f, int start_frame);
 
 void *do_malloc(size_t size);
 void *do_calloc(size_t nmemb, size_t size);

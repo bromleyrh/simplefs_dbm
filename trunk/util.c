@@ -10,17 +10,22 @@
 #include "common.h"
 #undef NO_ASSERT
 
+#include <forensics.h>
 #include <io_ext.h>
+#include <sort.h>
 
 #include <assert.h>
 #include <errno.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <time.h>
 
 #include <sys/param.h>
 #include <sys/time.h>
+#include <sys/types.h>
 
 typedef ssize_t (*io_fn_t)(int, void *, size_t, off_t,
                            const struct interrupt_data *);
@@ -33,10 +38,67 @@ typedef ssize_t (*io_fn_t)(int, void *, size_t, off_t,
             errno = ENOMEM; \
     } while (0)
 
+#ifndef NDEBUG
+static int strlen_cmp(const void *, const void *, void *);
+
+#endif
 static int interrupt_recv(const struct interrupt_data *);
 
 static size_t do_io(io_fn_t, int, void *, size_t, off_t, size_t,
                     const struct interrupt_data *);
+
+#ifndef NDEBUG
+static int
+strlen_cmp(const void *e1, const void *e2, void *ctx)
+{
+    size_t len1, len2;
+    ssize_t *maxlen = (ssize_t *)ctx;
+
+    len1 = strlen(*(const char **)e1);
+    if (*maxlen == -1)
+        len2 = strlen(*(const char **)e2);
+    else
+        len2 = *maxlen;
+
+    if (len1 > len2) {
+        *maxlen = len1;
+        return 1;
+    }
+    if (*maxlen == -1)
+        *maxlen = len2;
+
+    return (len1 < len2) ? -1 : 0;
+}
+
+#endif
+void
+write_backtrace(FILE *f, int start_frame)
+{
+#ifdef NDEBUG
+    (void)f;
+    (void)start_frame;
+
+    return;
+#else
+    char **bt;
+    int n;
+
+    bt = get_backtrace(&n);
+    if (bt != NULL) {
+        int i;
+        ssize_t maxlen;
+
+        maxlen = -1;
+        max(bt, n, sizeof(*bt), &strlen_cmp, &maxlen);
+
+        fputs("Call stack:\n", f);
+        for (i = 1 + start_frame; i < n; i++)
+            fprintf(f, "%*s()\n", (int)maxlen, bt[i]);
+
+        free_backtrace(bt);
+    }
+#endif
+}
 
 static int
 interrupt_recv(const struct interrupt_data *intdata)
