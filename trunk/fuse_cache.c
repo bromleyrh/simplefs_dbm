@@ -100,38 +100,24 @@ struct fuse_cache_iter {
     struct fuse_cache   *cache;
 };
 
+#define ERR_PERIOD 1024
+
 #define OP_LIST_INIT_SIZE 128
 
 #define MAX_CLEAN_ENTRIES 512
 
-#define CACHE_OBJ_VALID(obj) ((obj)->magic == CACHE_OBJ_MAGIC)
-
 static int fuse_cache_debug = 1;
 
+int fuse_cache_err_test;
+int fuse_cache_io_err;
+
+#define DO_ERR_INJECT(errnum, errret) \
+    ERR_INJECT(fuse_cache_err_test, ERR_PERIOD, errnum, errret, 0, func, file, \
+               line, fuse_cache_io_err)
+
+#define CACHE_OBJ_VALID(obj) ((obj)->magic == CACHE_OBJ_MAGIC)
+
 int back_end_dbm_get_trans_state(void *);
-
-static int be_create(struct fuse_cache *, size_t, back_end_key_cmp_t, void *);
-static int be_open(struct fuse_cache *, size_t, back_end_key_cmp_t, void *);
-static int be_close(struct fuse_cache *);
-
-static int be_insert(struct fuse_cache *, const void *, const void *, size_t);
-static int be_replace(struct fuse_cache *, const void *, const void *, size_t);
-static int be_look_up(struct fuse_cache *, const void *, void *, void *,
-                      size_t *, int);
-static int be_delete(struct fuse_cache *, const void *);
-
-static int be_iter_new(struct fuse_cache *, void **);
-static int be_iter_free(struct fuse_cache *, void *);
-static int be_iter_get(struct fuse_cache *, void *, void *, void *, size_t *);
-static int be_iter_next(struct fuse_cache *, void *);
-static int be_iter_search(struct fuse_cache *, void *, const void *);
-
-static int be_trans_new(struct fuse_cache *);
-static int be_trans_abort(struct fuse_cache *);
-static int be_trans_commit(struct fuse_cache *);
-static int be_sync(struct fuse_cache *);
-
-static int be_ctl(struct fuse_cache *, int, void *);
 
 static void trans_cb(int, int, int, void *);
 
@@ -224,113 +210,191 @@ const struct back_end_ops back_end_fuse_cache_ops = {
 };
 
 static int
-be_create(struct fuse_cache *cache, size_t key_size, back_end_key_cmp_t key_cmp,
-          void *args)
+_be_create(struct fuse_cache *cache, size_t key_size,
+           back_end_key_cmp_t key_cmp, void *args, SOURCE_LINE_PARAMS)
 {
+    DO_ERR_INJECT(0, -EIO);
+
     return (*(cache->ops->create))(&cache->ctx, key_size, key_cmp, args);
 }
 
 static int
-be_open(struct fuse_cache *cache, size_t key_size, back_end_key_cmp_t key_cmp,
-        void *args)
+_be_open(struct fuse_cache *cache, size_t key_size, back_end_key_cmp_t key_cmp,
+         void *args, SOURCE_LINE_PARAMS)
 {
+    DO_ERR_INJECT(0, -EIO);
+
     return (*(cache->ops->open))(&cache->ctx, key_size, key_cmp, args);
 }
 
 static int
-be_close(struct fuse_cache *cache)
+_be_close(struct fuse_cache *cache, SOURCE_LINE_PARAMS)
 {
-    return (*(cache->ops->close))(cache->ctx);
+    int error;
+
+    error = (*(cache->ops->close))(cache->ctx);
+    if (error)
+        return error;
+
+    DO_ERR_INJECT(0, -EIO);
+
+    return 0;
 }
 
 static int
-be_insert(struct fuse_cache *cache, const void *key, const void *data,
-          size_t datasize)
+_be_insert(struct fuse_cache *cache, const void *key, const void *data,
+           size_t datasize, SOURCE_LINE_PARAMS)
 {
+    DO_ERR_INJECT(0, -EIO);
+
     return (*(cache->ops->insert))(cache->ctx, key, data, datasize);
 }
 
 static int
-be_replace(struct fuse_cache *cache, const void *key, const void *data,
-           size_t datasize)
+_be_replace(struct fuse_cache *cache, const void *key, const void *data,
+            size_t datasize, SOURCE_LINE_PARAMS)
 {
+    DO_ERR_INJECT(0, -EIO);
+
     return (*(cache->ops->replace))(cache->ctx, key, data, datasize);
 }
 
 static int
-be_look_up(struct fuse_cache *cache, const void *key, void *retkey,
-           void *retdata, size_t *retdatasize, int look_up_nearest)
+_be_look_up(struct fuse_cache *cache, const void *key, void *retkey,
+            void *retdata, size_t *retdatasize, int look_up_nearest,
+            SOURCE_LINE_PARAMS)
 {
+    DO_ERR_INJECT(0, -EIO);
+
     return (*(cache->ops->look_up))(cache->ctx, key, retkey, retdata,
                                     retdatasize, look_up_nearest);
 }
 
 static int
-be_delete(struct fuse_cache *cache, const void *key)
+_be_delete(struct fuse_cache *cache, const void *key, SOURCE_LINE_PARAMS)
 {
+    DO_ERR_INJECT(0, -EIO);
+
     return (*(cache->ops->delete))(cache->ctx, key);
 }
 
 static int
-be_iter_new(struct fuse_cache *cache, void **iter)
+_be_iter_new(struct fuse_cache *cache, void **iter, SOURCE_LINE_PARAMS)
 {
+    DO_ERR_INJECT(0, -EIO);
+
     return (*(cache->ops->iter_new))(iter, cache->ctx);
 }
 
 static int
-be_iter_free(struct fuse_cache *cache, void *iter)
+_be_iter_free(struct fuse_cache *cache, void *iter, SOURCE_LINE_PARAMS)
 {
+    DO_ERR_INJECT(0, -EIO);
+
     return (*(cache->ops->iter_free))(iter);
 }
 
 static int
-be_iter_get(struct fuse_cache *cache, void *iter, void *retkey, void *retdata,
-            size_t *retdatasize)
+_be_iter_get(struct fuse_cache *cache, void *iter, void *retkey, void *retdata,
+             size_t *retdatasize, SOURCE_LINE_PARAMS)
 {
+    DO_ERR_INJECT(0, -EIO);
+
     return (*(cache->ops->iter_get))(iter, retkey, retdata, retdatasize);
 }
 
 static int
-be_iter_next(struct fuse_cache *cache, void *iter)
+_be_iter_next(struct fuse_cache *cache, void *iter, SOURCE_LINE_PARAMS)
 {
+    DO_ERR_INJECT(0, -EIO);
+
     return (*(cache->ops->iter_next))(iter);
 }
 
 static int
-be_iter_search(struct fuse_cache *cache, void *iter, const void *key)
+_be_iter_search(struct fuse_cache *cache, void *iter, const void *key,
+                SOURCE_LINE_PARAMS)
 {
+    DO_ERR_INJECT(0, -EIO);
+
     return (*(cache->ops->iter_search))(iter, key);
 }
 
 static int
-be_trans_new(struct fuse_cache *cache)
+_be_trans_new(struct fuse_cache *cache, SOURCE_LINE_PARAMS)
 {
+    DO_ERR_INJECT(0, -EIO);
+
     return (*(cache->ops->trans_new))(cache->ctx);
 }
 
 static int
-be_trans_abort(struct fuse_cache *cache)
+_be_trans_abort(struct fuse_cache *cache, SOURCE_LINE_PARAMS)
 {
+    DO_ERR_INJECT(0, -EIO);
+
     return (*(cache->ops->trans_abort))(cache->ctx);
 }
 
 static int
-be_trans_commit(struct fuse_cache *cache)
+_be_trans_commit(struct fuse_cache *cache, SOURCE_LINE_PARAMS)
 {
+    DO_ERR_INJECT(0, -EIO);
+
     return (*(cache->ops->trans_commit))(cache->ctx);
 }
 
 static int
-be_sync(struct fuse_cache *cache)
+_be_sync(struct fuse_cache *cache, SOURCE_LINE_PARAMS)
 {
+    DO_ERR_INJECT(0, -EIO);
+
     return (*(cache->ops->sync))(cache->ctx);
 }
 
 static int
-be_ctl(struct fuse_cache *cache, int op, void *args)
+_be_ctl(struct fuse_cache *cache, int op, void *args, SOURCE_LINE_PARAMS)
 {
+    DO_ERR_INJECT(0, -EIO);
+
     return (*(cache->ops->ctl))(cache->ctx, op, args);
 }
+
+#define be_create(cache, key_size, key_cmp, args) \
+    _be_create(cache, key_size, key_cmp, args, SOURCE_LINE)
+#define be_open(cache, key_size, key_cmp, args) \
+    _be_open(cache, key_size, key_cmp, args, SOURCE_LINE)
+#define be_close(cache) \
+    _be_close(cache, SOURCE_LINE)
+#define be_insert(cache, key, data, datasize) \
+    _be_insert(cache, key, data, datasize, SOURCE_LINE)
+#define be_replace(cache, key, data, datasize) \
+    _be_replace(cache, key, data, datasize, SOURCE_LINE)
+#define be_look_up(cache, key, retkey, retdata, retdatasize, look_up_nearest) \
+    _be_look_up(cache, key, retkey, retdata, retdatasize, look_up_nearest, \
+                SOURCE_LINE)
+#define be_delete(cache, key) \
+    _be_delete(cache, key, SOURCE_LINE)
+#define be_iter_new(cache, iter) \
+    _be_iter_new(cache, iter, SOURCE_LINE)
+#define be_iter_free(cache, iter) \
+    _be_iter_free(cache, iter, SOURCE_LINE)
+#define be_iter_get(cache, iter, retkey, retdata, retdatasize) \
+    _be_iter_get(cache, iter, retkey, retdata, retdatasize, SOURCE_LINE)
+#define be_iter_next(cache, iter) \
+    _be_iter_next(cache, iter, SOURCE_LINE)
+#define be_iter_search(cache, iter, key) \
+    _be_iter_search(cache, iter, key, SOURCE_LINE)
+#define be_trans_new(cache) \
+    _be_trans_new(cache, SOURCE_LINE)
+#define be_trans_abort(cache) \
+    _be_trans_abort(cache, SOURCE_LINE)
+#define be_trans_commit(cache) \
+    _be_trans_commit(cache, SOURCE_LINE)
+#define be_sync(cache) \
+    _be_sync(cache, SOURCE_LINE)
+#define be_ctl(cache, op, args) \
+    _be_ctl(cache, op, args, SOURCE_LINE)
 
 /*
  * trans_cb():
