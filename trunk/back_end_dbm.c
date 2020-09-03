@@ -45,8 +45,17 @@ struct db_iter {
     struct db_ctx   *dbctx;
 };
 
+#define ERR_PERIOD 1024
+
 #define DB_HL_USEFSOPS 16
 #define DB_HL_ALLOCHOOK 32
+
+int back_end_err_test;
+int back_end_io_err;
+
+#define DO_ERR_INJECT(errnum, errret) \
+    ERR_INJECT(back_end_err_test, ERR_PERIOD, errnum, errret, 0, func, file, \
+               line, back_end_io_err)
 
 int db_hl_get_trans_state(struct dbh *);
 
@@ -106,6 +115,250 @@ const struct back_end_ops back_end_dbm_ops = {
     .sync           = &back_end_dbm_sync,
     .ctl            = &back_end_dbm_ctl
 };
+
+static int
+__db_hl_create_blkdev(struct dbh **dbh, const char *pathname, mode_t mode,
+                      size_t key_size, db_hl_key_cmp_t key_cmp, void *key_ctx,
+                      int flags, int dfd, const struct fs_ops *fs_ops,
+                      void *fs_args, void (*alloc_cb)(uint64_t, int, void *),
+                      void *alloc_cb_ctx, SOURCE_LINE_PARAMS)
+{
+    DO_ERR_INJECT(0, -EIO);
+
+    return db_hl_create(dbh, pathname, mode, key_size, key_cmp, key_ctx, flags,
+                        dfd, fs_ops, fs_args, alloc_cb, alloc_cb_ctx);
+}
+
+static int
+__db_hl_create(struct dbh **dbh, const char *pathname, mode_t mode,
+               size_t key_size, db_hl_key_cmp_t key_cmp, void *key_ctx,
+               int flags, int dfd, SOURCE_LINE_PARAMS)
+{
+    DO_ERR_INJECT(0, -EIO);
+
+    return db_hl_create(dbh, pathname, mode, key_size, key_cmp, key_ctx, flags,
+                        dfd);
+}
+
+static int
+__db_hl_open_blkdev(struct dbh **dbh, const char *pathname, size_t key_size,
+                    db_hl_key_cmp_t key_cmp, void *key_ctx, int flags, int dfd,
+                    const struct fs_ops *fs_ops, void *fs_args,
+                    SOURCE_LINE_PARAMS)
+{
+    DO_ERR_INJECT(0, -EIO);
+
+    return db_hl_open(dbh, pathname, key_size, key_cmp, key_ctx, flags, dfd,
+                      fs_ops, fs_args);
+}
+
+static int
+__db_hl_open(struct dbh **dbh, const char *pathname, size_t key_size,
+             db_hl_key_cmp_t key_cmp, void *key_ctx, int flags, int dfd,
+             SOURCE_LINE_PARAMS)
+{
+    DO_ERR_INJECT(0, -EIO);
+
+    return db_hl_open(dbh, pathname, key_size, key_cmp, key_ctx, flags, dfd);
+}
+
+static int
+__db_hl_close(struct dbh *dbh, SOURCE_LINE_PARAMS)
+{
+    DO_ERR_INJECT(0, -EIO);
+
+    return db_hl_close(dbh);
+}
+
+static int
+__db_hl_insert(struct dbh *dbh, const void *key, const void *data,
+              size_t datasize, SOURCE_LINE_PARAMS)
+{
+    DO_ERR_INJECT(0, -EIO);
+
+    return db_hl_insert(dbh, key, data, datasize);
+}
+
+static int
+__db_hl_replace(struct dbh *dbh, const void *key, const void *data,
+                size_t datasize, SOURCE_LINE_PARAMS)
+{
+    DO_ERR_INJECT(0, -EIO);
+
+    return db_hl_replace(dbh, key, data, datasize);
+}
+
+static int
+__db_hl_search(struct dbh *dbh, const void *key, void *retkey, void *retdata,
+               size_t *retdatasize, SOURCE_LINE_PARAMS)
+{
+    DO_ERR_INJECT(0, -EIO);
+
+    return db_hl_search(dbh, key, retkey, retdata, retdatasize);
+}
+
+static int
+__db_hl_delete(struct dbh *dbh, const void *key, SOURCE_LINE_PARAMS)
+{
+    DO_ERR_INJECT(0, -EIO);
+
+    return db_hl_delete(dbh, key);
+}
+
+static int
+__db_hl_walk(struct dbh *dbh, db_hl_walk_cb_t fn, void *ctx, SOURCE_LINE_PARAMS)
+{
+    DO_ERR_INJECT(0, -EIO);
+
+    return db_hl_walk(dbh, fn, ctx);
+}
+
+static int
+__db_hl_iter_new(db_hl_iter_t *iter, const struct dbh *dbh, SOURCE_LINE_PARAMS)
+{
+    DO_ERR_INJECT(0, -EIO);
+
+    return db_hl_iter_new(iter, dbh);
+}
+
+static int
+__db_hl_iter_free(db_hl_iter_t iter, SOURCE_LINE_PARAMS)
+{
+    DO_ERR_INJECT(0, -EIO);
+
+    return db_hl_iter_free(iter);
+}
+
+static int
+__db_hl_iter_get(db_hl_iter_t iter, void *retkey, void *retdata,
+                 size_t *retdatasize, SOURCE_LINE_PARAMS)
+{
+    DO_ERR_INJECT(0, -EIO);
+
+    return db_hl_iter_get(iter, retkey, retdata, retdatasize);
+}
+
+static int
+__db_hl_iter_next(db_hl_iter_t iter, SOURCE_LINE_PARAMS)
+{
+    DO_ERR_INJECT(0, -EIO);
+
+    return db_hl_iter_next(iter);
+}
+
+static int
+__db_hl_iter_search(db_hl_iter_t iter, const void *key, SOURCE_LINE_PARAMS)
+{
+    DO_ERR_INJECT(0, -EIO);
+
+    return db_hl_iter_search(iter, key);
+}
+
+static int
+__db_hl_trans_new(struct dbh *dbh, SOURCE_LINE_PARAMS)
+{
+    DO_ERR_INJECT(0, -EIO);
+
+    return db_hl_trans_new(dbh);
+}
+
+static int
+__db_hl_trans_abort(struct dbh *dbh, SOURCE_LINE_PARAMS)
+{
+    DO_ERR_INJECT(0, -EIO);
+
+    return db_hl_trans_abort(dbh);
+}
+
+static int
+__db_hl_trans_commit(struct dbh *dbh, SOURCE_LINE_PARAMS)
+{
+    DO_ERR_INJECT(0, -EIO);
+
+    return db_hl_trans_commit(dbh);
+}
+
+static int
+__db_hl_sync(struct dbh *dbh, SOURCE_LINE_PARAMS)
+{
+    DO_ERR_INJECT(0, -EIO);
+
+    return db_hl_sync(dbh);
+}
+
+#define _db_hl_create_blkdev(dbh, pathname, mode, key_size, key_cmp, key_ctx, \
+                             flags, dfd, fs_ops, fs_args, alloc_cb, \
+                             alloc_cb_ctx) \
+    __db_hl_create_blkdev(dbh, pathname, mode, key_size, key_cmp, key_ctx, \
+                          flags, dfd, fs_ops, fs_args, alloc_cb, alloc_cb_ctx, \
+                          SOURCE_LINE)
+#define db_hl_create_blkdev(dbh, pathname, mode, key_size, key_cmp, key_ctx, \
+                            flags, dfd, fs_ops, fs_args, alloc_cb, \
+                            alloc_cb_ctx) \
+    _db_hl_create_blkdev(dbh, pathname, mode, key_size, key_cmp, key_ctx, \
+                         (flags) | DB_HL_RELPATH | DB_HL_USEFSOPS \
+                         | DB_HL_ALLOCHOOK, \
+                         dfd, fs_ops, fs_args, alloc_cb, alloc_cb_ctx)
+#define _db_hl_create(dbh, pathname, mode, key_size, key_cmp, key_ctx, flags, \
+                      dfd) \
+    __db_hl_create(dbh, pathname, mode, key_size, key_cmp, key_ctx, flags, \
+                   dfd, SOURCE_LINE)
+#define db_hl_create(dbh, pathname, mode, key_size, key_cmp, key_ctx, flags, \
+                     dfd) \
+    _db_hl_create(dbh, pathname, mode, key_size, key_cmp, key_ctx, \
+                  (flags) | DB_HL_RELPATH, dfd)
+
+#define _db_hl_open_blkdev(dbh, pathname, key_size, key_cmp, key_ctx, flags, \
+                           dfd, fs_ops, fs_args) \
+    __db_hl_open_blkdev(dbh, pathname, key_size, key_cmp, key_ctx, flags, dfd, \
+                        fs_ops, fs_args, SOURCE_LINE)
+#define db_hl_open_blkdev(dbh, pathname, key_size, key_cmp, key_ctx, flags, \
+                          dfd, fs_ops, fs_args) \
+    _db_hl_open_blkdev(dbh, pathname, key_size, key_cmp, key_ctx, \
+                       (flags) | DB_HL_RELPATH | DB_HL_USEFSOPS, dfd, fs_ops, \
+                       fs_args)
+#define _db_hl_open(dbh, pathname, key_size, key_cmp, key_ctx, flags, dfd) \
+    __db_hl_open(dbh, pathname, key_size, key_cmp, key_ctx, flags, dfd, \
+                 SOURCE_LINE)
+#define db_hl_open(dbh, pathname, key_size, key_cmp, key_ctx, flags, dfd) \
+    _db_hl_open(dbh, pathname, key_size, key_cmp, key_ctx, \
+                (flags) | DB_HL_RELPATH, dfd)
+
+#define db_hl_close(dbh) \
+    __db_hl_close(dbh, SOURCE_LINE)
+
+#define db_hl_insert(dbh, key, data, datasize) \
+    __db_hl_insert(dbh, key, data, datasize, SOURCE_LINE)
+#define db_hl_replace(dbh, key, data, datasize) \
+    __db_hl_replace(dbh, key, data, datasize, SOURCE_LINE)
+#define db_hl_search(dbh, key, retkey, retdata, retdatasize) \
+    __db_hl_search(dbh, key, retkey, retdata, retdatasize, SOURCE_LINE)
+#define db_hl_delete(dbh, key) \
+    __db_hl_delete(dbh, key, SOURCE_LINE)
+
+#define db_hl_walk(dbh, fn, ctx) \
+    __db_hl_walk(dbh, fn, ctx, SOURCE_LINE)
+
+#define db_hl_iter_new(iter, dbh) \
+    __db_hl_iter_new(iter, dbh, SOURCE_LINE)
+#define db_hl_iter_free(iter) \
+    __db_hl_iter_free(iter, SOURCE_LINE)
+#define db_hl_iter_get(iter, retkey, retdata, retdatasize) \
+    __db_hl_iter_get(iter, retkey, retdata, retdatasize, SOURCE_LINE)
+#define db_hl_iter_next(iter) \
+    __db_hl_iter_next(iter, SOURCE_LINE)
+#define db_hl_iter_search(iter, key) \
+    __db_hl_iter_search(iter, key, SOURCE_LINE)
+
+#define db_hl_trans_new(dbh) \
+    __db_hl_trans_new(dbh, SOURCE_LINE)
+#define db_hl_trans_abort(dbh) \
+    __db_hl_trans_abort(dbh, SOURCE_LINE)
+#define db_hl_trans_commit(dbh) \
+    __db_hl_trans_commit(dbh, SOURCE_LINE)
+
+#define db_hl_sync(dbh) \
+    __db_hl_sync(dbh, SOURCE_LINE)
 
 static void
 trans_cb(struct dbh *dbh, int trans_type, int act, int status, void *ctx)
@@ -174,11 +427,9 @@ do_create(struct dbh **dbh, int dfd, const char *relpath, mode_t mode,
     if (blkdev) {
         struct blkdev_args args;
 
-        err = db_hl_create(dbh, relpath, mode, key_size, keycmp, key_ctx,
-                           flags | DB_HL_RELPATH | DB_HL_USEFSOPS
-                           | DB_HL_ALLOCHOOK,
-                           dfd, FS_BLKDEV_OPS, &args, alloc_cb->alloc_cb,
-                           alloc_cb->alloc_cb_ctx);
+        err = db_hl_create_blkdev(dbh, relpath, mode, key_size, keycmp, key_ctx,
+                                  flags, dfd, FS_BLKDEV_OPS, &args,
+                                  alloc_cb->alloc_cb, alloc_cb->alloc_cb_ctx);
         if (!err) {
             *hdr_len = args.hdrlen;
             *jlen = args.jlen;
@@ -202,9 +453,8 @@ do_open(struct dbh **dbh, int dfd, const char *relpath, size_t key_size,
     if (blkdev) {
         struct blkdev_args args;
 
-        err = db_hl_open(dbh, relpath, key_size, keycmp, key_ctx,
-                         flags | DB_HL_RELPATH | DB_HL_USEFSOPS, dfd,
-                         FS_BLKDEV_OPS, &args);
+        err = db_hl_open_blkdev(dbh, relpath, key_size, keycmp, key_ctx, flags,
+                                dfd, FS_BLKDEV_OPS, &args);
         if (!err) {
             *hdr_len = args.hdrlen;
             *jlen = args.jlen;
