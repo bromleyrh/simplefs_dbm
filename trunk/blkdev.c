@@ -69,6 +69,7 @@ struct blkdev_ctx {
     struct disk_header  hdr;
     int                 fd[3];
     void                *mmap_addr;
+    int                 lk;
     int                 init;
     int                 jinit;
 };
@@ -355,6 +356,7 @@ fs_blkdev_openfs(void **ctx, void *args)
     for (i = 0; i < ARRAY_SIZE(ret->fd); i++)
         ret->fd[i] = -1;
     ret->mmap_addr = NULL;
+    ret->lk = 0;
     ret->init = ret->jinit = -1;
 
     ret->args->hdrlen = sizeof(struct disk_header);
@@ -682,15 +684,42 @@ fs_blkdev_fdatasync(void *ctx, int fd, const struct interrupt_data *intdata)
 #endif
 }
 
+#define LOCK_OPS (LOCK_SH | LOCK_EX | LOCK_UN)
+
 static int
 fs_blkdev_flock(void *ctx, int fd, int operation)
 {
-    (void)ctx;
-    (void)fd;
-    (void)operation;
+    int op;
+    struct blkdev_ctx *bctx = (struct blkdev_ctx *)ctx;
+
+    if ((fd != FD(bctx)) && (fd != JFD(bctx)))
+        return flock(fd, operation);
+
+    if (operation & ~(LOCK_OPS | LOCK_NB))
+        return err_to_errno(EINVAL);
+
+    op = operation & LOCK_OPS;
+
+    if (op == LOCK_UN) {
+        if (!(bctx->lk))
+            return 0;
+    } else {
+        if ((op != LOCK_SH) && (op != LOCK_EX))
+            return err_to_errno(EINVAL);
+        if (bctx->lk)
+            return 0;
+        if (op == LOCK_SH)
+            operation = LOCK_EX | (operation & LOCK_NB);
+    }
+
+    if (flock(fd, operation) == -1)
+        return -1;
+    bctx->lk = (op != LOCK_UN);
 
     return 0;
 }
+
+#undef LOCK_OPS
 
 static int
 fs_blkdev_fcntl_setfl(void *ctx, int fd, int flags)
