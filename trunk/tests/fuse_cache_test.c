@@ -4,14 +4,11 @@
 
 #include "back_end.h"
 #include "back_end_dbm.h"
+#include "common.h"
 #include "fuse_cache.h"
 #include "test_util_back_end.h"
 #include "util.h"
 #include "util_test_common.h"
-
-#define NO_ASSERT
-#include "common.h"
-#undef NO_ASSERT
 
 #include <bitmap.h>
 
@@ -325,7 +322,7 @@ load_bitmap(const char *file, struct be_stats *stats,
 
     fd = open(file, O_RDONLY);
     if (fd == -1) {
-        err = errno;
+        err = ERRNO;
         errmsg = "Couldn't open bitmap file";
         goto err1;
     }
@@ -343,7 +340,7 @@ load_bitmap(const char *file, struct be_stats *stats,
     if ((do_read(fd, stats, sizeof(struct be_stats), 4096)
          != sizeof(struct be_stats))
         || (do_read(fd, bmdata->bitmap, bmsize, 4096) != bmsize)) {
-        err = (errno == 0) ? EILSEQ : errno;
+        err = (errno == 0) ? EILSEQ : ERRNO;
         errmsg = "Couldn't read bitmap file";
         goto err2;
     }
@@ -354,7 +351,7 @@ load_bitmap(const char *file, struct be_stats *stats,
     return 0;
 
 err3:
-    err = errno;
+    err = ERRNO;
 err2:
     close(fd);
 err1:
@@ -373,7 +370,7 @@ alloc_bitmap(const char *file, struct bitmap_data *bmdata)
 
     fd = open(file, O_CREAT | O_WRONLY, ACC_MODE_DEFAULT);
     if (fd == -1) {
-        err = errno;
+        err = ERRNO;
         errmsg = "Couldn't open bitmap file";
         goto err1;
     }
@@ -397,7 +394,7 @@ alloc_bitmap(const char *file, struct bitmap_data *bmdata)
     return 0;
 
 err3:
-    err = errno;
+    err = ERRNO;
 err2:
     close(fd);
 err1:
@@ -419,7 +416,7 @@ save_bitmap(const char *file, struct be_stats *stats,
 
     fd = open(file, O_WRONLY);
     if (fd == -1) {
-        err = errno;
+        err = ERRNO;
         errmsg = "Couldn't open bitmap file";
         goto err1;
     }
@@ -438,7 +435,7 @@ save_bitmap(const char *file, struct be_stats *stats,
     return 0;
 
 err2:
-    err = errno;
+    err = ERRNO;
     close(fd);
 err1:
     error(0, err, "%s", errmsg);
@@ -513,19 +510,19 @@ init_fuse_cache_ctx(struct fuse_cache_ctx *cachectx, const char *file,
 
     if (access(bitmap, F_OK) == -1) {
         if (errno != ENOENT) {
-            ret = -errno;
+            ret = MINUS_ERRNO;
             error(0, errno, "Couldn't access bitmap file");
             return ret;
         }
     } else {
         if (load_bitmap(bitmap, &cachectx->bectx.stats, &bmdata->bmdata.bmdata)
             == -1)
-            return -errno;
+            return MINUS_ERRNO;
         bmdata->loaded = 1;
     }
     if (access(file, F_OK) == -1) {
         if (errno != ENOENT) {
-            ret = -errno;
+            ret = MINUS_ERRNO;
             error(0, errno, "Couldn't access database file");
             return ret;
         }
@@ -538,7 +535,7 @@ init_fuse_cache_ctx(struct fuse_cache_ctx *cachectx, const char *file,
         if (ret != 0)
             return ret;
         if (alloc_bitmap(bitmap, &bmdata->bmdata.bmdata) == -1)
-            return -errno;
+            return MINUS_ERRNO;
         ret = do_back_end_create(cachectx, file);
         if (ret != 0)
             goto err;
@@ -629,7 +626,7 @@ test_insert(void *be, void *key)
     totlen = len * sizeof(int);
     data = do_malloc(DATA_LEN(totlen));
     if (data == NULL)
-        return -errno;
+        return MINUS_ERRNO;
     data->len = totlen;
     totlen = DATA_LEN(totlen);
     set_int_array((int *)(data->data), len, k);
@@ -655,7 +652,7 @@ test_replace(void *be, void *key)
     totlen = len * sizeof(int);
     data = do_malloc(DATA_LEN(totlen));
     if (data == NULL)
-        return -errno;
+        return MINUS_ERRNO;
     data->len = totlen;
     totlen = DATA_LEN(totlen);
     set_int_array((int *)(data->data), len, k);
@@ -680,7 +677,7 @@ test_search(void *be, void *key, void *res)
 
     data = do_malloc(datalen);
     if (data == NULL)
-        return -errno;
+        return MINUS_ERRNO;
 
     ret = back_end_look_up(cachectx->be, key, res, data, &datalen, 0);
     if (((ret == 1)
@@ -745,7 +742,7 @@ test_iter_get(void *iter, void *ret)
 
     data = do_malloc(datalen);
     if (data == NULL)
-        return -errno;
+        return MINUS_ERRNO;
 
     err = back_end_iter_get(iter, ret, data, &datalen);
     if (!err
@@ -844,7 +841,7 @@ verify_rand(struct be_ctx *bectx)
 
     if (mprotect(bmdata->bitmap, bmdata->bitmap_len * sizeof(unsigned),
                  PROT_READ) == -1) {
-        ret = -errno;
+        ret = MINUS_ERRNO;
         error(0, errno, "Couldn't set memory protection");
         return ret;
     }
