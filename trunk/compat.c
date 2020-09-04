@@ -14,7 +14,6 @@
 #include <fuse_lowlevel.h>
 
 #include <assert.h>
-#include <errno.h>
 #include <inttypes.h>
 #include <stddef.h>
 #include <stdint.h>
