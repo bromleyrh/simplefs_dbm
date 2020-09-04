@@ -545,6 +545,8 @@ back_end_dbm_create(void **ctx, size_t key_size, back_end_key_cmp_t key_cmp,
     }
     ret->key_ctx->last_key_valid = 0;
 
+    hdrlen = jlen = 0;
+    blkdevsz = 0;
     err = do_create(&ret->dbh, dfd, relpath, dbargs->db_mode, key_size, key_cmp,
                     ret->key_ctx, 0, blkdev, &hdrlen, &jlen, &blkdevsz,
                     &dbargs->alloc_cb);
@@ -635,6 +637,8 @@ back_end_dbm_open(void **ctx, size_t key_size, back_end_key_cmp_t key_cmp,
     ret->key_ctx->last_key_valid = 0;
 
     /* test for journal replay by attempting read-only open */
+    hdrlen = jlen = 0;
+    blkdevsz = 0;
     err = do_open(&ret->dbh, dfd, relpath, key_size, key_cmp, ret->key_ctx,
                   DB_HL_RDONLY, blkdev, &hdrlen, &jlen, &blkdevsz);
     if (!(dbargs->ro)) {
