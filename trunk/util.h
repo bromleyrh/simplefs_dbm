@@ -67,6 +67,8 @@
 #define CLOCK_MONOTONIC_RAW 3
 #endif
 
+void abort_msg(const char *fmt, ...);
+
 void write_backtrace(FILE *f, int start_frame);
 
 void *do_malloc(size_t size);

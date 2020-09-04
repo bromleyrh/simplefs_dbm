@@ -476,7 +476,8 @@ trans_cb(int trans_type, int act, int status, void *ctx)
         /* clear appropriate operation lists */
         switch (cache->replay) {
         case 2:
-            abort();
+            abort_msg("%s(): invalid cache replay state 2 during commit\n",
+                      __FUNCTION__);
         case 0:
             if ((cache->sync_cb != NULL) && (trans_type & DB_HL_TRANS_GROUP)) {
                 /* invoke *sync_cb to allow clearing writeback error */
@@ -491,7 +492,8 @@ trans_cb(int trans_type, int act, int status, void *ctx)
             op_list_clear(&cache->ops_group, TRANS, 1, cache);
         break;
     default:
-        abort();
+        abort_msg("%s(): invalid transaction operation %d\n", __FUNCTION__,
+                  act);
     }
 
     check_consistency(cache);
@@ -739,8 +741,7 @@ verify_list(struct obj_list *list, struct fuse_cache *cache)
     return 0;
 
 err:
-    fprintf(stderr, "%s\n", errmsg);
-    abort();
+    abort_msg("%s(): %s\n", __FUNCTION__, errmsg);
     return -EIO;
 }
 
@@ -796,6 +797,7 @@ check_consistency(struct fuse_cache *cache)
 
 err:
     fprintf(stderr, "Consistency check encountered error %d\n", err);
+    write_backtrace(stderr, 1);
     abort();
 }
 
@@ -865,7 +867,7 @@ op_list_add(struct op_list *list, int which, enum op_type type,
         ++(obj->refcnt_user);
         break;
     default:
-        abort();
+        abort_msg("%s(): invalid transaction type %d\n", __FUNCTION__, which);
     }
     ++(obj->refcnt);
 }
@@ -905,7 +907,8 @@ op_list_roll_back(struct op_list *list, int which, struct op_list *list_other,
             }
             break;
         default:
-            abort();
+            abort_msg("%s(): invalid transaction operation %d in operation "
+                      "list\n", __FUNCTION__, op->op);
         }
 
         if (j == 0)
@@ -923,7 +926,8 @@ op_list_roll_back(struct op_list *list, int which, struct op_list *list_other,
                 list_refcnt = --(obj_other->refcnt_user);
                 break;
             default:
-                abort();
+                abort_msg("%s(): invalid transaction type %d\n", __FUNCTION__,
+                          which_other);
             }
             if (list_refcnt == 0)
                 obj_other->lists &= ~which_other;
@@ -964,7 +968,8 @@ op_list_replay(struct op_list *list, struct fuse_cache *cache)
             err = be_delete(cache, obj->key);
             break;
         default:
-            abort();
+            abort_msg("invalid transaction operation %d in operation list\n",
+                      op->op);
         }
 
         if (err)

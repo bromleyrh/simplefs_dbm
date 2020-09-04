@@ -16,6 +16,7 @@
 
 #include <assert.h>
 #include <errno.h>
+#include <stdarg.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -71,6 +72,20 @@ strlen_cmp(const void *e1, const void *e2, void *ctx)
 }
 
 #endif
+void
+abort_msg(const char *fmt, ...)
+{
+    if (fmt != NULL) {
+        va_list ap;
+
+        va_start(ap, fmt);
+        vfprintf(stderr, fmt, ap);
+        va_end(ap);
+    }
+
+    abort();
+}
+
 void
 write_backtrace(FILE *f, int start_frame)
 {
