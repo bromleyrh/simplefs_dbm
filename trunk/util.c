@@ -4,11 +4,8 @@
 
 #include "config.h"
 
-#include "util.h"
-
-#define NO_ASSERT
 #include "common.h"
-#undef NO_ASSERT
+#include "util.h"
 
 #include <forensics.h>
 #include <io_ext.h>
@@ -299,7 +296,7 @@ int
 gettime(clockid_t clk_id, struct timespec *tm)
 {
 #ifdef HAVE_CLOCK_GETTIME
-    return (clock_gettime(clk_id, tm) == -1) ? -errno : 0;
+    return (clock_gettime(clk_id, tm) == -1) ? MINUS_ERRNO : 0;
 #else
     struct timeval tv;
 
@@ -307,7 +304,7 @@ gettime(clockid_t clk_id, struct timespec *tm)
         return -ENOTSUP;
 
     if (gettimeofday(&tv, NULL) == -1)
-        return -errno;
+        return MINUS_ERRNO;
 
     tm->tv_sec = tv.tv_sec;
     tm->tv_nsec = tv.tv_usec * 1000;

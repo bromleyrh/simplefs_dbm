@@ -9,12 +9,9 @@
 
 #include "config.h"
 
+#include "common.h"
 #include "obj.h"
 #include "util.h"
-
-#define NO_ASSERT
-#include "common.h"
-#undef NO_ASSERT
 
 #include <dbm_high_level.h>
 #include <strings_ext.h>
@@ -781,13 +778,13 @@ cmd_dump(struct dbh *dbh)
 
     f = fopen(path, "w");
     if (f == NULL) {
-        err = -errno;
+        err = MINUS_ERRNO;
         error(0, -err, "Error opening %s", path);
         goto err1;
     }
 
     if (sigaction(SIGINT, &sa, &oldsa) == -1) {
-        err = -errno;
+        err = MINUS_ERRNO;
         goto err2;
     }
 
@@ -804,18 +801,18 @@ cmd_dump(struct dbh *dbh)
     }
 
     if (sigaction(SIGINT, &oldsa, NULL) == -1) {
-        err = -errno;
+        err = MINUS_ERRNO;
         goto err2;
     }
 
     if ((fflush(f) != 0) || (fsync(fileno(f)) == -1)) {
-        err = -errno;
+        err = MINUS_ERRNO;
         error(0, -err, "Error writing %s", path);
         goto err2;
     }
 
     if (fclose(f) != 0) {
-        err = -errno;
+        err = MINUS_ERRNO;
         error(0, -err, "Error closing %s", path);
         goto err1;
     }
@@ -916,7 +913,7 @@ cmd_find(struct dbh *dbh)
 
         d = do_malloc(datasize);
         if (d == NULL) {
-            res = -errno;
+            res = MINUS_ERRNO;
             error(0, 0, "Out of memory");
             return res;
         }
@@ -1258,7 +1255,7 @@ cmd_update(struct dbh *dbh)
 
         d = do_malloc(datasize);
         if (d == NULL) {
-            res = -errno;
+            res = MINUS_ERRNO;
             error(0, 0, "Out of memory");
             return res;
         }

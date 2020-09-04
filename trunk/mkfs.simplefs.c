@@ -2,11 +2,8 @@
  * mkfs.simplefs.c
  */
 
-#include "util.h"
-
-#define NO_ASSERT
 #include "common.h"
-#undef NO_ASSERT
+#include "util.h"
 
 #include <readline/history.h>
 #include <readline/readline.h>
@@ -139,7 +136,7 @@ zero_data_and_journal_areas(int fd)
             if (res > 0)
                 continue;
             if ((res != 0) && (errno != ENOSPC))
-                err = -errno;
+                err = MINUS_ERRNO;
             else
                 totwritten += numwritten;
             goto end;
@@ -218,7 +215,7 @@ format_device(const char *dev)
     return 0;
 
 err2:
-    res = -errno;
+    res = MINUS_ERRNO;
 err1:
     if (fd != -1)
         close(fd);

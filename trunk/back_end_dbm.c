@@ -7,6 +7,7 @@
 #include "back_end.h"
 #include "back_end_dbm.h"
 #include "blkdev.h"
+#include "common.h"
 #include "util.h"
 
 #include <dbm_high_level.h>
@@ -391,7 +392,7 @@ get_dir_relpath_components(const char *pathname, int *dfd,
 
     fd = open(buf, O_CLOEXEC | O_DIRECTORY | O_RDONLY);
     if (fd == -1)
-        return -errno;
+        return MINUS_ERRNO;
 
     *dfd = fd;
     *relpathname = basename_safe(pathname);
@@ -410,7 +411,7 @@ is_blkdev(int dfd, const char *pathname)
      * type, this module relies on the DBM implementation to return an error if
      * the pathname no longer resolves to a regular file. */
     if (fstatat(dfd, pathname, &s, 0) == -1)
-        return (errno == ENOENT) ? 0 : -errno;
+        return (errno == ENOENT) ? 0 : MINUS_ERRNO;
 
     return (s.st_mode & S_IFMT) == S_IFBLK;
 }
@@ -526,7 +527,7 @@ back_end_dbm_create(void **ctx, size_t key_size, back_end_key_cmp_t key_cmp,
 
     ret = do_malloc(sizeof(*ret));
     if (ret == NULL) {
-        err = -errno;
+        err = MINUS_ERRNO;
         goto err1;
     }
     ret->key_size = key_size;
@@ -534,13 +535,13 @@ back_end_dbm_create(void **ctx, size_t key_size, back_end_key_cmp_t key_cmp,
 
     ret->key_ctx = do_malloc(sizeof(*(ret->key_ctx)));
     if (ret->key_ctx == NULL) {
-        err = -errno;
+        err = MINUS_ERRNO;
         goto err2;
     }
 
     ret->key_ctx->last_key = do_malloc(key_size);
     if (ret->key_ctx->last_key == NULL) {
-        err = -errno;
+        err = MINUS_ERRNO;
         goto err3;
     }
     ret->key_ctx->last_key_valid = 0;
@@ -617,7 +618,7 @@ back_end_dbm_open(void **ctx, size_t key_size, back_end_key_cmp_t key_cmp,
 
     ret = do_malloc(sizeof(*ret));
     if (ret == NULL) {
-        err = -errno;
+        err = MINUS_ERRNO;
         goto err1;
     }
     ret->key_size = key_size;
@@ -625,13 +626,13 @@ back_end_dbm_open(void **ctx, size_t key_size, back_end_key_cmp_t key_cmp,
 
     ret->key_ctx = do_malloc(sizeof(*(ret->key_ctx)));
     if (ret->key_ctx == NULL) {
-        err = -errno;
+        err = MINUS_ERRNO;
         goto err2;
     }
 
     ret->key_ctx->last_key = do_malloc(key_size);
     if (ret->key_ctx->last_key == NULL) {
-        err = -errno;
+        err = MINUS_ERRNO;
         goto err3;
     }
     ret->key_ctx->last_key_valid = 0;
@@ -791,7 +792,7 @@ back_end_dbm_iter_new(void **iter, void *ctx)
 
     ret = do_malloc(sizeof(*ret));
     if (ret == NULL)
-        return -errno;
+        return MINUS_ERRNO;
 
     err = db_hl_iter_new(&ret->iter, dbctx->dbh);
     if (err)

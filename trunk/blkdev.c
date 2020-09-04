@@ -5,15 +5,8 @@
 #include "config.h"
 
 #include "blkdev.h"
+#include "common.h"
 #include "util.h"
-
-#ifdef __APPLE__
-#include "common.h"
-#else
-#define NO_ASSERT
-#include "common.h"
-#undef NO_ASSERT
-#endif
 
 #include <io_ext.h>
 
@@ -224,7 +217,7 @@ get_blkdev_size(int fd, uint64_t *sz)
     uint64_t res;
 
     if (ioctl(fd, BLKGETSIZE64, &res) == -1)
-        return -errno;
+        return MINUS_ERRNO;
 
     *sz = (uint64_t)res;
     return 0;
@@ -282,7 +275,7 @@ open_blkdev(int fd, int create, int ro, int *initialized,
         if (err)
             return err;
         if (fsync(fd) == -1)
-            return -errno;
+            return MINUS_ERRNO;
         *initialized = 1;
         return 0;
     }
@@ -347,7 +340,7 @@ fs_blkdev_openfs(void **ctx, void *args)
 
     ret = do_malloc(sizeof(*ret));
     if (ret == NULL)
-        return -errno;
+        return MINUS_ERRNO;
 
     ret->args = (struct blkdev_args *)args;
 
@@ -446,7 +439,7 @@ fs_blkdev_openat(void *ctx, int dfd, const char *pathname, int flags,
         goto end;
 
     if (fstat(ret, &s) == -1) {
-        res = -errno;
+        res = MINUS_ERRNO;
         goto err;
     }
     if ((s.st_mode & S_IFMT) != S_IFBLK) {

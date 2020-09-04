@@ -3,6 +3,7 @@
  */
 
 #include "back_end.h"
+#include "common.h"
 #include "fuse_cache.h"
 #include "util.h"
 
@@ -808,7 +809,7 @@ op_list_init(struct op_list *list, const char *name)
 
     ops = do_malloc(OP_LIST_INIT_SIZE * sizeof(*ops));
     if (ops == NULL)
-        return -errno;
+        return MINUS_ERRNO;
 
     list->ops = ops;
     list->len = 0;
@@ -835,7 +836,7 @@ op_list_reserve(struct op_list *list, int num)
 
         tmp = do_realloc(list->ops, newsz * sizeof(*tmp));
         if (tmp == NULL)
-            return -errno;
+            return MINUS_ERRNO;
 
         list->ops = tmp;
         list->size = newsz;
@@ -1142,7 +1143,7 @@ do_iter_next_non_deleted(void *iter, int next, struct fuse_cache *cache)
 
     key = do_malloc(cache->key_size);
     if (key == NULL)
-        return -errno;
+        return MINUS_ERRNO;
 
     first = 1;
     for (;;) {
@@ -1196,7 +1197,7 @@ do_iter_get(void *iter, void *key, void **data, size_t *datalen,
 
         tmp = do_realloc(*data, len);
         if (tmp == NULL)
-            return -errno;
+            return MINUS_ERRNO;
         *data = tmp;
         *datasize = len;
     }
@@ -1279,12 +1280,12 @@ init_cache_obj(struct cache_obj *o, struct avl_tree_node *n, const void *key,
 
     k = do_malloc(cache->key_size);
     if (k == NULL) {
-        err = -errno;
+        err = MINUS_ERRNO;
         goto err1;
     }
     d = do_malloc(datasize);
     if (d == NULL) {
-        err = -errno;
+        err = MINUS_ERRNO;
         goto err2;
     }
 
@@ -1328,7 +1329,7 @@ update_cache_obj(struct cache_obj *o, const void *key, const void *data,
 
     d = do_malloc(datasize);
     if (d == NULL)
-        return -errno;
+        return MINUS_ERRNO;
 
     memcpy((void *)(o->key), key, cache->key_size);
 
@@ -1383,7 +1384,7 @@ fuse_cache_create(void **ctx, size_t key_size, back_end_key_cmp_t key_cmp,
 
     ret = do_malloc(sizeof(*ret));
     if (ret == NULL)
-        return -errno;
+        return MINUS_ERRNO;
 
     ret->ops = cache_args->ops;
 
@@ -1449,7 +1450,7 @@ fuse_cache_open(void **ctx, size_t key_size, back_end_key_cmp_t key_cmp,
 
     ret = do_malloc(sizeof(*ret));
     if (ret == NULL)
-        return -errno;
+        return MINUS_ERRNO;
 
     ret->ops = cache_args->ops;
 
@@ -1557,7 +1558,7 @@ fuse_cache_insert(void *ctx, const void *key, const void *data, size_t datasize)
 
     o = do_malloc(sizeof(*o));
     if (o == NULL)
-        return -errno;
+        return MINUS_ERRNO;
 
     res = init_cache_obj(o, NULL, key, data, datasize, cache);
     if (res != 0)
@@ -1650,7 +1651,7 @@ fuse_cache_replace(void *ctx, const void *key, const void *data,
 
     o = do_malloc(sizeof(*o));
     if (o == NULL)
-        return -errno;
+        return MINUS_ERRNO;
 
     res = avl_tree_new_node(&n, cache->cache);
     if (res != 0)
@@ -1964,12 +1965,12 @@ fuse_cache_walk(void *ctx, back_end_walk_cb_t fn, void *wctx)
 
     key = do_malloc(cache->key_size);
     if (key == NULL)
-        return -errno;
+        return MINUS_ERRNO;
 
     datasize = 16;
     data = do_malloc(datasize);
     if (data == NULL) {
-        res = -errno;
+        res = MINUS_ERRNO;
         goto err1;
     }
     datalen = 0;
@@ -2133,13 +2134,13 @@ fuse_cache_iter_new(void **iter, void *ctx)
 
     ret = do_malloc(sizeof(*ret));
     if (ret == NULL)
-        return -errno;
+        return MINUS_ERRNO;
 
     ret->cache = cache;
 
     ret->key = do_malloc(cache->key_size);
     if (ret->key == NULL) {
-        res = -errno;
+        res = MINUS_ERRNO;
         goto err1;
     }
 

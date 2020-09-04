@@ -3,6 +3,7 @@
  */
 
 #include "back_end.h"
+#include "common.h"
 #include "util.h"
 
 #include <errno.h>
@@ -28,7 +29,7 @@ back_end_create(struct back_end **be, size_t key_size,
 
     ret = do_malloc(sizeof(*ret));
     if (ret == NULL)
-        return -errno;
+        return MINUS_ERRNO;
 
     err = (*(ops->create))(&ret->ctx, key_size, key_cmp, args);
     if (err) {
@@ -52,7 +53,7 @@ back_end_open(struct back_end **be, size_t key_size,
 
     ret = do_malloc(sizeof(*ret));
     if (ret == NULL)
-        return -errno;
+        return MINUS_ERRNO;
 
     err = (*(ops->open))(&ret->ctx, key_size, key_cmp, args);
     if (err) {
@@ -120,7 +121,7 @@ back_end_iter_new(struct back_end_iter **iter, struct back_end *be)
 
     ret = do_malloc(sizeof(*ret));
     if (ret == NULL)
-        return -errno;
+        return MINUS_ERRNO;
 
     err = (*(be->ops->iter_new))(&ret->ctx, be->ctx);
     if (err) {

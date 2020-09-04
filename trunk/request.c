@@ -2,13 +2,10 @@
  * request.c
  */
 
+#include "common.h"
 #include "ops.h"
 #include "request.h"
 #include "util.h"
-
-#define NO_ASSERT
-#include "common.h"
-#undef NO_ASSERT
 
 #include <errno.h>
 #include <stddef.h>
@@ -160,7 +157,7 @@ request_new(struct request_ctx **ctx, const struct request_ops *req_ops,
 
     ret = do_malloc(sizeof(*ret));
     if (ret == NULL)
-        return -errno;
+        return MINUS_ERRNO;
 
     if (req_ops->new != NULL) {
         err = (*(req_ops->new))(rctx);

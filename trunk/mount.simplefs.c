@@ -246,7 +246,7 @@ main(int argc, char **argv)
             goto err1;
         }
         if (chdir(dirname(buf)) == -1) {
-            err = -errno;
+            err = MINUS_ERRNO;
             errmsg = "Error changing directory";
             goto err1;
         }

@@ -4,13 +4,10 @@
 
 #define _GNU_SOURCE
 
+#include "common.h"
 #include "ops.h"
 #include "request.h"
 #include "simplefs.h"
-
-#define NO_ASSERT
-#include "common.h"
-#undef NO_ASSERT
 
 #include <forensics.h>
 
@@ -104,7 +101,7 @@ set_up_signal_handlers()
             || (sigaction(SIGTERM, &sa_term, NULL) == -1)
             || (sigaction(SIGHUP, &sa_pipe, NULL) == -1)
             || (sigaction(SIGPIPE, &sa_pipe, NULL) == -1))
-           ? -errno : 0;
+           ? MINUS_ERRNO : 0;
 }
 
 static int
@@ -140,7 +137,7 @@ enable_debugging_features()
     return 0;
 
 err:
-    err = -errno;
+    err = MINUS_ERRNO;
     error(0, errno, "%s", errmsg);
     return err;
 }
@@ -301,7 +298,7 @@ do_fuse_daemonize()
 
     dfd = open(".", O_DIRECTORY | O_RDONLY);
     if (dfd == -1)
-        return -errno;
+        return MINUS_ERRNO;
 
     if (fuse_daemonize(0) == -1) {
         err = -EIO;
@@ -309,7 +306,7 @@ do_fuse_daemonize()
     }
 
     if (fchdir(dfd) == -1) {
-        err = -errno;
+        err = MINUS_ERRNO;
         goto err;
     }
 
@@ -385,7 +382,7 @@ init_fuse(int argc, char **argv, struct fuse_data *fusedata)
     fusedata->mountpoint = bn;
 
     if (chdir(dn) == -1) {
-        err = -errno;
+        err = MINUS_ERRNO;
         errmsg = "Error changing directory";
         goto err2;
     }
