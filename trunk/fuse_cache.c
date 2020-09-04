@@ -2346,7 +2346,7 @@ static int
 fuse_cache_iter_search(void *iter, const void *key)
 {
     avl_tree_iter_t citer;
-    int found_be, found_cache;
+    int found_be = 0, found_cache = 0;
     int res;
     struct fuse_cache_iter *iterator = (struct fuse_cache_iter *)iter;
     void *biter;
