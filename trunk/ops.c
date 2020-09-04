@@ -4820,7 +4820,7 @@ simplefs_statfs(void *req, inum_t ino)
             = (priv->blkdevsz - opargs.hdr.usedbytes) / PG_SIZE;
     } else {
         if (statvfs(".", &stbuf) == -1) {
-            ret = errno;
+            ret = -errno;
             goto err;
         }
 
