@@ -13,6 +13,7 @@
 #include <errno.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 
 #include <sys/stat.h>
@@ -408,6 +409,13 @@ int
 reply_err(void *req, int err)
 {
     struct request *r = (struct request *)req;
+
+    if (err < 0) {
+        fprintf(stderr, "Error code in file system reply is negative: %d\n",
+                err);
+        write_backtrace(stderr, 1);
+        abort();
+    }
 
     return (*(r->ctx->reply_ops->reply_err))(r->req, err);
 }
