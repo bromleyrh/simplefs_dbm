@@ -4655,7 +4655,7 @@ simplefs_readdir(void *req, inum_t ino, size_t size, off_t off,
 
     buf = do_malloc(size);
     if (buf == NULL) {
-        ret = errno;
+        ret = -errno;
         goto err;
     }
 
