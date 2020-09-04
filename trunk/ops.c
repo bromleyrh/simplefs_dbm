@@ -421,6 +421,8 @@ db_key_cmp(const void *k1, const void *k2, void *key_ctx)
     case TYPE_ULINKED_INODE:
         break;
     default:
+        fprintf(stderr, "Unrecognized object type %d in %s()\n", key1->type,
+                __FUNCTION__);
         abort();
     }
 
@@ -584,6 +586,8 @@ dump_db_obj(FILE *f, const void *key, const void *data, size_t datasize,
                 (uint64_t)(k->ino));
         break;
     default:
+        fprintf(stderr, "Unrecognized object type %d in %s()\n", k->type,
+                __FUNCTION__);
         abort();
     }
 }
