@@ -3273,22 +3273,22 @@ do_close(void *args)
     if (ret != 1) {
         if (ret == 0)
             ret = -ENOENT;
-        goto err3;
+        goto err2;
     }
 
     ret = unref_inode(opargs->be, opargs->root_id, opargs->ref_inodes, refinop,
                       0, -1, 0, NULL);
     if (ret != 0)
-        goto err3;
+        goto err2;
 
     if (!(opargs->ro)) {
         ret = space_alloc_finish_op(&sctx, opargs->be);
         if (ret != 0)
-            goto err2;
+            goto err1;
 
         ret = back_end_trans_commit(opargs->be);
         if (ret != 0)
-            goto err2;
+            goto err1;
     }
 
     pthread_mutex_lock(&opargs->ref_inodes->ref_inodes_mtx);
@@ -3301,10 +3301,9 @@ do_close(void *args)
 
     return 0;
 
-err3:
+err2:
     if (opargs->ro)
         return ret;
-err2:
     space_alloc_abort_op(opargs->be);
 err1:
     back_end_trans_abort(opargs->be);
