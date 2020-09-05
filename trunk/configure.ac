@@ -110,6 +110,18 @@ AC_SUBST([libutil_link_dep])
 req_priv="libjson libutil"
 AC_SUBST([req_priv])
 
+AC_ARG_ENABLE([sanitizers],
+              [  --enable-sanitizers     enable GCC sanitizers],
+              [case "$enableval" in
+                   yes)
+                       sanitizers=true;;
+                   no)
+                       sanitizers=false;;
+                   *)
+                       AC_MSG_ERROR([invalid "--enable-sanitizers" argument]);;
+               esac],
+              [sanitizers=false])
+
 AC_ARG_ENABLE([debugging],
               [  --enable-debugging      enable debugging],
               [case "$enableval" in
@@ -136,6 +148,13 @@ AC_ARG_ENABLE([assertions],
               [assertions=false])
 AM_CONDITIONAL([ASSERTIONS], [test x$assertions = xtrue])
 
+if test "x$sanitizers" = xtrue; then
+    AX_GCC_SANITIZERS
+    sanitizer=$ax_cv_gcc_sanitizers
+fi
+AM_CONDITIONAL([SANITIZERS], [test x$sanitizers = xtrue])
+AC_SUBST([sanitizer])
+
 AC_ARG_WITH([pkgconfigdir],
             [  --with-pkgconfigdir=DIR install pkg-config data in DIR],
             [pkgconfigdir="$withval"],
@@ -156,6 +175,7 @@ $PACKAGE_NAME configuration
                Compiler: $CC
 
               Debugging: $debug
+         GCC sanitizers: $sanitizers
 
     Installation prefix: $prefix
 
