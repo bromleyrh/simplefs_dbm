@@ -62,7 +62,9 @@ struct blkdev_ctx {
     struct disk_header  hdr;
     int                 fd[3];
     void                *mmap_addr;
+    int                 lkfd;
     int                 lk;
+    int                 jlk;
     int                 init;
     int                 jinit;
 };
@@ -349,7 +351,8 @@ fs_blkdev_openfs(void **ctx, void *args)
     for (i = 0; i < ARRAY_SIZE(ret->fd); i++)
         ret->fd[i] = -1;
     ret->mmap_addr = NULL;
-    ret->lk = 0;
+    ret->lkfd = -1;
+    ret->lk = ret->jlk = 0;
     ret->init = ret->jinit = -1;
 
     ret->args->hdrlen = sizeof(struct disk_header);
@@ -497,9 +500,32 @@ fs_blkdev_close(void *ctx, int fd)
             break;
     }
 
+    /* If block device is locked through another descriptor fdp and bctx->lkfd
+       is being closed (fd == bctx->lkfd and fdp != bctx->lkfd), close fdp
+       instead and remap the virtual descriptors by swapping bctx->fd and
+       bctx->jfd */
+    if (fd == bctx->lkfd) {
+        if (bctx->jlk && (fd == FD(bctx))) {
+            fd = JFD(bctx);
+            JFD(bctx) = FD(bctx);
+            FD(bctx) = fd;
+        } else if (bctx->lk && (fd == JFD(bctx))) {
+            fd = FD(bctx);
+            FD(bctx) = JFD(bctx);
+            JFD(bctx) = fd;
+        }
+    }
+
     ret = close(fd);
-    if ((ret != -1) || (errno != EBADF))
+    if ((ret != -1) || (errno != EBADF)) {
+        if (fd == FD(bctx))
+            bctx->lk = 0;
+        else if (fd == JFD(bctx))
+            bctx->jlk = 0;
+        if (fd == bctx->lkfd)
+            bctx->lkfd = -1;
         bctx->fd[i] = -1;
+    }
 
     return ret;
 
@@ -694,21 +720,26 @@ fs_blkdev_flock(void *ctx, int fd, int operation)
     op = operation & LOCK_OPS;
 
     if (op == LOCK_UN) {
-        if (!(bctx->lk))
-            return 0;
+        if (bctx->lkfd == -1)
+            goto end;
     } else {
         if ((op != LOCK_SH) && (op != LOCK_EX))
             return err_to_errno(EINVAL);
-        if (bctx->lk)
-            return 0;
+        if (bctx->lkfd != -1)
+            goto end;
         if (op == LOCK_SH)
             operation = LOCK_EX | (operation & LOCK_NB);
     }
 
     if (flock(fd, operation) == -1)
         return -1;
-    bctx->lk = (op != LOCK_UN);
+    bctx->lkfd = (op == LOCK_UN) ? -1 : fd;
 
+end:
+    if (op == LOCK_UN)
+        bctx->lk = bctx->jlk = 0;
+    else
+        *((fd == FD(bctx)) ? &bctx->lk : &bctx->jlk) = 1;
     return 0;
 }
 
