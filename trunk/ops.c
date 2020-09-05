@@ -3254,13 +3254,15 @@ do_close(void *args)
     struct ref_ino refino, *refinop;
     struct space_alloc_ctx sctx;
 
-    ret = back_end_trans_new(opargs->be);
-    if (ret != 0)
-        return ret;
+    if (!(opargs->ro)) {
+        ret = back_end_trans_new(opargs->be);
+        if (ret != 0)
+            return ret;
 
-    ret = space_alloc_init_op(&sctx, opargs->be);
-    if (ret != 0)
-        goto err1;
+        ret = space_alloc_init_op(&sctx, opargs->be);
+        if (ret != 0)
+            goto err1;
+    }
 
     refino.ino = opargs->ino;
     refinop = &refino;
@@ -3271,21 +3273,23 @@ do_close(void *args)
     if (ret != 1) {
         if (ret == 0)
             ret = -ENOENT;
-        goto err2;
+        goto err3;
     }
 
     ret = unref_inode(opargs->be, opargs->root_id, opargs->ref_inodes, refinop,
                       0, -1, 0, NULL);
     if (ret != 0)
-        goto err2;
+        goto err3;
 
-    ret = space_alloc_finish_op(&sctx, opargs->be);
-    if (ret != 0)
-        goto err2;
+    if (!(opargs->ro)) {
+        ret = space_alloc_finish_op(&sctx, opargs->be);
+        if (ret != 0)
+            goto err2;
 
-    ret = back_end_trans_commit(opargs->be);
-    if (ret != 0)
-        goto err2;
+        ret = back_end_trans_commit(opargs->be);
+        if (ret != 0)
+            goto err2;
+    }
 
     pthread_mutex_lock(&opargs->ref_inodes->ref_inodes_mtx);
     if (!(refinop->nodelete) && (refinop->nlink == 0) && (refinop->refcnt == 0)
@@ -3297,6 +3301,9 @@ do_close(void *args)
 
     return 0;
 
+err3:
+    if (opargs->ro)
+        return ret;
 err2:
     space_alloc_abort_op(opargs->be);
 err1:
@@ -4445,6 +4452,7 @@ simplefs_open(void *req, inum_t ino, struct file_info *fi)
     priv = md->priv;
 
     opargs.be = priv->be;
+    opargs.ro = md->ro;
     opargs.root_id = priv->root_id;
     opargs.ref_inodes = &priv->ref_inodes;
 
@@ -4604,6 +4612,7 @@ simplefs_opendir(void *req, inum_t ino, struct file_info *fi)
     priv = md->priv;
 
     opargs.be = priv->be;
+    opargs.ro = md->ro;
     opargs.root_id = priv->root_id;
     opargs.ref_inodes = &priv->ref_inodes;
 
@@ -4711,6 +4720,7 @@ simplefs_release(void *req, inum_t ino, struct file_info *fi)
     ofile = (struct open_file *)(uintptr_t)(fi->fh);
 
     opargs.be = priv->be;
+    opargs.ro = md->ro;
     opargs.root_id = priv->root_id;
     opargs.ref_inodes = &priv->ref_inodes;
 
@@ -4766,6 +4776,7 @@ simplefs_releasedir(void *req, inum_t ino, struct file_info *fi)
     odir = (struct open_dir *)(uintptr_t)(fi->fh);
 
     opargs.be = priv->be;
+    opargs.ro = md->ro;
     opargs.root_id = priv->root_id;
     opargs.ref_inodes = &priv->ref_inodes;
 
@@ -5081,6 +5092,7 @@ simplefs_create(void *req, inum_t parent, const char *name, mode_t mode,
     opargs.ctx = req_ctx(req);
 
     opargs.be = priv->be;
+    opargs.ro = md->ro;
     opargs.root_id = priv->root_id;
     opargs.ref_inodes = &priv->ref_inodes;
 
