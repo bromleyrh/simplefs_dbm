@@ -11,24 +11,49 @@ noinst_HEADERS = back_end.h back_end_dbm.h blkdev.h common.h compat.h \
 
 bin_PROGRAMS = mkfs.simplefs mount.simplefs simplefs simplefs_dbg
 
+defines :=
+if COVERAGE_ANALYSIS
+defines += -DCODE_COVERAGE_ANALYSIS
+endif
+
+if COVERAGE_ANALYSIS
+debug_cppflags_debug =
+debug_cflags_debug = -g -O0
+
+debug_cppflags_ndebug = -DNDEBUG
+debug_cflags_ndebug = -g -O0
+
+coverage_analysis_cflags = -fprofile-arcs -ftest-coverage
+else
+debug_cppflags_debug =
+debug_cflags_debug = -ggdb3 -O0
+
+debug_cppflags_ndebug = -DNDEBUG
+##debug_cflags_ndebug = -O2
+debug_cflags_ndebug = -ggdb3 -O0
+
+coverage_analysis_cflags =
+endif
+
 if SANITIZERS
-AM_CPPFLAGS =
-AM_CFLAGS = -ggdb3 -O0 @sanitizer@ -pipe -Wall -Wextra
+AM_CPPFLAGS = $(defines) $(debug_cppflags_debug)
+AM_CFLAGS = $(debug_cflags_debug) $(coverage_analysis_cflags) @sanitizer@ \
+	-pipe -Wall -Wextra
 else
 if DEBUG
-AM_CPPFLAGS =
-AM_CFLAGS = -ggdb3 -O0 -pipe -Wall -Wextra
+AM_CPPFLAGS = $(defines) $(debug_cppflags_debug)
+AM_CFLAGS = $(debug_cflags_debug) $(coverage_analysis_cflags) -pipe -Wall \
+	-Wextra
 else
-##AM_CPPFLAGS = -DNDEBUG
-##AM_CFLAGS = -O2 -pipe -Wall -Wextra
-AM_CPPFLAGS = -DNDEBUG
-AM_CFLAGS = -ggdb3 -O0 -pipe -Wall -Wextra
+AM_CPPFLAGS = $(defines) $(debug_cppflags_ndebug)
+AM_CFLAGS = $(debug_cflags_ndebug) -pipe -Wall -Wextra
+endif
 endif
 
 if LIBFUSE_3
-defines = -DFUSE_USE_VERSION=32
+fuse_defines = -DFUSE_USE_VERSION=32
 else
-defines = -DFUSE_USE_VERSION=26
+fuse_defines = -DFUSE_USE_VERSION=26
 endif
 
 spec_to_h = scripts/spec_to_h.pl
@@ -42,7 +67,8 @@ CLEANFILES =
 
 simplefs_SOURCES = back_end.c back_end_dbm.c blkdev.c compat.c fuse_cache.c \
 	ops.c request.c simplefs.c util.c
-simplefs_CPPFLAGS = $(AM_CPPFLAGS) $(defines) @fuse_cppflags@ @libutil_cppflags@
+simplefs_CPPFLAGS = $(AM_CPPFLAGS) $(fuse_defines) @fuse_cppflags@ \
+	@libutil_cppflags@
 simplefs_CFLAGS = $(AM_CFLAGS)
 simplefs_LDADD = @fuse_link_dep@ @libutil_link_dep@
 

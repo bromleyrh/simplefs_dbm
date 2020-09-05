@@ -148,6 +148,22 @@ AC_ARG_ENABLE([assertions],
               [assertions=false])
 AM_CONDITIONAL([ASSERTIONS], [test x$assertions = xtrue])
 
+AC_ARG_ENABLE([coverage_analysis],
+              [  --enable-coverage-analysis
+                          enable code coverage analysis],
+              [case "$enableval" in
+                   yes)
+                       coverage_analysis=true;;
+                   no)
+                       coverage_analysis=false;;
+                   *)
+                       AC_MSG_ERROR(
+                           [invalid "--enable-coverage-analysis" argument]
+                       );;
+               esac],
+              [coverage_analysis=false])
+AM_CONDITIONAL([COVERAGE_ANALYSIS], [test x$coverage_analysis = xtrue])
+
 if test "x$sanitizers" = xtrue; then
     AX_GCC_SANITIZERS
     sanitizer=$ax_cv_gcc_sanitizers
@@ -176,6 +192,7 @@ $PACKAGE_NAME configuration
 
               Debugging: $debug
          GCC sanitizers: $sanitizers
+      Coverage analysis: $coverage_analysis
 
     Installation prefix: $prefix
 
