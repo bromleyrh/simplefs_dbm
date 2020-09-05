@@ -3738,6 +3738,10 @@ simplefs_init(void *rctx, struct session *sess, inum_t root_id)
     if (ret != 0)
         goto err4;
 
+    /* Note: The following calls to back_end_open() and back_end_create()
+       prevent simultaneous mounts of the same block device or file by other
+       simplefs daemons */
+
     ret = back_end_open(&priv->be, sizeof(struct db_key), BACK_END_FUSE_CACHE,
                         &db_key_cmp, &args);
     if (ret != 0) {
@@ -3913,6 +3917,9 @@ simplefs_destroy(void *userdata)
     tmp = back_end_close(priv->be);
     if (tmp != 0)
         ret = tmp;
+
+    /* Note: Past this point, other simplefs daemons mounting the same block
+       device or file may start successfully */
 
     fifo_free(priv->queue);
 
