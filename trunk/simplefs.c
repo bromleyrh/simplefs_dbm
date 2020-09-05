@@ -388,7 +388,7 @@ init_fuse(int argc, char **argv, struct fuse_data *fusedata)
     }
 
     err = request_new(&fusedata->ctx, REQUEST_DEFAULT, REPLY_DEFAULT,
-                      &fusedata->md, &sess_default_ops, &fusedata);
+                      &fusedata->md, &sess_default_ops, fusedata);
     if (err) {
         errmsg = "Error initializing FUSE file system";
         goto err2;
