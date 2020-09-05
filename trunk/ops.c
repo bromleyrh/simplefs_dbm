@@ -3231,11 +3231,11 @@ do_write(void *args)
 
     ret = space_alloc_finish_op(&sctx, opargs->be);
     if (ret != 0)
-        goto err2;
+        goto err1;
 
     ret = back_end_trans_commit(opargs->be);
     if (ret != 0)
-        goto err2;
+        goto err1;
 
     return 0;
 
