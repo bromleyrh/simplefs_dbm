@@ -479,6 +479,7 @@ trans_cb(int trans_type, int act, int status, void *ctx)
         case 2:
             abort_msg("%s(): invalid cache replay state 2 during commit\n",
                       __FUNCTION__);
+            break;
         case 0:
             if ((cache->sync_cb != NULL) && (trans_type & DB_HL_TRANS_GROUP)) {
                 /* invoke *sync_cb to allow clearing writeback error */
