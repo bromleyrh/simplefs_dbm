@@ -722,6 +722,9 @@ fs_blkdev_flock(void *ctx, int fd, int operation)
     if (op == LOCK_UN) {
         if (bctx->lkfd == -1)
             goto end;
+        if (((fd == FD(bctx)) && bctx->jlk)
+            || ((fd == JFD(bctx)) && bctx->lk))
+            goto end;
     } else {
         if ((op != LOCK_SH) && (op != LOCK_EX))
             return err_to_errno(EINVAL);
@@ -736,10 +739,7 @@ fs_blkdev_flock(void *ctx, int fd, int operation)
     bctx->lkfd = (op == LOCK_UN) ? -1 : fd;
 
 end:
-    if (op == LOCK_UN)
-        bctx->lk = bctx->jlk = 0;
-    else
-        *((fd == FD(bctx)) ? &bctx->lk : &bctx->jlk) = 1;
+    *((fd == FD(bctx)) ? &bctx->lk : &bctx->jlk) = (op != LOCK_UN);
     return 0;
 }
 
