@@ -89,6 +89,7 @@ struct op_args {
     void                    *req;
     const struct ctx        *ctx;
     struct back_end         *be;
+    int                     ro;
     inum_t                  root_id;
     struct ref_inodes       *ref_inodes;
     struct ref_ino          *refinop[4];
@@ -2090,13 +2091,15 @@ do_forget(void *args)
     struct space_alloc_ctx sctx;
     uint64_t to_unref, unref;
 
-    ret = back_end_trans_new(opargs->be);
-    if (ret != 0)
-        return ret;
+    if (!(opargs->ro)) {
+        ret = back_end_trans_new(opargs->be);
+        if (ret != 0)
+            return ret;
 
-    ret = space_alloc_init_op(&sctx, opargs->be);
-    if (ret != 0)
-        goto err1;
+        ret = space_alloc_init_op(&sctx, opargs->be);
+        if (ret != 0)
+            goto err1;
+    }
 
     refino.ino = opargs->ino;
     refinop = &refino;
@@ -2119,13 +2122,15 @@ do_forget(void *args)
             goto err2;
     }
 
-    ret = space_alloc_finish_op(&sctx, opargs->be);
-    if (ret != 0)
-        goto err1;
+    if (!(opargs->ro)) {
+        ret = space_alloc_finish_op(&sctx, opargs->be);
+        if (ret != 0)
+            goto err1;
 
-    ret = back_end_trans_commit(opargs->be);
-    if (ret != 0)
-        goto err1;
+        ret = back_end_trans_commit(opargs->be);
+        if (ret != 0)
+            goto err1;
+    }
 
     pthread_mutex_lock(&opargs->ref_inodes->ref_inodes_mtx);
     if (!(refinop->nodelete) && (refinop->nlink == 0) && (refinop->refcnt == 0)
@@ -2138,6 +2143,8 @@ do_forget(void *args)
     return 0;
 
 err2:
+    if (opargs->ro)
+        return ret;
     space_alloc_abort_op(opargs->be);
 err1:
     back_end_trans_abort(opargs->be);
@@ -3987,6 +3994,7 @@ simplefs_forget(void *req, inum_t ino, uint64_t nlookup)
     priv = md->priv;
 
     opargs.be = priv->be;
+    opargs.ro = md->ro;
     opargs.root_id = priv->root_id;
     opargs.ref_inodes = &priv->ref_inodes;
 
