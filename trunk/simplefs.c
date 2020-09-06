@@ -492,8 +492,11 @@ main(int argc, char **argv)
     if (init_fuse(argc, argv, &fusedata) != 0)
         return EXIT_FAILURE;
 
-    if (open_log(fusedata.md.mountpoint) != 0)
+    if (open_log(fusedata.md.mountpoint) != 0) {
+        free((void *)(fusedata.mountpoint));
+        destroy_mount_data(&fusedata.md);
         return EXIT_FAILURE;
+    }
 
     status = EXIT_FAILURE;
 
