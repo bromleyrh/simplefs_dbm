@@ -359,11 +359,11 @@ do_fuse_unmount(const char *mountpoint, struct fuse_chan *ch,
     (void)mountpoint;
     (void)ch;
 
-    return fuse_session_unmount(se);
+    fuse_session_unmount(se);
 #else
     (void)se;
 
-    return fuse_unmount(mountpoint, ch);
+    fuse_unmount(mountpoint, ch);
 #endif
 }
 
