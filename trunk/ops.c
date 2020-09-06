@@ -4296,6 +4296,11 @@ simplefs_rmdir(void *req, inum_t parent, const char *name)
         goto err;
     }
 
+    if (opargs.s.st_ino == priv->root_id) {
+        ret = -EBUSY;
+        goto err;
+    }
+
     opargs.ino = opargs.s.st_ino;
 
     opargs.op_data.link_data.parent = parent;
