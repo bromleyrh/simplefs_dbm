@@ -491,13 +491,10 @@ main(int argc, char **argv)
     if (init_fuse(argc, argv, &fusedata) != 0)
         return EXIT_FAILURE;
 
-    if (open_log(fusedata.md.mountpoint) != 0) {
-        free((void *)(fusedata.mountpoint));
-        destroy_mount_data(&fusedata.md);
-        return EXIT_FAILURE;
-    }
-
     status = EXIT_FAILURE;
+
+    if (open_log(fusedata.md.mountpoint) != 0)
+        goto end;
 
     ret = process_fuse_events(&fusedata);
 
@@ -506,9 +503,6 @@ main(int argc, char **argv)
     if ((ret == 0) && (mount_status() == 0))
         status = EXIT_SUCCESS;
 
-    free((void *)(fusedata.mountpoint));
-    destroy_mount_data(&fusedata.md);
-
     if (status == EXIT_SUCCESS)
         syslog(LOG_INFO, "Returned success status");
     else
@@ -516,6 +510,9 @@ main(int argc, char **argv)
 
     closelog();
 
+end:
+    free((void *)(fusedata.mountpoint));
+    destroy_mount_data(&fusedata.md);
     return status;
 }
 
