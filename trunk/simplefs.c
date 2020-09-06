@@ -43,11 +43,7 @@ extern struct fuse_lowlevel_ops request_fuse_ops;
 
 #define FUSERMOUNT_PATH "fusermount"
 
-#ifdef __linux__
-#define DEFAULT_FUSE_OPTIONS "auto_unmount,default_permissions"
-#else
 #define DEFAULT_FUSE_OPTIONS "default_permissions"
-#endif
 
 static void int_handler(int);
 
