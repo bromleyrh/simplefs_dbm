@@ -262,6 +262,7 @@ err2:
     if (fusedata->md.db_pathname != NULL)
         free((void *)(fusedata->md.db_pathname));
 err1:
+    fuse_opt_free_args(args);
     return -EINVAL;
 }
 
