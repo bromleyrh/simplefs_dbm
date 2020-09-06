@@ -68,10 +68,10 @@ static int get_dir_relpath_components(const char *, int *, const char **,
 static int is_blkdev(int, const char *);
 
 static int do_create(struct dbh **, int, const char *, mode_t, size_t,
-                     back_end_key_cmp_t, void *, int, int, size_t *, size_t *,
-                     uint64_t *, struct db_alloc_cb *);
+                     back_end_key_cmp_t, void *, int, int, int, size_t *,
+                     size_t *, uint64_t *, struct db_alloc_cb *);
 static int do_open(struct dbh **, int, const char *, size_t, back_end_key_cmp_t,
-                   void *, int, int, size_t *, size_t *, uint64_t *);
+                   void *, int, int, int, size_t *, size_t *, uint64_t *);
 
 static int get_next_elem(void *, void *, size_t *, const void *,
                          struct db_ctx *);
@@ -419,8 +419,8 @@ is_blkdev(int dfd, const char *pathname)
 static int
 do_create(struct dbh **dbh, int dfd, const char *relpath, mode_t mode,
           size_t key_size, back_end_key_cmp_t key_cmp, void *key_ctx, int flags,
-          int blkdev, size_t *hdr_len, size_t *jlen, uint64_t *blkdev_size,
-          struct db_alloc_cb *alloc_cb)
+          int lkw, int blkdev, size_t *hdr_len, size_t *jlen,
+          uint64_t *blkdev_size, struct db_alloc_cb *alloc_cb)
 {
     db_hl_key_cmp_t keycmp = (db_hl_key_cmp_t)key_cmp;
     int err;
@@ -428,6 +428,7 @@ do_create(struct dbh **dbh, int dfd, const char *relpath, mode_t mode,
     if (blkdev) {
         struct blkdev_args args;
 
+        args.lkw = lkw;
         err = db_hl_create_blkdev(dbh, relpath, mode, key_size, keycmp, key_ctx,
                                   flags, dfd, FS_BLKDEV_OPS, &args,
                                   alloc_cb->alloc_cb, alloc_cb->alloc_cb_ctx);
@@ -445,8 +446,8 @@ do_create(struct dbh **dbh, int dfd, const char *relpath, mode_t mode,
 
 static int
 do_open(struct dbh **dbh, int dfd, const char *relpath, size_t key_size,
-        back_end_key_cmp_t key_cmp, void *key_ctx, int flags, int blkdev,
-        size_t *hdr_len, size_t *jlen, uint64_t *blkdev_size)
+        back_end_key_cmp_t key_cmp, void *key_ctx, int flags, int lkw,
+        int blkdev, size_t *hdr_len, size_t *jlen, uint64_t *blkdev_size)
 {
     db_hl_key_cmp_t keycmp = (db_hl_key_cmp_t)key_cmp;
     int err;
@@ -454,6 +455,7 @@ do_open(struct dbh **dbh, int dfd, const char *relpath, size_t key_size,
     if (blkdev) {
         struct blkdev_args args;
 
+        args.lkw = lkw;
         err = db_hl_open_blkdev(dbh, relpath, key_size, keycmp, key_ctx, flags,
                                 dfd, FS_BLKDEV_OPS, &args);
         if (!err) {
@@ -549,8 +551,8 @@ back_end_dbm_create(void **ctx, size_t key_size, back_end_key_cmp_t key_cmp,
     hdrlen = jlen = 0;
     blkdevsz = 0;
     err = do_create(&ret->dbh, dfd, relpath, dbargs->db_mode, key_size, key_cmp,
-                    ret->key_ctx, 0, blkdev, &hdrlen, &jlen, &blkdevsz,
-                    &dbargs->alloc_cb);
+                    ret->key_ctx, 0, dbargs->lkw, blkdev, &hdrlen, &jlen,
+                    &blkdevsz, &dbargs->alloc_cb);
     if (err)
         goto err4;
 
@@ -641,7 +643,7 @@ back_end_dbm_open(void **ctx, size_t key_size, back_end_key_cmp_t key_cmp,
     hdrlen = jlen = 0;
     blkdevsz = 0;
     err = do_open(&ret->dbh, dfd, relpath, key_size, key_cmp, ret->key_ctx,
-                  DB_HL_RDONLY, blkdev, &hdrlen, &jlen, &blkdevsz);
+                  DB_HL_RDONLY, dbargs->lkw, blkdev, &hdrlen, &jlen, &blkdevsz);
     if (!(dbargs->ro)) {
         if (err) {
             if (err != -EROFS)
@@ -654,7 +656,8 @@ back_end_dbm_open(void **ctx, size_t key_size, back_end_key_cmp_t key_cmp,
         }
 
         err = do_open(&ret->dbh, dfd, relpath, key_size, key_cmp, ret->key_ctx,
-                      DB_HL_RELPATH, blkdev, &hdrlen, &jlen, &blkdevsz);
+                      DB_HL_RELPATH, dbargs->lkw, blkdev, &hdrlen, &jlen,
+                      &blkdevsz);
     }
     if (err)
         goto err4;

@@ -21,6 +21,7 @@ struct db_args {
     const char          *db_pathname;
     mode_t              db_mode;
     int                 ro;
+    int                 lkw;
     void                (*trans_cb)(int trans_type, int act, int status,
                                     void *ctx);
     void                *trans_ctx;

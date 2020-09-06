@@ -65,6 +65,7 @@ struct blkdev_ctx {
     int                 lkfd;
     int                 lk;
     int                 jlk;
+    int                 lkw;
     int                 init;
     int                 jinit;
 };
@@ -353,6 +354,7 @@ fs_blkdev_openfs(void **ctx, void *args)
     ret->mmap_addr = NULL;
     ret->lkfd = -1;
     ret->lk = ret->jlk = 0;
+    ret->lkw = ret->args->lkw;
     ret->init = ret->jinit = -1;
 
     ret->args->hdrlen = sizeof(struct disk_header);
@@ -730,8 +732,12 @@ fs_blkdev_flock(void *ctx, int fd, int operation)
             return err_to_errno(EINVAL);
         if (bctx->lkfd != -1)
             goto end;
-        if (op == LOCK_SH)
-            operation = LOCK_EX | (operation & LOCK_NB);
+        if (op == LOCK_SH) {
+            operation &= ~LOCK_SH;
+            operation |= LOCK_EX;
+        }
+        if (bctx->lkw)
+            operation &= ~LOCK_NB;
     }
 
     if (flock(fd, operation) == -1)

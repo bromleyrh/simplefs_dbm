@@ -3717,6 +3717,7 @@ simplefs_init(void *rctx, struct session *sess, inum_t root_id)
                          ? DB_PATHNAME : md->db_pathname;
     dbargs.db_mode = ACC_MODE_DEFAULT;
     dbargs.ro = md->ro;
+    dbargs.lkw = md->lkw;
     dbargs.sync_cb = &sync_cb;
     dbargs.sync_ctx = priv;
     dbargs.hdrlen = dbargs.jlen = 0;

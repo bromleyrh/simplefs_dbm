@@ -150,11 +150,27 @@ destroy_mount_data(struct mount_data *md)
         free((void *)(md->db_pathname));
 }
 
+#define FLAG_MAP_ENTRY(fl, keep) {#fl, offsetof(struct mount_data, fl), keep}
+
 static int
 opt_proc(void *data, const char *arg, int key, struct fuse_args *outargs)
 {
     size_t i;
     struct mount_data *md = (struct mount_data *)data;
+
+    static const struct {
+        const char  *opt;
+        size_t      optoff;
+        int         keep;
+    } flag_map[] = {
+        FLAG_MAP_ENTRY(ro,      1),
+        FLAG_MAP_ENTRY(lkw,     0),
+        FLAG_MAP_ENTRY(fmtconv, 0)
+    }, *fl;
+
+    static const char *filter_opts[] = {
+        "nodev", "noexec", "nosuid", "rw", "user"
+    };
 
     (void)outargs;
 
@@ -169,24 +185,24 @@ opt_proc(void *data, const char *arg, int key, struct fuse_args *outargs)
     if (key != FUSE_OPT_KEY_OPT)
         return 1;
 
-    if (strcmp("ro", arg) == 0)
-        md->ro = 1;
-    else if (strcmp("fmtconv", arg) == 0) {
-        md->fmtconv = 1;
-        return 0;
-    } else {
-        static const char *filter_opts[] = {
-            "nodev", "noexec", "nosuid", "rw", "user"
-        };
+    for (i = 0; i < ARRAY_SIZE(flag_map); i++) {
+        fl = &flag_map[i];
 
-        for (i = 0; i < ARRAY_SIZE(filter_opts); i++) {
-            if (strcmp(filter_opts[i], arg) == 0)
-                return 0;
+        if (strcmp(fl->opt, arg) == 0) {
+            *(unsigned *)(((char *)md) + fl->optoff) = 1;
+            return fl->keep;
         }
+    }
+
+    for (i = 0; i < ARRAY_SIZE(filter_opts); i++) {
+        if (strcmp(filter_opts[i], arg) == 0)
+            return 0;
     }
 
     return 1;
 }
+
+#undef FLAG_MAP_ENTRY
 
 static int
 do_fuse_parse_cmdline(struct fuse_args *args, char **mountpoint,
