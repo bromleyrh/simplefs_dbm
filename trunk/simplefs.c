@@ -460,8 +460,6 @@ terminate_fuse(struct fuse_data *fusedata)
     fuse_session_destroy(fusedata->sess);
 
     request_end(fusedata->ctx);
-
-    free((void *)(fusedata->mountpoint));
 }
 
 static int
@@ -508,6 +506,7 @@ main(int argc, char **argv)
     if ((ret == 0) && (mount_status() == 0))
         status = EXIT_SUCCESS;
 
+    free((void *)(fusedata.mountpoint));
     destroy_mount_data(&fusedata.md);
 
     if (status == EXIT_SUCCESS)
