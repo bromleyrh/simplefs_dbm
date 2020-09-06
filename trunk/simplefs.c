@@ -26,6 +26,8 @@
 #include <unistd.h>
 
 #include <sys/resource.h>
+#include <sys/types.h>
+#include <sys/wait.h>
 
 struct fuse_data {
     const char          *mountpoint;
@@ -37,6 +39,14 @@ struct fuse_data {
 };
 
 extern struct fuse_lowlevel_ops request_fuse_ops;
+
+#define FUSERMOUNT_PATH "fusermount"
+
+#ifdef __linux__
+#define DEFAULT_FUSE_OPTIONS "auto_unmount,default_permissions"
+#else
+#define DEFAULT_FUSE_OPTIONS "default_permissions"
+#endif
 
 static void int_handler(int);
 
@@ -58,17 +68,15 @@ static int do_fuse_session_loop_mt(struct fuse_session *);
 static void do_fuse_unmount(const char *, struct fuse_chan *,
                             struct fuse_session *);
 
-static int init_fuse(int, char **, struct fuse_data *);
+static int do_unmount_path(const char *);
+
+static int init_fuse(struct fuse_args *, struct fuse_data *);
 static int process_fuse_events(struct fuse_data *);
 static void terminate_fuse(struct fuse_data *);
 
-static int open_log(const char *);
+static int unmount_fuse(struct fuse_data *);
 
-#ifdef __linux__
-#define DEFAULT_FUSE_OPTIONS "auto_unmount,default_permissions"
-#else
-#define DEFAULT_FUSE_OPTIONS "default_permissions"
-#endif
+static int open_log(const char *);
 
 static void
 simplefs_exit(void *sctx)
@@ -239,6 +247,7 @@ parse_cmdline(struct fuse_args *args, struct fuse_data *fusedata)
 {
     static const struct fuse_opt opts[] = {
         {"-F %s",   offsetof(struct mount_data, db_pathname),   0},
+        {"-u",      offsetof(struct mount_data, unmount),       1},
         FUSE_OPT_END
     };
 
@@ -247,8 +256,11 @@ parse_cmdline(struct fuse_args *args, struct fuse_data *fusedata)
     if (fuse_opt_parse(args, &fusedata->md, opts, &opt_proc) == -1)
         goto err1;
 
-    if (do_fuse_parse_cmdline(args, NULL, NULL, &fusedata->foreground) == -1)
-        goto err2;
+    if (!(fusedata->md.unmount)) {
+        if (do_fuse_parse_cmdline(args, NULL, NULL, &fusedata->foreground)
+            == -1)
+            goto err2;
+    }
 
     if (fusedata->md.mountpoint == NULL) {
         error(0, 0, "Missing mountpoint parameter");
@@ -367,72 +379,83 @@ do_fuse_unmount(const char *mountpoint, struct fuse_chan *ch,
 #endif
 }
 
+/* Note: This function does not execute fusermount directly, but executes
+   fusermount after forking a child process to enable more flexible usage. */
 static int
-init_fuse(int argc, char **argv, struct fuse_data *fusedata)
+do_unmount_path(const char *mountpoint)
+{
+    int status;
+    pid_t pid;
+
+    pid = fork();
+    if (pid == -1)
+        return MINUS_ERRNO;
+    if (pid == 0) {
+        execlp(FUSERMOUNT_PATH, FUSERMOUNT_PATH, "-u", mountpoint, NULL);
+        exit(EXIT_FAILURE);
+        return -EIO;
+    }
+
+    if (waitpid(pid, &status, 0) == -1)
+        return MINUS_ERRNO;
+
+    return WIFEXITED(status) ? WEXITSTATUS(status) : -EIO;
+}
+
+static int
+init_fuse(struct fuse_args *args, struct fuse_data *fusedata)
 {
     char *bn, *dn;
     char buf[PATH_MAX];
     const char *errmsg;
     int err;
-    struct fuse_args args = FUSE_ARGS_INIT(argc, argv);
 
-    err = parse_cmdline(&args, fusedata);
-    if (err) {
-        errmsg = "Error parsing command line";
-        goto err1;
-    }
-
-    if ((fuse_opt_add_arg(&args, "-o") == -1)
-        || (fuse_opt_add_arg(&args, DEFAULT_FUSE_OPTIONS) == -1))
-        goto err3;
+    if ((fuse_opt_add_arg(args, "-o") == -1)
+        || (fuse_opt_add_arg(args, DEFAULT_FUSE_OPTIONS) == -1))
+        goto err2;
 
     dn = dirname_safe(fusedata->mountpoint, buf, sizeof(buf));
     if (dn == NULL) {
         err = -ENAMETOOLONG;
         errmsg = "Pathname too long";
-        goto err2;
+        goto err1;
     }
     bn = strdup(basename_safe(fusedata->mountpoint));
     if (bn == NULL)
-        goto err3;
+        goto err2;
 
     fusedata->mountpoint = bn;
 
     if (chdir(dn) == -1) {
         err = MINUS_ERRNO;
         errmsg = "Error changing directory";
-        goto err2;
+        goto err1;
     }
 
     err = request_new(&fusedata->ctx, REQUEST_DEFAULT, REPLY_DEFAULT,
                       &fusedata->md, &sess_default_ops, fusedata);
     if (err) {
         errmsg = "Error initializing FUSE file system";
-        goto err2;
+        goto err1;
     }
 
-    fusedata->sess = do_fuse_mount(fusedata->mountpoint, &args,
+    fusedata->sess = do_fuse_mount(fusedata->mountpoint, args,
                                    &request_fuse_ops, sizeof(request_fuse_ops),
                                    fusedata->ctx, &fusedata->chan);
     if (fusedata->sess == NULL) {
         errmsg = "Error mounting FUSE file system";
         request_end(fusedata->ctx);
-        goto err2;
+        goto err1;
     }
-
-    fuse_opt_free_args(&args);
 
     return 0;
 
-err3:
+err2:
     err = -ENOMEM;
     errmsg = "Out of memory";
-err2:
-    fuse_opt_free_args(&args);
+err1:
     if (fusedata->mountpoint != fusedata->md.mountpoint)
         free((void *)(fusedata->mountpoint));
-    destroy_mount_data(&fusedata->md);
-err1:
     error(0, -err, "%s", errmsg);
     return err ? err : -EIO;
 }
@@ -463,6 +486,12 @@ terminate_fuse(struct fuse_data *fusedata)
 }
 
 static int
+unmount_fuse(struct fuse_data *fusedata)
+{
+    return do_unmount_path(fusedata->mountpoint);
+}
+
+static int
 open_log(const char *mountpoint)
 {
     static char buf[32+PATH_MAX];
@@ -480,21 +509,34 @@ int
 main(int argc, char **argv)
 {
     int ret, status;
+    struct fuse_args args = FUSE_ARGS_INIT(argc, argv);
     struct fuse_data fusedata;
 
+    ret = parse_cmdline(&args, &fusedata);
+    if (ret != 0)
+        error(EXIT_FAILURE, -ret, "Error parsing command line");
+
     if (enable_debugging_features() != 0)
-        return EXIT_FAILURE;
+        goto err;
 
     if (set_up_signal_handlers() == -1)
-        return EXIT_FAILURE;
+        goto err;
 
-    if (init_fuse(argc, argv, &fusedata) != 0)
-        return EXIT_FAILURE;
-
-    status = EXIT_FAILURE;
-
-    if (open_log(fusedata.md.mountpoint) != 0)
+    if (fusedata.md.unmount) {
+        fuse_opt_free_args(&args);
+        status = (unmount_fuse(&fusedata) == 0) ? EXIT_SUCCESS : EXIT_FAILURE;
         goto end;
+    }
+
+    if (init_fuse(&args, &fusedata) != 0)
+        goto err;
+
+    if (open_log(fusedata.md.mountpoint) != 0) {
+        free((void *)(fusedata.mountpoint));
+        goto err;
+    }
+
+    fuse_opt_free_args(&args);
 
     ret = process_fuse_events(&fusedata);
 
@@ -503,15 +545,23 @@ main(int argc, char **argv)
     if ((ret == 0) && (mount_status() == 0)) {
         status = EXIT_SUCCESS;
         syslog(LOG_INFO, "Returned success status");
-    } else
+    } else {
+        status = EXIT_FAILURE;
         syslog(LOG_ERR, "Returned failure status");
+    }
 
     closelog();
 
-end:
     free((void *)(fusedata.mountpoint));
+
+end:
     destroy_mount_data(&fusedata.md);
     return status;
+
+err:
+    destroy_mount_data(&fusedata.md);
+    fuse_opt_free_args(&args);
+    return EXIT_FAILURE;
 }
 
 /* vi: set expandtab sw=4 ts=4: */

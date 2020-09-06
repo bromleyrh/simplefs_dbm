@@ -11,6 +11,7 @@ struct mount_data {
     unsigned    ro;
     unsigned    lkw;
     unsigned    fmtconv;
+    unsigned    unmount;
     void        *priv;
 };
 
