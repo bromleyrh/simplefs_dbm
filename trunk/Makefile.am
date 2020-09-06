@@ -9,7 +9,8 @@ EXTRA_DIST = build-aux
 noinst_HEADERS = back_end.h back_end_dbm.h blkdev.h common.h compat.h \
 	fuse_cache.h obj.h ops.h request.h simplefs.h util.h
 
-bin_PROGRAMS = mkfs.simplefs mount.simplefs simplefs simplefs_dbg
+bin_PROGRAMS = mkfs.simplefs mount.simplefs simplefs simplefs_dbg \
+	umount.simplefs
 
 defines :=
 if COVERAGE_ANALYSIS
@@ -85,6 +86,10 @@ simplefs_dbg_SOURCES = simplefs_dbg.c util.c
 simplefs_dbg_CPPFLAGS = $(AM_CPPFLAGS) @libutil_cppflags@
 simplefs_dbg_CFLAGS = $(AM_CFLAGS)
 simplefs_dbg_LDADD = -lreadline @libutil_link_dep@
+
+umount_simplefs_SOURCES = umount.simplefs.c
+umount_simplefs_CPPFLAGS = $(AM_CPPFLAGS)
+umount_simplefs_CFLAGS = $(AM_CFLAGS)
 
 include scripts/Makefile.am
 include tests/Makefile.am

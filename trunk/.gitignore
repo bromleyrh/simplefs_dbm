@@ -33,6 +33,7 @@ stamp-h1
 /mkfs.simplefs
 /mount.simplefs
 /simplefs_dbg
+/umount.simplefs
 
 fs.db
 fs.db_journal
