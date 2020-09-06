@@ -36,6 +36,7 @@ struct fuse_data {
     struct fuse_chan    *chan;
     struct fuse_session *sess;
     struct request_ctx  *ctx;
+    int                 aborted;
 };
 
 extern struct fuse_lowlevel_ops request_fuse_ops;
@@ -84,6 +85,7 @@ simplefs_exit(void *sctx)
     struct fuse_data *fusedata = (struct fuse_data *)sctx;
 
     fuse_session_exit(fusedata->sess);
+    fusedata->aborted = 1;
 }
 
 static const struct sess_ops sess_default_ops = {
@@ -432,6 +434,8 @@ init_fuse(struct fuse_args *args, struct fuse_data *fusedata)
         goto err1;
     }
 
+    fusedata->aborted = 0;
+
     err = request_new(&fusedata->ctx, REQUEST_DEFAULT, REPLY_DEFAULT,
                       &fusedata->md, &sess_default_ops, fusedata);
     if (err) {
@@ -479,7 +483,11 @@ err:
 static void
 terminate_fuse(struct fuse_data *fusedata)
 {
-    do_fuse_unmount(fusedata->mountpoint, fusedata->chan, fusedata->sess);
+    if (fusedata->aborted) {
+        /* session loop aborted by fuse_session_exit() call in simplefs, rather
+           than external umount() on mount point */
+        do_fuse_unmount(fusedata->mountpoint, fusedata->chan, fusedata->sess);
+    }
     fuse_session_destroy(fusedata->sess);
 
     request_end(fusedata->ctx);
