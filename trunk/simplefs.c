@@ -500,12 +500,10 @@ main(int argc, char **argv)
 
     terminate_fuse(&fusedata);
 
-    if ((ret == 0) && (mount_status() == 0))
+    if ((ret == 0) && (mount_status() == 0)) {
         status = EXIT_SUCCESS;
-
-    if (status == EXIT_SUCCESS)
         syslog(LOG_INFO, "Returned success status");
-    else
+    } else
         syslog(LOG_ERR, "Returned failure status");
 
     closelog();
