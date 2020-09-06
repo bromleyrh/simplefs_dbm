@@ -11,7 +11,6 @@
 struct fs_ops;
 
 struct blkdev_args {
-    int         lkw;
     size_t      hdrlen;
     size_t      jlen;
     uint64_t    blkdevsz;
