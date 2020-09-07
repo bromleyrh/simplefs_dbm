@@ -26,6 +26,7 @@
 #include <grp.h>
 #include <limits.h>
 #include <paths.h>
+#include <poll.h>
 #include <pwd.h>
 #include <signal.h>
 #include <stddef.h>
@@ -976,13 +977,35 @@ process_fuse_events(struct fuse_data *fusedata)
 {
     int ret;
 
-    ret = do_fuse_session_loop_mt(fusedata->sess);
-    if (ret != 0) {
-        if (ret > 0)
-            ret = print_err(ret);
-        error(0, -ret, "Error mounting FUSE file system");
+    if (!(fusedata->foreground)) {
+        struct pollfd pfd;
+
+        /* check whether mount.simplefs is already waiting for successful
+           mount */
+        pfd.fd = SIMPLEFS_MOUNT_PIPE_FD;
+        pfd.events = POLLOUT;
+        switch (poll(&pfd, 1, 0)) {
+        case -1:
+            ret = ERR_TAG(errno);
+            goto err;
+        case 0:
+            /* wait on SIMPLEFS_MOUNT_PIPE_FD */
+            break;
+        default:
+            return 1;
+        }
     }
 
+    ret = do_fuse_session_loop_mt(fusedata->sess);
+    if (ret != 0)
+        goto err;
+
+    return 0;
+
+err:
+    if (ret > 0)
+        ret = print_err(ret);
+    error(0, -ret, "Error mounting FUSE file system");
     return ret;
 }
 
@@ -1078,9 +1101,10 @@ main(int argc, char **argv)
     if (tmp != 0)
         ret = tmp;
 
-    if (ret == 0) {
+    if (ret >= 0) {
         status = EXIT_SUCCESS;
-        syslog(LOG_INFO, "Returned success status");
+        if (ret != 1)
+            syslog(LOG_INFO, "Returned success status");
     } else {
         status = EXIT_FAILURE;
         syslog(LOG_ERR, "Returned failure status");
