@@ -463,7 +463,7 @@ err1:
 static int
 process_fuse_events(struct fuse_data *fusedata)
 {
-    if (!(fusedata->foreground) && (do_fuse_daemonize() == -1))
+    if (!(fusedata->foreground) && (do_fuse_daemonize() != 0))
         goto err;
 
     if (do_fuse_session_loop_mt(fusedata->sess) == -1)
