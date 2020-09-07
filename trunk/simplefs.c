@@ -463,17 +463,24 @@ err1:
 static int
 process_fuse_events(struct fuse_data *fusedata)
 {
-    if (!(fusedata->foreground) && (do_fuse_daemonize() != 0))
-        goto err;
+    int ret;
 
-    if (do_fuse_session_loop_mt(fusedata->sess) == -1)
+    if (!(fusedata->foreground)) {
+        ret = do_fuse_daemonize();
+        if (ret != 0)
+            goto err;
+    }
+
+    if (do_fuse_session_loop_mt(fusedata->sess) == -1) {
+        ret = -EIO;
         goto err;
+    }
 
     return 0;
 
 err:
-    error(0, 0, "Error mounting FUSE file system");
-    return -EIO;
+    error(0, -ret, "Error mounting FUSE file system");
+    return ret;
 }
 
 static void
