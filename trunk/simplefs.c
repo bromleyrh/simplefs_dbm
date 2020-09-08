@@ -26,6 +26,7 @@
 #include <unistd.h>
 
 #include <sys/resource.h>
+#include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 
@@ -41,11 +42,14 @@ struct fuse_data {
 
 extern struct fuse_lowlevel_ops request_fuse_ops;
 
+#define SIMPLEFS_CORE_DIR "/var/tmp/simplefs/cores"
+
 #define FUSERMOUNT_PATH "fusermount"
 
 #define DEFAULT_FUSE_OPTIONS "default_permissions"
 
 static void int_handler(int);
+static void abrt_handler(int, siginfo_t *, void *);
 
 static int set_up_signal_handlers(void);
 
@@ -94,6 +98,25 @@ int_handler(int signum)
     (void)signum;
 }
 
+static void
+abrt_handler(int signum, siginfo_t *info, void *ucontext)
+{
+    int dfd;
+
+    dfd = dir_create(SIMPLEFS_CORE_DIR, DIR_CREATE_PARENTS,
+                     S_ISVTX | S_IRWXU | S_IRWXG | S_IRWXO);
+    if (dfd >= 0) {
+        fchdir(dfd);
+        close(dfd);
+    }
+
+    if (signum == SIGSEGV)
+        sigaction_segv_diag(signum, info, ucontext);
+
+    signal(signum, SIG_DFL);
+    raise(signum);
+}
+
 static int
 set_up_signal_handlers()
 {
@@ -123,9 +146,10 @@ enable_debugging_features()
     };
 
     memset(&sa, 0, sizeof(sa));
-    sa.sa_sigaction = sigaction_segv_diag;
+    sa.sa_sigaction = &abrt_handler;
     sa.sa_flags = SA_SIGINFO;
-    if (sigaction(SIGSEGV, &sa, NULL) == -1) {
+    if ((sigaction(SIGABRT, &sa, NULL) == -1)
+        || (sigaction(SIGSEGV, &sa, NULL) == -1)) {
         errmsg = "Error setting signal handler";
         goto err;
     }
