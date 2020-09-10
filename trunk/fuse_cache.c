@@ -918,7 +918,7 @@ op_list_roll_back(struct op_list *list, int which, struct op_list *list_other,
 
         obj_other = list_other->ops[j-1].obj;
         if (obj_other == obj) {
-            int list_refcnt;
+            int list_refcnt = 0;
 
             switch (which_other) {
             case TRANS:
