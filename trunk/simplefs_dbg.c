@@ -9,6 +9,7 @@
 
 #include "config.h"
 
+#include "blkdev.h"
 #include "common.h"
 #include "obj.h"
 #include "util.h"
@@ -22,7 +23,9 @@
 #include <readline/readline.h>
 
 #include <errno.h>
+#include <fcntl.h>
 #include <inttypes.h>
+#include <limits.h>
 #include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -32,12 +35,15 @@
 #include <unistd.h>
 
 #include <sys/param.h>
+#include <sys/stat.h>
 
 #ifdef HAVE_STRUCT_STAT_ST_MTIMESPEC
 #define st_atim st_atimespec
 #define st_mtim st_mtimespec
 #define st_ctim st_ctimespec
 #endif
+
+#define DB_HL_USEFSOPS 32
 
 #define DB_PATHNAME "fs.db"
 
@@ -104,6 +110,10 @@ static int cmd_remove(struct dbh *);
 static int cmd_update(struct dbh *);
 
 static int process_cmd(struct dbh *);
+
+static int get_dir_relpath_components(const char *, int *, const char **,
+                                      char *);
+static int is_blkdev(int, const char *);
 
 static int do_fix_up_interactive(const char *, int);
 
@@ -1359,13 +1369,69 @@ input_err:
 }
 
 static int
+get_dir_relpath_components(const char *pathname, int *dfd,
+                           const char **relpathname, char *buf)
+{
+    int fd;
+
+    if (dirname_safe(pathname, buf, PATH_MAX) == NULL)
+        return -ENAMETOOLONG;
+
+    fd = open(buf, O_CLOEXEC | O_DIRECTORY | O_RDONLY);
+    if (fd == -1)
+        return MINUS_ERRNO;
+
+    *dfd = fd;
+    *relpathname = basename_safe(pathname);
+    return 0;
+}
+
+static int
+is_blkdev(int dfd, const char *pathname)
+{
+    struct stat s;
+
+    if (fstatat(dfd, pathname, &s, 0) == -1)
+        return (errno == ENOENT) ? 0 : MINUS_ERRNO;
+
+    return (s.st_mode & S_IFMT) == S_IFBLK;
+}
+
+static int
 do_fix_up_interactive(const char *db_pathname, int ro)
 {
+    char buf[PATH_MAX];
+    const char *relpath;
+    int blkdev;
+    int dfd;
+    int fl;
     int ret;
     struct dbh *dbh;
 
-    ret = db_hl_open(&dbh, db_pathname, sizeof(struct db_key), &db_key_cmp,
-                     NULL, ro ? DB_HL_RDONLY : 0);
+    ret = get_dir_relpath_components(db_pathname, &dfd, &relpath, buf);
+    if (ret != 0)
+        return ret;
+
+    blkdev = is_blkdev(dfd, relpath);
+    if (blkdev < 0) {
+        close(dfd);
+        return blkdev;
+    }
+
+    fl = DB_HL_RELPATH;
+    if (ro)
+        fl |= DB_HL_RDONLY;
+
+    if (blkdev) {
+        struct blkdev_args args;
+
+        ret = db_hl_open(&dbh, db_pathname, sizeof(struct db_key), &db_key_cmp,
+                         NULL, fl | DB_HL_USEFSOPS, dfd, FS_BLKDEV_OPS, &args);
+    } else {
+        ret = db_hl_open(&dbh, db_pathname, sizeof(struct db_key), &db_key_cmp,
+                         NULL, fl, dfd);
+    }
+    close(dfd);
     if (ret != 0) {
         error(0, -ret, "Error opening %s", db_pathname);
         return ret;
