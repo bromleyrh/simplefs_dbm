@@ -1437,25 +1437,13 @@ do_fix_up_interactive(const char *db_pathname, int ro)
         return ret;
     }
 
-    for (;;) {
-        ret = process_cmd(dbh);
-        switch (ret) {
-        case 0:
-        case 2:
-            continue;
-        case 1:
-            goto end;
-        default:
-            goto err;
-        }
-    }
+    while (((ret = process_cmd(dbh)) == 0) || (ret == 2))
+        ;
+    if (ret == 1)
+        ret = 0;
 
-end:
     db_hl_close(dbh);
-    return 0;
 
-err:
-    db_hl_close(dbh);
     return ret;
 }
 
