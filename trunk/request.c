@@ -916,7 +916,7 @@ request_fuse_setxattr(fuse_req_t req, fuse_ino_t ino, const char *name,
     REQUEST_FUSE_NO_FI(r);
 
 #ifdef __APPLE__
-    if (position > 0)
+    if (position > 0) {
         fuse_reply_err(req, ENOTSUP);
         return;
     }
@@ -938,7 +938,7 @@ request_fuse_getxattr(fuse_req_t req, fuse_ino_t ino, const char *name,
     REQUEST_FUSE_NO_FI(r);
 
 #ifdef __APPLE__
-    if (position > 0)
+    if (position > 0) {
         fuse_reply_err(req, ENOTSUP);
         return;
     }
