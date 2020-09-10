@@ -381,7 +381,7 @@ sync_cb(struct dbh *dbh, int status, void *ctx)
     (*(dbctx->sync_cb))(status, dbctx->sync_ctx);
 }
 
-int
+static int
 get_dir_relpath_components(const char *pathname, int *dfd,
                            const char **relpathname, char *buf)
 {
