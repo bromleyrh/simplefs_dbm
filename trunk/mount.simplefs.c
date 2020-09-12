@@ -179,6 +179,8 @@ do_start_simplefs(int mount_argc, char **mount_argv, sigset_t *set)
     if (pid == 0) {
         char buf[256];
 
+        close(pipefd[0]);
+
         if ((sigprocmask(SIG_SETMASK, set, NULL) != 0)
             || (redirect_std_fds("/dev/null") != 0) || (setsid() == -1))
             exit(EXIT_FAILURE);
