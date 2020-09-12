@@ -13,6 +13,10 @@ bin_PROGRAMS = mkfs.simplefs mount.simplefs simplefs simplefs_dbg \
 	umount.simplefs
 
 defines :=
+if FREEBSD
+defines += -DFREEBSD
+endif
+
 if COVERAGE_ANALYSIS
 defines += -DCODE_COVERAGE_ANALYSIS
 endif

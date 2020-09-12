@@ -33,6 +33,7 @@ case $target_os in
         AC_MSG_ERROR([unsupported platform], [1]);;
 esac
 AM_CONDITIONAL([APPLE], [test "x$platform" = "xdarwin"])
+AM_CONDITIONAL([FREEBSD], [test "x$platform" = "xfreebsd"])
 AM_CONDITIONAL([LINUX], [test "x$platform" = "xlinux"])
 
 AC_PROG_CC

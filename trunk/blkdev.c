@@ -23,6 +23,8 @@
 
 #ifdef HAVE_LINUX_FS_H
 #include <linux/fs.h>
+#elif FREEBSD
+#include <sys/disk.h>
 #else
 #error "Support for platform not yet implemented"
 #endif
@@ -216,12 +218,19 @@ blkdev_flags(int flags)
 static int
 get_blkdev_size(int fd, uint64_t *sz)
 {
-    uint64_t res;
+#if HAVE_LINUX_FS_H
+    uint64_t count;
 
-    if (ioctl(fd, BLKGETSIZE64, &res) == -1)
+    if (ioctl(fd, BLKGETSIZE64, &count) == -1)
         return MINUS_ERRNO;
+#elif FREEBSD
+    off_t count;
 
-    *sz = (uint64_t)res;
+    if (ioctl(fd, DIOCGMEDIASIZE, &count) == -1)
+        return MINUS_ERRNO;
+#endif
+
+    *sz = (uint64_t)count;
     return 0;
 }
 
