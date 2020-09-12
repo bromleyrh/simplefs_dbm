@@ -8,6 +8,7 @@
 #include "ops.h"
 #include "request.h"
 #include "simplefs.h"
+#include "util.h"
 
 #include <forensics.h>
 
@@ -267,16 +268,29 @@ do_fuse_parse_cmdline(struct fuse_args *args, char **mountpoint,
 static int
 parse_cmdline(struct fuse_args *args, struct fuse_data *fusedata)
 {
+    int err = -EINVAL, res;
+
     static const struct fuse_opt opts[] = {
         {"-F %s",   offsetof(struct mount_data, db_pathname),   0},
+        {"-p %d",   offsetof(struct mount_data, pipefd),        0},
         {"-u",      offsetof(struct mount_data, unmount),       1},
         FUSE_OPT_END
     };
 
     memset(&fusedata->md, 0, sizeof(fusedata->md));
+    fusedata->md.pipefd = -1;
 
     if (fuse_opt_parse(args, &fusedata->md, opts, &opt_proc) == -1)
         goto err1;
+
+    if (fusedata->md.pipefd != -1) {
+        res = is_pipe(fusedata->md.pipefd);
+        if (res != 1) {
+            if (res != 0)
+                err = res;
+            goto err2;
+        }
+    }
 
     if (!(fusedata->md.unmount)) {
         if (do_fuse_parse_cmdline(args, NULL, NULL, &fusedata->foreground)
@@ -297,7 +311,7 @@ err2:
         free((void *)(fusedata->md.db_pathname));
 err1:
     fuse_opt_free_args(args);
-    return -EINVAL;
+    return err;
 }
 
 static struct fuse_session *

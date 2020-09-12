@@ -25,19 +25,17 @@
 #define SIMPLEFS_PATH "simplefs"
 #define SIMPLEFS_MOUNT_OPTS "allow_other,nonempty"
 
-#define SIMPLEFS_MOUNT_PIPE_FD 4
 #define SIMPLEFS_MOUNT_PIPE_MSG_OK "1"
 
 static int parse_cmdline(int, char **, int, int *, char ***);
 
 static int do_mount(char **, int);
 
-static int open_simplefs_pipe(int);
 static int read_simplefs_pipe(int);
 
 static int redirect_std_fds(const char *);
 
-static int do_start_simplefs(char **, sigset_t *);
+static int do_start_simplefs(int, char **, sigset_t *);
 
 static int
 parse_cmdline(int argc, char **argv, int file_based, int *mount_argc,
@@ -62,7 +60,7 @@ parse_cmdline(int argc, char **argv, int file_based, int *mount_argc,
             }
         }
 
-        argc = 4;
+        argc = 6;
         if (optstr != NULL)
             argc += 2;
 
@@ -79,6 +77,9 @@ parse_cmdline(int argc, char **argv, int file_based, int *mount_argc,
             mnt_argv[i++] = "-o";
             mnt_argv[i++] = optstr;
         }
+
+        mnt_argv[i++] = "-p";
+        mnt_argv[i++] = NULL; /* set by do_start_simplefs() */
 
         mnt_argv[i] = argv[MOUNT_MOUNTPOINT_ARGV_IDX];
     }
@@ -118,23 +119,6 @@ do_mount(char **argv, int unmount)
         return MINUS_ERRNO;
 
     return WIFEXITED(status) ? WEXITSTATUS(status) : -EIO;
-}
-
-static int
-open_simplefs_pipe(int fd)
-{
-    int pipefd[2];
-
-    if (pipe(pipefd) == -1)
-        return MINUS_ERRNO;
-
-    if (pipefd[1] != fd) {
-        if (dup2(pipefd[1], fd) == -1)
-            return MINUS_ERRNO;
-        close(pipefd[1]);
-    }
-
-    return pipefd[0];
 }
 
 static int
@@ -179,37 +163,44 @@ redirect_std_fds(const char *path)
 }
 
 static int
-do_start_simplefs(char **mount_argv, sigset_t *set)
+do_start_simplefs(int mount_argc, char **mount_argv, sigset_t *set)
 {
     int err;
-    int pipefd;
+    int pipefd[2];
     int status;
     pid_t pid;
 
-    pipefd = open_simplefs_pipe(SIMPLEFS_MOUNT_PIPE_FD);
-    if (pipefd < 0)
-        return pipefd;
+    if (pipe(pipefd) == -1)
+        return MINUS_ERRNO;
 
     pid = fork();
     if (pid == -1)
         return MINUS_ERRNO;
     if (pid == 0) {
+        char buf[256];
+
         if ((sigprocmask(SIG_SETMASK, set, NULL) != 0)
             || (redirect_std_fds("/dev/null") != 0) || (setsid() == -1))
             exit(EXIT_FAILURE);
+
+        if (snprintf(buf, sizeof(buf), "%d", pipefd[1]) >= (int)sizeof(buf))
+            exit(EXIT_FAILURE);
+
         if (mount_argv == NULL) {
             execlp(SIMPLEFS_PATH, SIMPLEFS_PATH, "-f", "-o",
-                   SIMPLEFS_MOUNT_OPTS, ".", NULL);
+                   SIMPLEFS_MOUNT_OPTS, "-p", buf, ".", NULL);
         } else {
             mount_argv[0] = "simplefs";
+            mount_argv[mount_argc-2] = buf;
             execvp(SIMPLEFS_PATH, mount_argv);
         }
+
         exit(EXIT_FAILURE);
     }
 
-    close(SIMPLEFS_MOUNT_PIPE_FD);
+    close(pipefd[1]);
 
-    err = read_simplefs_pipe(pipefd);
+    err = read_simplefs_pipe(pipefd[0]);
     if (err > 0) {
         waitpid(pid, &status, 0);
         return 1;
@@ -272,7 +263,7 @@ main(int argc, char **argv)
         }
     }
 
-    err = do_start_simplefs(file_based ? NULL : mount_argv, &oset);
+    err = do_start_simplefs(mount_argc, file_based ? NULL : mount_argv, &oset);
     if (err) {
         errmsg = "Error executing simplefs";
         if (file_based)

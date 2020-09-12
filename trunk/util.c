@@ -22,6 +22,7 @@
 #include <time.h>
 
 #include <sys/param.h>
+#include <sys/stat.h>
 #include <sys/time.h>
 #include <sys/types.h>
 
@@ -69,6 +70,44 @@ strlen_cmp(const void *e1, const void *e2, void *ctx)
 }
 
 #endif
+static int
+interrupt_recv(const struct interrupt_data *intdata)
+{
+    if ((intdata != NULL) && (intdata->interrupted != NULL)
+        && (*(intdata->interrupted))()) {
+        errno = EINTR;
+        return 1;
+    }
+
+    return 0;
+}
+
+static size_t
+do_io(io_fn_t fn, int fd, void *buf, size_t len, off_t offset, size_t maxlen,
+      const struct interrupt_data *intdata)
+{
+    size_t num_processed;
+    ssize_t ret;
+
+    if (maxlen == 0)
+        maxlen = ~((size_t)0);
+
+    for (num_processed = 0; num_processed < len; num_processed += ret) {
+        size_t length = MIN(len - num_processed, maxlen);
+
+        if (interrupt_recv(intdata))
+            break;
+
+        errno = 0;
+        ret = (*fn)(fd, (char *)buf + num_processed, length,
+                    offset + num_processed, intdata);
+        if (ret <= 0)
+            break;
+    }
+
+    return num_processed;
+}
+
 void
 abort_msg(const char *fmt, ...)
 {
@@ -110,44 +149,6 @@ write_backtrace(FILE *f, int start_frame)
         free_backtrace(bt);
     }
 #endif
-}
-
-static int
-interrupt_recv(const struct interrupt_data *intdata)
-{
-    if ((intdata != NULL) && (intdata->interrupted != NULL)
-        && (*(intdata->interrupted))()) {
-        errno = EINTR;
-        return 1;
-    }
-
-    return 0;
-}
-
-static size_t
-do_io(io_fn_t fn, int fd, void *buf, size_t len, off_t offset, size_t maxlen,
-      const struct interrupt_data *intdata)
-{
-    size_t num_processed;
-    ssize_t ret;
-
-    if (maxlen == 0)
-        maxlen = ~((size_t)0);
-
-    for (num_processed = 0; num_processed < len; num_processed += ret) {
-        size_t length = MIN(len - num_processed, maxlen);
-
-        if (interrupt_recv(intdata))
-            break;
-
-        errno = 0;
-        ret = (*fn)(fd, (char *)buf + num_processed, length,
-                    offset + num_processed, intdata);
-        if (ret <= 0)
-            break;
-    }
-
-    return num_processed;
 }
 
 void *
@@ -257,6 +258,17 @@ log_2_pow2(uint64_t n)
     }
 
     return res;
+}
+
+int
+is_pipe(int fd)
+{
+    struct stat s;
+
+    if (fstat(fd, &s) == -1)
+        return MINUS_ERRNO;
+
+    return S_ISFIFO(s.st_mode);
 }
 
 size_t

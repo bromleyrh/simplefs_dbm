@@ -80,6 +80,8 @@ void *do_realloc(void *ptr, size_t size);
  */
 uint32_t log_2_pow2(uint64_t n);
 
+int is_pipe(int);
+
 size_t do_ppread(int, void *, size_t, off_t, size_t,
                  const struct interrupt_data *);
 size_t do_ppwrite(int, const void *, size_t, off_t, size_t,

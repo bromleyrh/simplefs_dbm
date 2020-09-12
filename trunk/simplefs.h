@@ -12,6 +12,7 @@ struct mount_data {
     unsigned    lkw;
     unsigned    fmtconv;
     unsigned    unmount;
+    int         pipefd;
     void        *priv;
 };
 

@@ -173,7 +173,6 @@ struct space_alloc_ctx {
 #define XATTR_REPLACE 2
 #endif
 
-#define SIMPLEFS_MOUNT_PIPE_FD 4
 #define SIMPLEFS_MOUNT_PIPE_MSG_OK "1"
 
 #ifdef HAVE_STRUCT_STAT_ST_MTIMESPEC
@@ -3850,8 +3849,17 @@ simplefs_init(void *rctx, struct session *sess, inum_t root_id)
         goto err6;
     }
 
-    write(SIMPLEFS_MOUNT_PIPE_FD, SIMPLEFS_MOUNT_PIPE_MSG_OK,
-          sizeof(SIMPLEFS_MOUNT_PIPE_MSG_OK));
+    if (md->pipefd != -1) {
+        ssize_t res;
+
+        res = write(md->pipefd, SIMPLEFS_MOUNT_PIPE_MSG_OK,
+                    sizeof(SIMPLEFS_MOUNT_PIPE_MSG_OK));
+        if (res != sizeof(SIMPLEFS_MOUNT_PIPE_MSG_OK)) {
+            ret = (res == 0) ? -EIO : MINUS_ERRNO;
+            join_worker(priv);
+            goto err6;
+        }
+    }
 
     pthread_mutex_lock(&mtx);
     init = 1;
