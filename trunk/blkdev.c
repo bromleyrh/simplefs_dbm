@@ -21,9 +21,9 @@
 #include <string.h>
 #include <unistd.h>
 
-#ifdef HAVE_LINUX_FS_H
+#if HAVE_LINUX_FS_H
 #include <linux/fs.h>
-#elif FREEBSD
+#elif FREEBSD || __APPLE__
 #include <sys/disk.h>
 #else
 #error "Support for platform not yet implemented"
@@ -228,6 +228,15 @@ get_blkdev_size(int fd, uint64_t *sz)
 
     if (ioctl(fd, DIOCGMEDIASIZE, &count) == -1)
         return MINUS_ERRNO;
+#elif __APPLE__
+    uint64_t count;
+    uint32_t size;
+
+    if ((ioctl(fd, DKIOCGETBLOCKCOUNT, &count) == -1)
+        || (ioctl(fd, DKIOCGETBLOCKSIZE, &size) == -1))
+        return MINUS_ERRNO;
+
+    count *= size;
 #endif
 
     *sz = (uint64_t)count;
