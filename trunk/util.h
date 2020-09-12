@@ -82,6 +82,8 @@ uint32_t log_2_pow2(uint64_t n);
 
 int is_pipe(int);
 
+size_t do_read(int, void *, size_t, size_t);
+size_t do_write(int, const void *, size_t, size_t);
 size_t do_ppread(int, void *, size_t, off_t, size_t,
                  const struct interrupt_data *);
 size_t do_ppwrite(int, const void *, size_t, off_t, size_t,

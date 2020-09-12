@@ -20,6 +20,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <unistd.h>
 
 #include <sys/param.h>
 #include <sys/stat.h>
@@ -45,6 +46,11 @@ static int interrupt_recv(const struct interrupt_data *);
 
 static size_t do_io(io_fn_t, int, void *, size_t, off_t, size_t,
                     const struct interrupt_data *);
+
+static ssize_t read_fn(int, void *, size_t, off_t,
+                       const struct interrupt_data *);
+static ssize_t write_fn(int, void *, size_t, off_t,
+                        const struct interrupt_data *);
 
 #ifndef NDEBUG
 static int
@@ -106,6 +112,26 @@ do_io(io_fn_t fn, int fd, void *buf, size_t len, off_t offset, size_t maxlen,
     }
 
     return num_processed;
+}
+
+static ssize_t
+read_fn(int fd, void *buf, size_t len, off_t offset,
+        const struct interrupt_data *intdata)
+{
+    (void)offset;
+    (void)intdata;
+
+    return read(fd, buf, len);
+}
+
+static ssize_t
+write_fn(int fd, void *buf, size_t len, off_t offset,
+         const struct interrupt_data *intdata)
+{
+    (void)offset;
+    (void)intdata;
+
+    return write(fd, buf, len);
 }
 
 void
@@ -269,6 +295,18 @@ is_pipe(int fd)
         return MINUS_ERRNO;
 
     return S_ISFIFO(s.st_mode);
+}
+
+size_t
+do_read(int fd, void *buf, size_t len, size_t maxread)
+{
+    return do_io(&read_fn, fd, buf, len, -1, maxread, NULL);
+}
+
+size_t
+do_write(int fd, const void *buf, size_t len, size_t maxwrite)
+{
+    return do_io(&write_fn, fd, (void *)buf, len, -1, maxwrite, NULL);
 }
 
 size_t

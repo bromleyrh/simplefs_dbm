@@ -312,8 +312,8 @@ static int do_rename(void *);
 static int do_create_node_link(void *);
 static int do_read_entries(void *);
 static int do_open(void *);
-static int do_read(void *);
-static int do_write(void *);
+static int do_read_data(void *);
+static int do_write_data(void *);
 static int do_close(void *);
 static int do_sync(void *);
 static int do_read_header(void *);
@@ -3054,7 +3054,7 @@ do_open(void *args)
 }
 
 static int
-do_read(void *args)
+do_read_data(void *args)
 {
     int count, iovsz;
     int i;
@@ -3140,7 +3140,7 @@ err:
 }
 
 static int
-do_write(void *args)
+do_write_data(void *args)
 {
     const char *write_buf;
     int ret;
@@ -3852,10 +3852,10 @@ simplefs_init(void *rctx, struct session *sess, inum_t root_id)
     if (md->pipefd != -1) {
         ssize_t res;
 
-        res = write(md->pipefd, SIMPLEFS_MOUNT_PIPE_MSG_OK,
-                    sizeof(SIMPLEFS_MOUNT_PIPE_MSG_OK));
+        res = do_write(md->pipefd, SIMPLEFS_MOUNT_PIPE_MSG_OK,
+                       sizeof(SIMPLEFS_MOUNT_PIPE_MSG_OK), 4096);
         if (res != sizeof(SIMPLEFS_MOUNT_PIPE_MSG_OK)) {
-            ret = (res == 0) ? -EIO : MINUS_ERRNO;
+            ret = (errno == 0) ? -EIO : MINUS_ERRNO;
             join_worker(priv);
             goto err6;
         }
@@ -4540,7 +4540,7 @@ simplefs_read(void *req, inum_t ino, size_t size, off_t off,
     opargs.op_data.rdwr_data.size = size;
     opargs.op_data.rdwr_data.off = off;
 
-    ret = do_queue_op(priv, &do_read, &opargs);
+    ret = do_queue_op(priv, &do_read_data, &opargs);
     if (ret != 0)
         goto err;
 
@@ -4588,7 +4588,7 @@ simplefs_write(void *req, inum_t ino, const char *buf, size_t size, off_t off,
     opargs.op_data.rdwr_data.size = size;
     opargs.op_data.rdwr_data.off = off;
 
-    ret = do_queue_op(priv, &do_write, &opargs);
+    ret = do_queue_op(priv, &do_write_data, &opargs);
     if (ret != 0)
         goto err;
 
@@ -5193,7 +5193,7 @@ simplefs_fallocate(void *req, inum_t ino, int mode, off_t offset, off_t length,
     opargs.op_data.rdwr_data.size = length;
     opargs.op_data.rdwr_data.off = offset;
 
-    ret = do_queue_op(priv, &do_write, &opargs);
+    ret = do_queue_op(priv, &do_write_data, &opargs);
     if (ret != 0)
         goto err;
 
