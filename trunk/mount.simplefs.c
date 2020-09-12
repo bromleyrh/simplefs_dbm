@@ -62,11 +62,11 @@ parse_cmdline(int argc, char **argv, int file_based, int *mount_argc,
             }
         }
 
-        argc = 5;
+        argc = 4;
         if (optstr != NULL)
             argc += 2;
 
-        mnt_argv = calloc(argc, sizeof(*mnt_argv));
+        mnt_argv = calloc(argc + 1, sizeof(*mnt_argv));
         if (mnt_argv == NULL)
             return -1;
 
