@@ -181,7 +181,7 @@ AC_SUBST([pkgconfigdir])
 dnl FIXME: Later, only prevent Autoconf from adding "-g -O2" to CFLAGS
 CFLAGS="$env_cflags"
 
-AC_CONFIG_FILES([Makefile])
+AC_CONFIG_FILES([Makefile man/Makefile])
 AC_CONFIG_HEADERS([config.h])
 AC_OUTPUT
 

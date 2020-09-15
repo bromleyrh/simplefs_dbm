@@ -4,6 +4,8 @@
 
 ## Process this file with automake to produce Makefile.in
 
+SUBDIRS = man
+
 EXTRA_DIST = build-aux
 
 noinst_HEADERS = back_end.h back_end_dbm.h blkdev.h common.h compat.h \

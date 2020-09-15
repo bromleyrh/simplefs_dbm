@@ -1,0 +1,19 @@
+.\" mkfs.simplefs.8
+.TH MKFS.SIMPLEFS 8 2020-09-14 ""
+.SH NAME
+mkfs.simplefs \- format a block device as a SimpleFS file system
+.SH SYNOPSIS
+.B mkfs.simplefs
+DEVICE_PATH
+.SH DESCRIPTION
+Format the specified block device file as a SimpleFS file system, destroying any
+previously existing data on the device and allowing the file system to be
+mounted for the first time.
+.SH NOTES
+The \fBmkfs.simplefs\fR command must return successfully (with an exit status of
+0) before the file system being created may be mounted.
+.SH EXIT STATUS
+0 on success, nonzero on error
+.SH SEE ALSO
+.BR mount.simplefs (8),
+.BR umount.simplefs (8)

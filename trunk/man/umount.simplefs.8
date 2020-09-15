@@ -1,0 +1,21 @@
+.\" umount.simplefs.8
+.TH UMOUNT.SIMPLEFS 8 2020-09-14 ""
+.SH NAME
+umount.simplefs \- unmount SimpleFS file system
+.SH SYNOPSIS
+.B umount.simplefs
+MOUNT_POINT
+.SH DESCRIPTION
+Unmount a SimpleFS file system currently mounted on the specified mount point.
+.SH NOTES
+The \fBumount.simplefs\fR command is not synchronous with respect to termination
+of the file system server associated with the mount point. If synchronization
+between \fBumount.simplefs\fR and a subsequent \fBmount.simplefs\fR with the
+same device argument is required, the \fB-o lkw\fR option of
+\fBmount.simplefs\fR can be used to enable waiting for the previous file system
+server to exit.
+.SH EXIT STATUS
+0 on success, nonzero on error
+.SH SEE ALSO
+.BR mkfs.simplefs (8),
+.BR mount.simplefs (8)

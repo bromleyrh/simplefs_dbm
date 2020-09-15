@@ -1,0 +1,55 @@
+.\" mount.simplefs.8
+.TH MOUNT.SIMPLEFS 8 2020-09-14 ""
+.SH NAME
+mount.simplefs \- mount SimpleFS file system
+.SH SYNOPSIS
+.B mount.simplefs
+-F DEVICE_PATH [\fIOPTION\fR]... MOUNT_POINT
+.SH DESCRIPTION
+Mount a SimpleFS file system on the specified mount point, which must be a
+previously-created directory.
+.TP
+\fB\-F\fR \fIDEVICE_PATH\fR
+mount file system contained on the specified block device (or in the specified
+regular file)
+.TP
+\fB\-o\fR \fIOPTION\fR[,\fIOPTION\fR]...
+mount with the specified options (described below)
+.PP
+.in +7
+\fBallow_other\fR
+.in +7
+allow access to mount point by users other than the user performing the mount
+.PP
+.in +7
+\fBallow_root\fR
+.in +7
+allow access to mount point by root user, even if a different user performed the
+mount
+.PP
+.in +7
+\fBlkw\fR
+.in +7
+wait for the specified device to be released instead of exiting with an error,
+if currently locked due to a previous mount
+.PP
+.in +7
+\fBnonempty\fR
+.in +7
+allow mounting on a non-empty mount point directory, preventing access to any
+path within the original directory after the mount
+.PP
+.in +7
+\fBro\fR
+.in +7
+mount file system in read-only mode
+.PP
+.in +7
+\fBrw\fR
+.in +7
+mount file system for both reading and writing (default)
+.SH EXIT STATUS
+0 on success, nonzero on error
+.SH SEE ALSO
+.BR mkfs.simplefs (8),
+.BR umount.simplefs (8)
