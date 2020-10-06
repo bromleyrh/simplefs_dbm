@@ -6,13 +6,15 @@
 
 SUBDIRS = man
 
-EXTRA_DIST = build-aux
+EXTRA_DIST = build-aux mount.simplefs-autofs
 
 noinst_HEADERS = back_end.h back_end_dbm.h blkdev.h common.h compat.h \
 	fuse_cache.h obj.h ops.h request.h simplefs.h util.h
 
 bin_PROGRAMS = mkfs.simplefs mount.simplefs simplefs simplefs_dbg \
 	umount.simplefs
+
+bin_SCRIPTS = mount.simplefs-autofs
 
 defines :=
 if FREEBSD
@@ -102,6 +104,7 @@ include tests/Makefile.am
 
 install-exec-hook:
 	ln -fs mount.simplefs $(bindir)/mount.simplefs-file
+	ln -fs mount.simplefs-autofs $(bindir)/umount.simplefs-autofs
 
 .PHONY: distclean-local
 
