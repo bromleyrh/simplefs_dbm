@@ -12,6 +12,7 @@
 
 #include <dbm_high_level.h>
 
+#include <files/acc_ctl.h>
 #include <files/util.h>
 
 #include <assert.h>
@@ -64,7 +65,7 @@ static void trans_cb(struct dbh *, int, int, int, void *);
 static void sync_cb(struct dbh *, int, void *);
 
 static int get_dir_relpath_components(const char *, int *, const char **,
-                                      char *);
+                                      char *, int);
 static int is_blkdev(int, const char *);
 
 static int do_create(struct dbh **, int, const char *, mode_t, size_t,
@@ -383,14 +384,15 @@ sync_cb(struct dbh *dbh, int status, void *ctx)
 
 static int
 get_dir_relpath_components(const char *pathname, int *dfd,
-                           const char **relpathname, char *buf)
+                           const char **relpathname, char *buf, int create)
 {
     int fd;
 
     if (dirname_safe(pathname, buf, PATH_MAX) == NULL)
         return -ENAMETOOLONG;
 
-    fd = open(buf, O_CLOEXEC | O_DIRECTORY | O_RDONLY);
+    fd = open(buf, O_CLOEXEC | O_DIRECTORY
+                   | (create ? O_RDONLY : OPEN_MODE_EXEC));
     if (fd == -1)
         return MINUS_ERRNO;
 
@@ -516,7 +518,8 @@ back_end_dbm_create(void **ctx, size_t key_size, back_end_key_cmp_t key_cmp,
     struct db_ctx *ret;
     uint64_t blkdevsz;
 
-    err = get_dir_relpath_components(dbargs->db_pathname, &dfd, &relpath, buf);
+    err = get_dir_relpath_components(dbargs->db_pathname, &dfd, &relpath, buf,
+                                     1);
     if (err)
         return err;
 
@@ -613,7 +616,8 @@ back_end_dbm_open(void **ctx, size_t key_size, back_end_key_cmp_t key_cmp,
     struct db_ctx *ret;
     uint64_t blkdevsz;
 
-    err = get_dir_relpath_components(dbargs->db_pathname, &dfd, &relpath, buf);
+    err = get_dir_relpath_components(dbargs->db_pathname, &dfd, &relpath, buf,
+                                     0);
     if (err)
         return err;
 
