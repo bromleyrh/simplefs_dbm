@@ -12,6 +12,7 @@
 
 #include <forensics.h>
 
+#include <files/acc_ctl.h>
 #include <files/util.h>
 
 #include <fuse.h>
@@ -361,7 +362,7 @@ do_fuse_daemonize()
     int dfd;
     int err;
 
-    dfd = open(".", O_DIRECTORY | O_RDONLY);
+    dfd = open(".", O_DIRECTORY | OPEN_MODE_EXEC);
     if (dfd == -1)
         return MINUS_ERRNO;
 
