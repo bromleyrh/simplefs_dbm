@@ -17,6 +17,7 @@
 #include <dbm_high_level.h>
 #include <strings_ext.h>
 
+#include <files/acc_ctl.h>
 #include <files/util.h>
 
 #include <readline/history.h>
@@ -1377,7 +1378,7 @@ get_dir_relpath_components(const char *pathname, int *dfd,
     if (dirname_safe(pathname, buf, PATH_MAX) == NULL)
         return -ENAMETOOLONG;
 
-    fd = open(buf, O_CLOEXEC | O_DIRECTORY | O_RDONLY);
+    fd = open(buf, O_CLOEXEC | O_DIRECTORY | OPEN_MODE_EXEC);
     if (fd == -1)
         return MINUS_ERRNO;
 
