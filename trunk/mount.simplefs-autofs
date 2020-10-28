@@ -4,10 +4,10 @@ set -e
 
 if [ `basename $0` = "umount.simplefs-autofs" ]; then
 	unmount=1
-	mountpath=$1
+	mountpath="$1"
 	shift
 else
-	mountpath=$2
+	mountpath="$2"
 	shift 2
 fi
 
@@ -19,8 +19,8 @@ while [ -n "$1" ]; do
 	shift
 done
 
-dn=`dirname $mountpath`
-bn=`basename $mountpath`
+dn=`dirname "$mountpath"`
+bn=`basename "$mountpath"`
 mountpath_real="$dn/.$bn"
 
 if [ x$unmount = x1 ]; then
