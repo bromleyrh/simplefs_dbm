@@ -2,7 +2,7 @@
 
 set -e
 
-if [ `basename $0` = "umount.simplefs-autofs" ]; then
+if [ "`basename "$0"`" = "umount.simplefs-autofs" ]; then
 	unmount=1
 	mountpath="$1"
 	shift
@@ -27,5 +27,5 @@ if [ x$unmount = x1 ]; then
 	umount -i "$mountpath"
 	exec umount "$mountpath_real"
 fi
-mount $mountopts"$mountpath_real"
+mount "$mountopts""$mountpath_real"
 exec mount --move "$mountpath_real" -o helper=simplefs-autofs "$mountpath"
