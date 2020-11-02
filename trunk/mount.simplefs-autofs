@@ -23,7 +23,7 @@ dn=`dirname "$mountpath"`
 bn=`basename "$mountpath"`
 mountpath_real="$dn/.$bn"
 
-if [ x$unmount = x1 ]; then
+if [ $unmount -eq 1 ]; then
 	umount -i "$mountpath"
 	exec umount "$mountpath_real"
 fi
