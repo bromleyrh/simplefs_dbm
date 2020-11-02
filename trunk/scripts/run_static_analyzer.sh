@@ -6,8 +6,8 @@ configure_opts="--enable-debugging"
 
 rm_cache_file()
 {
-	if [ $cache_file != /dev/null ]; then
-		rm -fv $cache_file
+	if [ "$cache_file" != /dev/null ]; then
+		rm -fv "$cache_file"
 	fi
 }
 
