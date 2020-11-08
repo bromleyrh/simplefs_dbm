@@ -13,7 +13,7 @@ fi
 
 while [ -n "$1" ]; do
 	if [ "$1" = "-o" ]; then
-		mountopts="-o $2 "
+		mountopts="$2"
 		break
 	fi
 	shift
@@ -27,5 +27,9 @@ if [ $unmount -eq 1 ]; then
 	umount -i "$mountpath"
 	exec umount "$mountpath_real"
 fi
-mount "$mountopts""$mountpath_real"
+if [ -n "$mountopts" ]; then
+	mount -o "$mountopts" "$mountpath_real"
+else
+	mount "$mountpath_real"
+fi
 exec mount --move "$mountpath_real" -o helper=simplefs-autofs "$mountpath"
