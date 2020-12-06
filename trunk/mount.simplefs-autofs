@@ -13,7 +13,7 @@ else
 	shift 2
 fi
 
-while [ -n "$1" ]; do
+while [ "$1" ]; do
 	if [ "$1" = "-o" ]; then
 		mountopts=$2
 		break
