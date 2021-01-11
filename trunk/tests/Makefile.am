@@ -6,7 +6,8 @@
 
 EXTRA_DIST += tests/defs
 
-check_PROGRAMS += tests/fuse_cache_test tests/rem_dir_creat_test
+check_PROGRAMS += tests/fuse_cache_test tests/linux_flock_test \
+	tests/rem_dir_creat_test
 
 TESTS_ENVIRONMENT = TESTDIR=tests; export TESTDIR;
 
@@ -31,6 +32,10 @@ tests_fuse_cache_test_LDADD = $(backendtest_link) $(backendtest_link_dep) \
 tests_fuse_cache_test_LDFLAGS = $(AM_LDFLAGS)
 tests_fuse_cache_test_DEPENDENCIES = tests/libbackendtest/libbackendtest.la \
 	tests/libutiltest/libutiltest.la
+
+tests_linux_flock_test_SOURCES = tests/linux_flock_test.c
+tests_linux_flock_test_CPPFLAGS = $(AM_CPPFLAGS) -I.
+tests_linux_flock_test_CFLAGS = $(AM_CFLAGS)
 
 tests_rem_dir_creat_test_SOURCES = tests/rem_dir_creat_test.c
 tests_rem_dir_creat_test_CPPFLAGS = $(AM_CPPFLAGS)

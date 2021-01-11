@@ -726,6 +726,7 @@ fs_blkdev_fdatasync(void *ctx, int fd, const struct interrupt_data *intdata)
 static int
 fs_blkdev_flock(void *ctx, int fd, int operation)
 {
+    int i;
     int op;
     struct blkdev_ctx *bctx = (struct blkdev_ctx *)ctx;
 
@@ -752,8 +753,13 @@ fs_blkdev_flock(void *ctx, int fd, int operation)
             operation = LOCK_EX | (operation & LOCK_NB);
     }
 
-    if (flock(fd, operation) == -1)
-        return -1;
+    for (i = 0;; i++) { /* work around Linux kernel race condition */
+        if (flock(fd, operation) == 0)
+            break;
+        if ((errno != EAGAIN) || (i == 10))
+            return -1;
+        sleep(1);
+    }
     bctx->lkfd = (op == LOCK_UN) ? -1 : fd;
 
 end:
