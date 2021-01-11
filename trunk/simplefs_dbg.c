@@ -44,7 +44,7 @@
 #define st_ctim st_ctimespec
 #endif
 
-#define DB_HL_USEFSOPS 32
+#define DB_HL_USEFSOPS 64
 
 #define DB_PATHNAME "fs.db"
 

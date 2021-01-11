@@ -49,8 +49,8 @@ struct db_iter {
 
 #define ERR_PERIOD 1024
 
-#define DB_HL_USEFSOPS 32
-#define DB_HL_ALLOCHOOK 64
+#define DB_HL_USEFSOPS 64
+#define DB_HL_ALLOCHOOK 128
 
 int back_end_err_test;
 int back_end_io_err;
