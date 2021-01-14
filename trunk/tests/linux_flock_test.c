@@ -101,3 +101,4 @@ main(int argc, char **argv)
     return EXIT_SUCCESS;
 }
 
+/* vi: set expandtab sw=4 ts=4: */
