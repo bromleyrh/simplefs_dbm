@@ -11,10 +11,11 @@
  * device file is not opened and closed first (neither within the same process
  * nor in another process), the EAGAIN error does not occur.
  *
- * The problem can be addressed by only opening a block device file once in any
- * application, followed by calling flock(fd, LOCK_SH|EX | LOCK_NB). This issue
- * is currently worked around in simplefs by waiting for up to 10 seconds after
- * the first EAGAIN error when locking a block device file.
+ * In many cases, the problem can be addressed by only opening a block device
+ * file once in an application, followed by calling
+ * flock(fd, LOCK_SH|EX | LOCK_NB). This issue is currently worked around in
+ * simplefs by waiting for up to 10 seconds after the first EAGAIN error when
+ * locking a block device file.
  *
  * This program demonstrates this race condition by intermittently outputting an
  * error, "Error locking <file>: Resource temporarily unavailable", when run
