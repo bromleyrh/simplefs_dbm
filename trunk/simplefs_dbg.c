@@ -196,7 +196,7 @@ db_key_cmp(const void *k1, const void *k2, void *key_ctx)
     switch (key1->type) {
     case TYPE_DIRENT:
     case TYPE_XATTR:
-        cmp = strcmp(key1->name, key2->name);
+        cmp = strcmp((const char *)(key1->name), (const char *)(key2->name));
         break;
     case TYPE_PAGE:
         cmp = uint64_cmp(key1->pgno, key2->pgno);
@@ -261,7 +261,7 @@ get_key_ino_name(struct db_key *k)
     if (arg == NULL)
         return 2;
 
-    strlcpy(k->name, arg, sizeof(k->name));
+    strlcpy((char *)(k->name), arg, sizeof(k->name));
 
     free(arg);
 

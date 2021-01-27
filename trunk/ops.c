@@ -412,7 +412,7 @@ db_key_cmp(const void *k1, const void *k2, void *key_ctx)
     switch (key1->type) {
     case TYPE_DIRENT:
     case TYPE_XATTR:
-        cmp = strcmp(key1->name, key2->name);
+        cmp = strcmp((const char *)(key1->name), (const char *)(key2->name));
         break;
     case TYPE_PAGE:
         cmp = uint64_cmp(key1->pgno, key2->pgno);
@@ -1444,7 +1444,7 @@ new_node_link(struct back_end *be, struct ref_inodes *ref_inodes, inum_t ino,
 
     k.type = TYPE_DIRENT;
     k.ino = newparent;
-    strlcpy(k.name, newname, sizeof(k.name));
+    strlcpy((char *)(k.name), newname, sizeof(k.name));
 
     de.ino = ino;
 
@@ -1699,7 +1699,7 @@ new_dir_link(struct back_end *be, struct ref_inodes *ref_inodes, inum_t ino,
 
     k.type = TYPE_DIRENT;
     k.ino = newparent;
-    strlcpy(k.name, newname, sizeof(k.name));
+    strlcpy((char *)(k.name), newname, sizeof(k.name));
 
     de.ino = ino;
 
@@ -1749,7 +1749,7 @@ rem_node_link(struct back_end *be, inum_t root_id,
 
     k.type = TYPE_DIRENT;
     k.ino = parent;
-    strlcpy(k.name, name, sizeof(k.name));
+    strlcpy((char *)(k.name), name, sizeof(k.name));
 
     ret = back_end_delete(be, &k);
     if (ret != 0)
@@ -1791,7 +1791,7 @@ rem_dir_link(struct back_end *be, inum_t root_id, struct ref_inodes *ref_inodes,
 
     k.type = TYPE_DIRENT;
     k.ino = parent;
-    strlcpy(k.name, name, sizeof(k.name));
+    strlcpy((char *)(k.name), name, sizeof(k.name));
 
     ret = back_end_delete(be, &k);
     if (ret != 0)
@@ -2648,7 +2648,7 @@ do_rename(void *args)
 
     k.type = TYPE_DIRENT;
     k.ino = parent;
-    strlcpy(k.name, name, sizeof(k.name));
+    strlcpy((char *)(k.name), name, sizeof(k.name));
 
     ret = back_end_look_up(opargs->be, &k, NULL, &sde, NULL, 0);
     if (ret != 1)
@@ -2676,7 +2676,7 @@ do_rename(void *args)
 
     k.type = TYPE_DIRENT;
     k.ino = newparent;
-    strlcpy(k.name, newname, sizeof(k.name));
+    strlcpy((char *)(k.name), newname, sizeof(k.name));
 
     ret = back_end_look_up(opargs->be, &k, NULL, &dde, NULL, 0);
     if (ret != 0) {
@@ -2966,7 +2966,7 @@ do_read_entries(void *args)
 
     k.type = TYPE_DIRENT;
     k.ino = odir->ino;
-    strlcpy(k.name, odir->cur_name, sizeof(k.name));
+    strlcpy((char *)(k.name), odir->cur_name, sizeof(k.name));
 
     off = opargs->op_data.readdir_data.off;
     buflen = 0;
@@ -2999,14 +2999,14 @@ do_read_entries(void *args)
         if ((k.ino != odir->ino) || (k.type != TYPE_DIRENT))
             break;
 
-        strlcpy(odir->cur_name, k.name, sizeof(odir->cur_name));
+        strlcpy(odir->cur_name, (const char *)(k.name), sizeof(odir->cur_name));
 
         memset(&s, 0, sizeof(s));
         s.st_ino = buf.de.ino;
 
         remsize = bufsize - buflen;
         entsize = add_direntry(opargs->req, readdir_buf + buflen, remsize,
-                               k.name, &s, off + 1);
+                               (const char *)(k.name), &s, off + 1);
         if (entsize > remsize)
             goto end1;
 
@@ -3355,7 +3355,7 @@ do_setxattr(void *args)
 
     k.type = TYPE_XATTR;
     k.ino = opargs->ino;
-    strlcpy(k.name, opargs->op_data.xattr_data.name, sizeof(k.name));
+    strlcpy((char *)(k.name), opargs->op_data.xattr_data.name, sizeof(k.name));
 
     value = opargs->op_data.xattr_data.value;
     size = opargs->op_data.xattr_data.size;
@@ -3407,7 +3407,7 @@ do_getxattr(void *args)
 
     k.type = TYPE_XATTR;
     k.ino = opargs->ino;
-    strlcpy(k.name, opargs->op_data.xattr_data.name, sizeof(k.name));
+    strlcpy((char *)(k.name), opargs->op_data.xattr_data.name, sizeof(k.name));
 
     ret = back_end_look_up(opargs->be, &k, NULL, NULL, &valsize, 0);
     if (ret != 1)
@@ -3476,7 +3476,7 @@ do_listxattr(void *args)
         if ((k.ino != opargs->ino) || (k.type != TYPE_XATTR))
             break;
 
-        ret = add_xattr_name(&value, &len, &size, k.name);
+        ret = add_xattr_name(&value, &len, &size, (const char *)(k.name));
         if (ret != 0)
             goto err2;
 
@@ -3533,7 +3533,7 @@ do_removexattr(void *args)
 
     k.type = TYPE_XATTR;
     k.ino = opargs->ino;
-    strlcpy(k.name, opargs->op_data.xattr_data.name, sizeof(k.name));
+    strlcpy((char *)(k.name), opargs->op_data.xattr_data.name, sizeof(k.name));
 
     ret = back_end_delete(opargs->be, &k);
     if (ret != 0)
@@ -3959,7 +3959,7 @@ simplefs_lookup(void *req, inum_t parent, const char *name)
 
     opargs.k.type = TYPE_DIRENT;
     opargs.k.ino = parent;
-    strlcpy(opargs.k.name, name, sizeof(opargs.k.name));
+    strlcpy((char *)(opargs.k.name), name, sizeof(opargs.k.name));
 
     opargs.op_data.inc_lookup_cnt = 1;
 
@@ -4242,7 +4242,7 @@ simplefs_unlink(void *req, inum_t parent, const char *name)
 
     opargs.k.type = TYPE_DIRENT;
     opargs.k.ino = parent;
-    strlcpy(opargs.k.name, name, sizeof(opargs.k.name));
+    strlcpy((char *)(opargs.k.name), name, sizeof(opargs.k.name));
 
     opargs.op_data.inc_lookup_cnt = 0;
 
@@ -4293,7 +4293,7 @@ simplefs_rmdir(void *req, inum_t parent, const char *name)
 
     opargs.k.type = TYPE_DIRENT;
     opargs.k.ino = parent;
-    strlcpy(opargs.k.name, name, sizeof(opargs.k.name));
+    strlcpy((char *)(opargs.k.name), name, sizeof(opargs.k.name));
 
     opargs.op_data.inc_lookup_cnt = 0;
 

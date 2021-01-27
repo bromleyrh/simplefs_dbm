@@ -27,10 +27,10 @@ enum db_obj_type {
 #define MAX_NAME (NAME_MAX+1)
 
 struct db_key {
-    enum db_obj_type    type;
-    uint64_t            ino;
-    uint64_t            pgno;
-    char                name[MAX_NAME];
+    uint32_t    type;
+    uint64_t    ino;
+    uint64_t    pgno;
+    uint8_t     name[MAX_NAME];
 } __attribute__((packed));
 
 struct disk_timespec {
