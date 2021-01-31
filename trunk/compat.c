@@ -46,9 +46,14 @@ static int
 check_init_default(struct back_end *be, int ro, int fmtconv)
 {
     (void)be;
-    (void)fmtconv;
 
-    return !ro;
+    if (ro) {
+        if (fmtconv)
+            fputs("Warning: Ignoring fmtconv mount flag\n", stderr);
+        return 0;
+    }
+
+    return 1;
 }
 
 static int
