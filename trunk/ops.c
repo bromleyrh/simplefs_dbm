@@ -181,9 +181,6 @@ struct space_alloc_ctx {
 #define st_ctim st_ctimespec
 #endif
 
-#define DATA_BLOCK_MIN_SIZE 64
-#define PG_SIZE (128 * 1024 - DATA_BLOCK_MIN_SIZE)
-
 #define DB_PATHNAME "fs.db"
 
 #define OP_RET_NONE INT_MAX
@@ -263,7 +260,7 @@ static void deserialize_stat(struct stat *, struct db_obj_stat *);
 
 static int add_xattr_name(char **, size_t *, size_t *, const char *);
 
-static int truncate_file(struct back_end *, inum_t, off_t, off_t);
+static int truncate_file(struct back_end *, inum_t, off_t, off_t, uint64_t *);
 static int delete_file(struct back_end *, inum_t, inum_t);
 
 static void free_iov(struct iovec *, int);
@@ -1191,13 +1188,15 @@ add_xattr_name(char **names, size_t *len, size_t *size, const char *name)
  * in case of an error.
  */
 static int
-truncate_file(struct back_end *be, inum_t ino, off_t oldsize, off_t newsize)
+truncate_file(struct back_end *be, inum_t ino, off_t oldsize, off_t newsize,
+              uint64_t *delpg)
 {
     int ret;
     size_t lastpgsz;
     struct db_key k;
     uint64_t i;
     uint64_t newnumpg, oldnumpg;
+    uint64_t numdelpg;
 
     ASSERT_UNDER_TRANS(be);
 
@@ -1210,13 +1209,16 @@ truncate_file(struct back_end *be, inum_t ino, off_t oldsize, off_t newsize)
     k.type = TYPE_PAGE;
     k.ino = ino;
 
+    numdelpg = 0;
     for (i = oldnumpg - 1; i > newnumpg; i--) {
         /* FIXME: use iterator to improve efficiency */
 
         k.pgno = i;
 
         ret = back_end_delete(be, &k);
-        if ((ret != 0) && (ret != -EADDRNOTAVAIL)) /* file may be sparse */
+        if (ret == 0)
+            ++numdelpg;
+        else if (ret != -EADDRNOTAVAIL) /* file may be sparse */
             return ret;
     }
 
@@ -1224,7 +1226,9 @@ truncate_file(struct back_end *be, inum_t ino, off_t oldsize, off_t newsize)
         k.pgno = newnumpg;
 
         ret = back_end_delete(be, &k);
-        if ((ret != 0) && (ret != -EADDRNOTAVAIL))
+        if (ret == 0)
+            ++numdelpg;
+        else if (ret != -EADDRNOTAVAIL)
             return ret;
     }
 
@@ -1243,6 +1247,7 @@ truncate_file(struct back_end *be, inum_t ino, off_t oldsize, off_t newsize)
         return back_end_replace(be, &k, buf, sizeof(buf));
     }
 
+    *delpg = numdelpg;
     return 0;
 }
 
@@ -1950,6 +1955,8 @@ do_setattr(void *args)
     trunc = !!(to_set & REQUEST_SET_ATTR_SIZE);
 
     if (trunc) {
+        uint64_t numdelpg;
+
         if (!S_ISREG(s.st_mode))
             return -EINVAL;
 
@@ -1962,10 +1969,11 @@ do_setattr(void *args)
             goto err1;
 
         ret = truncate_file(opargs->be, opargs->ino, s.st_size,
-                            opargs->attr.st_size);
+                            opargs->attr.st_size, &numdelpg);
         if (ret != 0)
             goto err2;
         s.st_size = opargs->attr.st_size;
+        s.st_blocks -= numdelpg * BLOCKS_PER_PG;
     }
 
     if (to_set & REQUEST_SET_ATTR_MODE)
@@ -3150,6 +3158,7 @@ do_write_data(void *args)
     struct db_obj_stat s;
     struct op_args *opargs = (struct op_args *)args;
     struct space_alloc_ctx sctx;
+    uint64_t newpages;
 
     k.type = TYPE_STAT;
     k.ino = opargs->ino;
@@ -3171,6 +3180,7 @@ do_write_data(void *args)
     write_buf = opargs->op_data.rdwr_data.buf;
     off = opargs->op_data.rdwr_data.off;
     size = write_size = opargs->op_data.rdwr_data.size;
+    newpages = 0;
     while (size > 0) {
         char buf[PG_SIZE];
         const char *bufp;
@@ -3202,6 +3212,8 @@ do_write_data(void *args)
             ret = back_end_insert(opargs->be, &k, bufp, sizeof(buf));
             if (ret != 0)
                 goto err2;
+
+            ++newpages;
         } else if (write_buf != null_data) {
             memcpy(buf + pgoff, write_buf + write_size - size, sz);
 
@@ -3216,6 +3228,7 @@ do_write_data(void *args)
 
     if (off > s.st_size)
         s.st_size = off;
+    s.st_blocks += newpages * BLOCKS_PER_PG;
     /* POSIX-1.2008, write, para. 14:
      * Upon successful completion, where nbyte is greater than 0, write() shall
      * mark for update the last data modification and last file status change

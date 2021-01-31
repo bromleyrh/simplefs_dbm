@@ -12,6 +12,7 @@
 #include <limits.h>
 #include <stdint.h>
 
+#include <sys/param.h>
 #include <sys/stat.h>
 
 enum db_obj_type {
@@ -52,8 +53,10 @@ struct disk_timespec {
  *   added used space tracking for statfs() system call
  * - 5
  *   removed journal area size from free bytes count
+ * - 6
+ *   enabled return of valid st_blocks values
  */
-#define FMT_VERSION 5
+#define FMT_VERSION 6
 
 struct db_obj_header {
     uint64_t    version;
@@ -97,6 +100,10 @@ struct db_obj_stat {
 #endif
     uint32_t                num_ents;
 } __attribute__((packed));
+
+#define DATA_BLOCK_MIN_SIZE 64
+#define PG_SIZE (128 * 1024 - DATA_BLOCK_MIN_SIZE)
+#define BLOCKS_PER_PG ((PG_SIZE + DEV_BSIZE - 1) / DEV_BSIZE)
 
 #endif
 

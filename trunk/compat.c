@@ -15,6 +15,7 @@
 
 #include <assert.h>
 #include <inttypes.h>
+#include <limits.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -39,6 +40,7 @@ static check_init_fn_t check_init_ro_or_fmtconv;
 static init_fn_t init_ver_2_to_3;
 static init_fn_t init_ver_3_to_4;
 static init_fn_t init_ver_4_to_5;
+static init_fn_t init_ver_5_to_6;
 
 static int
 check_init_default(struct back_end *be, int ro, int fmtconv)
@@ -65,7 +67,7 @@ check_init_ro_or_fmtconv(struct back_end *be, int ro, int fmtconv)
 
 /*
  * Format v2 to v3 conversion:
- * 1. Add used I-node number entry for each object of TYPE_STAT in back end
+ * 1. Add used I-node number entry for each TYPE_STAT object in back end
  * 2. Set FREE_INO_LAST_USED flag for last free I-node number object
  * 3. Set numinodes field in header object
  */
@@ -298,6 +300,130 @@ init_ver_4_to_5(struct back_end *be, size_t hdrlen, size_t jlen, int ro,
     return back_end_replace(be, &k, &hdr, sizeof(hdr));
 }
 
+/*
+ * Format v5 to v6 conversion:
+ * For each TYPE_PAGE object in back end
+ * - If I-node number is different from previous object
+ *   1. Update st_blocks field in TYPE_STAT object with previous I-node number
+ *      to equal current page count
+ *   2. Reset current page count to 0
+ * - Otherwise, increment current page count
+ */
+static int
+init_ver_5_to_6(struct back_end *be, size_t hdrlen, size_t jlen, int ro,
+                int fmtconv)
+{
+    fuse_ino_t ino;
+    int res;
+    struct back_end_iter *iter;
+    struct db_key k;
+    struct db_obj_header hdr;
+    struct db_obj_stat s;
+
+    (void)hdrlen;
+    (void)jlen;
+    (void)ro;
+    (void)fmtconv;
+
+    res = back_end_trans_new(be);
+    if (res != 0)
+        return res;
+
+    for (k.ino = 0;; k.ino = ino + 1) {
+        blkcnt_t n;
+        int end = 0;
+
+        res = back_end_iter_new(&iter, be);
+        if (res != 0)
+            goto err1;
+
+        k.type = TYPE_PAGE;
+
+        res = back_end_iter_search(iter, &k);
+        if (res < 0)
+            goto err2;
+
+        res = back_end_iter_get(iter, &k, NULL, NULL);
+        if (res != 0)
+            goto err2;
+
+        if (k.type != TYPE_PAGE) {
+            back_end_iter_free(iter);
+            break;
+        }
+        ino = k.ino;
+
+        for (n = 1;; n++) {
+            res = back_end_iter_next(iter);
+            if (res != 0) {
+                if (res != -ENOENT)
+                    goto err2;
+                end = 1;
+                break;
+            }
+
+            res = back_end_iter_get(iter, &k, NULL, NULL);
+            if (res != 0)
+                goto err2;
+
+            if (k.type != TYPE_PAGE) {
+                end = 1;
+                break;
+            }
+            if (k.ino != ino)
+                break;
+        }
+
+        back_end_iter_free(iter);
+
+        k.type = TYPE_STAT;
+        k.ino = ino;
+
+        res = back_end_look_up(be, &k, NULL, &s, NULL, 0);
+        if (res != 1) {
+            if (res == 0)
+                res = -EIO;
+            goto err1;
+        }
+
+        s.st_blocks = n * BLOCKS_PER_PG;
+
+        fprintf(stderr, "Updating st_blocks for I-node %" PRIu64 " to %" PRIi64
+                        "\n",
+                k.ino, (int64_t)(s.st_blocks));
+
+        res = back_end_replace(be, &k, &s, sizeof(s));
+        if (res != 0)
+            goto err1;
+
+        if (end || (ino == ULONG_MAX))
+            break;
+    }
+
+    k.type = TYPE_HEADER;
+
+    res = back_end_look_up(be, &k, NULL, &hdr, NULL, 0);
+    if (res != 1) {
+        if (res == 0)
+            res = -EIO;
+        goto err1;
+    }
+
+    hdr.version = 6;
+
+    res = back_end_replace(be, &k, &hdr, sizeof(hdr));
+    if (res != 0)
+        goto err1;
+
+    return back_end_trans_commit(be);
+
+err2:
+    back_end_iter_free(iter);
+err1:
+    back_end_trans_abort(be);
+    return res;
+}
+
 int
 compat_init(struct back_end *be, uint64_t user_ver, uint64_t fs_ver,
             size_t hdrlen, size_t jlen, int ro, int fmtconv)
@@ -313,7 +439,8 @@ compat_init(struct back_end *be, uint64_t user_ver, uint64_t fs_ver,
     } conv_fns[] = {
         {2, 3, &check_init_ro_or_fmtconv, &init_ver_2_to_3},
         {3, 4, &check_init_ro_or_fmtconv, &init_ver_3_to_4},
-        {4, 5, &check_init_default,       &init_ver_4_to_5}
+        {4, 5, &check_init_default,       &init_ver_4_to_5},
+        {5, 6, &check_init_ro_or_fmtconv, &init_ver_5_to_6}
     }, *conv;
 
     if (user_ver != fs_ver) {
