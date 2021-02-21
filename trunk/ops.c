@@ -522,10 +522,8 @@ sync_cb(int status, void *ctx)
 {
     struct fspriv *priv = (struct fspriv *)ctx;
 
-    if (status < 0)
-        priv->wb_err = status;
-    else if (status > 0)
-        priv->wb_err = 0;
+    /* FIXME: review this code */
+    priv->wb_err = (status < 0) ? status : 0;
 }
 
 static void
