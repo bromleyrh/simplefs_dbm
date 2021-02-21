@@ -3534,6 +3534,14 @@ do_removexattr(void *args)
     struct op_args *opargs = (struct op_args *)args;
     struct space_alloc_ctx sctx;
 
+    k.type = TYPE_XATTR;
+    k.ino = opargs->ino;
+    strlcpy((char *)(k.name), opargs->op_data.xattr_data.name, sizeof(k.name));
+
+    ret = back_end_look_up(opargs->be, &k, NULL, NULL, NULL, 0);
+    if (ret != 1)
+        return (ret == 0) ? -EADDRNOTAVAIL : ret;
+
     ret = back_end_trans_new(opargs->be);
     if (ret != 0)
         return ret;
@@ -3541,10 +3549,6 @@ do_removexattr(void *args)
     ret = space_alloc_init_op(&sctx, opargs->be);
     if (ret != 0)
         goto err1;
-
-    k.type = TYPE_XATTR;
-    k.ino = opargs->ino;
-    strlcpy((char *)(k.name), opargs->op_data.xattr_data.name, sizeof(k.name));
 
     ret = back_end_delete(opargs->be, &k);
     if (ret != 0)
