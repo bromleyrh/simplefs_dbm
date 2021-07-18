@@ -107,7 +107,7 @@ struct fuse_cache_iter {
 
 #define MAX_CLEAN_ENTRIES 512
 
-static int fuse_cache_debug = 1;
+EXPORTED int fuse_cache_debug = 1;
 
 int fuse_cache_err_test;
 int fuse_cache_io_err;

@@ -42,6 +42,8 @@ struct fuse_data {
     int                 aborted;
 };
 
+extern int fuse_cache_debug;
+
 extern struct fuse_lowlevel_ops request_fuse_ops;
 
 #define SIMPLEFS_CORE_DIR "/var/tmp/simplefs/cores"
@@ -197,7 +199,8 @@ opt_proc(void *data, const char *arg, int key, struct fuse_args *outargs)
     } flag_map[] = {
         FLAG_MAP_ENTRY(ro,      1),
         FLAG_MAP_ENTRY(lkw,     0),
-        FLAG_MAP_ENTRY(fmtconv, 0)
+        FLAG_MAP_ENTRY(fmtconv, 0),
+        FLAG_MAP_ENTRY(debug,   0)
     }, *fl;
 
     static const char *filter_opts[] = {
@@ -283,6 +286,9 @@ parse_cmdline(struct fuse_args *args, struct fuse_data *fusedata)
 
     if (fuse_opt_parse(args, &fusedata->md, opts, &opt_proc) == -1)
         goto err1;
+
+    if (fusedata->md.debug)
+        fuse_cache_debug = 1;
 
     if (fusedata->md.pipefd != -1) {
         res = is_pipe(fusedata->md.pipefd);
