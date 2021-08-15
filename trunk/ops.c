@@ -1194,12 +1194,12 @@ truncate_file(struct back_end *be, inum_t ino, off_t oldsize, off_t newsize,
     struct db_key k;
     uint64_t i;
     uint64_t newnumpg, oldnumpg;
-    uint64_t numdelpg;
+    uint64_t numdelpg = 0;
 
     ASSERT_UNDER_TRANS(be);
 
     if (newsize >= oldsize)
-        return 0;
+        goto end;
 
     oldnumpg = (oldsize + PG_SIZE - 1) / PG_SIZE;
     newnumpg = (newsize + PG_SIZE - 1) / PG_SIZE;
@@ -1207,7 +1207,6 @@ truncate_file(struct back_end *be, inum_t ino, off_t oldsize, off_t newsize,
     k.type = TYPE_PAGE;
     k.ino = ino;
 
-    numdelpg = 0;
     for (i = oldnumpg - 1; i > newnumpg; i--) {
         /* FIXME: use iterator to improve efficiency */
 
@@ -1245,6 +1244,7 @@ truncate_file(struct back_end *be, inum_t ino, off_t oldsize, off_t newsize,
         return back_end_replace(be, &k, buf, sizeof(buf));
     }
 
+end:
     *delpg = numdelpg;
     return 0;
 }
