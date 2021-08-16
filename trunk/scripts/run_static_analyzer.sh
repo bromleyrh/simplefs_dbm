@@ -31,7 +31,7 @@ done
 
 if [ ! -f configure ]; then
 	echo "\"configure\" script not found (must run from root build directory)" \
-		1>&2
+		>&2
 	exit 1
 fi
 
@@ -40,7 +40,7 @@ trap rm_cache_file EXIT INT TERM HUP
 if [ ! -f Makefile ]; then
 	do_configure
 elif [ ! -f $dummy_file ]; then
-	echo "Project not configured for static analysis" 1>&2
+	echo "Project not configured for static analysis" >&2
 	make distclean
 	do_configure
 fi
