@@ -34,34 +34,38 @@ struct disk_header {
 
 static void print_usage(const char *);
 
-static int parse_cmdline(int, char **, const char **);
+static int parse_cmdline(int, char **, int *, const char **);
 
 static int query(const char *);
 
 static int init_header(int);
 static int zero_data_and_journal_areas(int);
 
-static int format_device(const char *);
+static int format_device(const char *, int);
 
 static void
 print_usage(const char *prognm)
 {
     printf("Usage: %s [options]\n"
            "\n"
+           "    -f Force formatting to start\n"
            "    -h Output help\n",
            prognm);
 }
 
 static int
-parse_cmdline(int argc, char **argv, const char **dev)
+parse_cmdline(int argc, char **argv, int *force, const char **dev)
 {
     for (;;) {
-        int opt = getopt(argc, argv, "h");
+        int opt = getopt(argc, argv, "fh");
 
         if (opt == -1)
             break;
 
         switch (opt) {
+        case 'f':
+            *force = 1;
+            break;
         case 'h':
             print_usage(argv[0]);
             return -2;
@@ -156,7 +160,7 @@ end:
 #undef IO_SIZE
 
 static int
-format_device(const char *dev)
+format_device(const char *dev, int force)
 {
     const char *errmsg = "Error writing to %s";
     int fd;
@@ -179,18 +183,22 @@ format_device(const char *dev)
         goto err1;
     }
 
-    fprintf(stderr, "Warning: Device %s will be completely overwritten.\n"
-                    "         All data on %s will be destroyed.\n"
-                    "         It is advised to mount the file system\n"
-                    "         on %s (if any), confirm the intended data\n"
-                    "         will be overwritten, and unmount it before\n"
-                    "         proceeding.\n",
-            dev, dev, dev);
-    res = query("Please confirm if formatting should proceed (y/n): ");
-    if (res != 1) {
-        close(fd);
-        fprintf(stderr, "Device %s not written\n", dev);
-        return (res == 0) ? -ECANCELED : -ENOMEM;
+    if (force)
+        fputs("Formatting forced using \"-f\" option\n", stderr);
+    else {
+        fprintf(stderr, "Warning: Device %s will be completely overwritten.\n"
+                        "         All data on %s will be destroyed.\n"
+                        "         It is advised to mount the file system\n"
+                        "         on %s (if any), confirm the intended data\n"
+                        "         will be overwritten, and unmount it before\n"
+                        "         proceeding.\n",
+                dev, dev, dev);
+        res = query("Please confirm if formatting should proceed (y/n): ");
+        if (res != 1) {
+            close(fd);
+            fprintf(stderr, "Device %s not written\n", dev);
+            return (res == 0) ? -ECANCELED : -ENOMEM;
+        }
     }
 
     res = init_header(fd);
@@ -227,13 +235,14 @@ int
 main(int argc, char **argv)
 {
     const char *dev = NULL;
+    int force = 0;
     int ret;
 
-    ret = parse_cmdline(argc, argv, &dev);
+    ret = parse_cmdline(argc, argv, &force, &dev);
     if (ret != 0)
         return (ret == -2) ? EXIT_SUCCESS : EXIT_FAILURE;
 
-    return (format_device(dev) == 0) ? EXIT_SUCCESS : EXIT_FAILURE;
+    return (format_device(dev, force) == 0) ? EXIT_SUCCESS : EXIT_FAILURE;
 }
 
 /* vi: set expandtab sw=4 ts=4: */
