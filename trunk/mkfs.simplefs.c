@@ -184,7 +184,7 @@ format_device(const char *dev, int force)
     }
 
     if (force)
-        fputs("Formatting forced using \"-f\" option\n", stderr);
+        fprintf(stderr, "Formatting of %s forced using \"-f\" option\n", dev);
     else {
         fprintf(stderr, "Warning: Device %s will be completely overwritten.\n"
                         "         All data on %s will be destroyed.\n"
