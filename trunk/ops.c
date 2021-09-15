@@ -4700,7 +4700,9 @@ simplefs_readdir(void *req, inum_t ino, size_t size, off_t off,
 
     (void)ino;
 
-    if ((off > 0) && (odir->cur_name[0] == '\0')) {
+    if (off == 0) /* newly-opened directory stream or rewinddir() */
+        odir->cur_name[0] = '\0';
+    else if (odir->cur_name[0] == '\0') {
         ret = reply_buf(req, NULL, 0);
         if ((ret != 0) && (ret != -ENOENT))
             goto err;
