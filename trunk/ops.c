@@ -3031,7 +3031,6 @@ end2:
     odir->cur_name[0] = '\0';
 end1:
     back_end_iter_free(iter);
-    opargs->op_data.readdir_data.off = off;
     opargs->op_data.readdir_data.buflen = buflen;
     return 0;
 
