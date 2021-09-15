@@ -126,7 +126,6 @@ struct op_args {
         } rdwr_data;                        /* read(), write(), readlink() */
         struct {
             struct open_dir *odir;
-            off_t           off;
             char            *buf;
             size_t          bufsize;
             size_t          buflen;
@@ -144,6 +143,7 @@ struct op_args {
 
 struct open_dir {
     char    cur_name[NAME_MAX+1];
+    off_t   off;
     inum_t  ino;
 };
 
@@ -2974,7 +2974,7 @@ do_read_entries(void *args)
     k.ino = odir->ino;
     strlcpy((char *)(k.name), odir->cur_name, sizeof(k.name));
 
-    off = opargs->op_data.readdir_data.off;
+    off = odir->off;
     buflen = 0;
     bufsize = opargs->op_data.readdir_data.bufsize;
 
@@ -3031,6 +3031,7 @@ end2:
     odir->cur_name[0] = '\0';
 end1:
     back_end_iter_free(iter);
+    odir->off = off;
     opargs->op_data.readdir_data.buflen = buflen;
     return 0;
 
@@ -4664,6 +4665,7 @@ simplefs_opendir(void *req, inum_t ino, struct file_info *fi)
 
     odir->ino = ino;
     odir->cur_name[0] = '\0';
+    odir->off = 0;
 
     fi->fh = (uintptr_t)odir;
     fi->keep_cache = KEEP_CACHE_OPEN;
@@ -4699,13 +4701,19 @@ simplefs_readdir(void *req, inum_t ino, size_t size, off_t off,
 
     (void)ino;
 
-    if (off == 0) /* newly-opened directory stream or rewinddir() */
+    if (off == 0) { /* newly-opened directory stream or rewinddir() */
         odir->cur_name[0] = '\0';
-    else if (odir->cur_name[0] == '\0') {
-        ret = reply_buf(req, NULL, 0);
-        if ((ret != 0) && (ret != -ENOENT))
-            goto err;
-        return;
+        odir->off = 0;
+    } else if (off == odir->off) {
+        if (odir->cur_name[0] == '\0') { /* end of directory stream */
+            ret = reply_buf(req, NULL, 0);
+            if ((ret != 0) && (ret != -ENOENT))
+                goto err;
+            return;
+        }
+    } else { /* seekdir() to position other than 0 or current stream position */
+        ret = -EOPNOTSUPP;
+        goto err;
     }
 
     priv = md->priv;
@@ -4723,7 +4731,6 @@ simplefs_readdir(void *req, inum_t ino, size_t size, off_t off,
     opargs.op_data.readdir_data.odir = odir;
     opargs.op_data.readdir_data.buf = buf;
     opargs.op_data.readdir_data.bufsize = size;
-    opargs.op_data.readdir_data.off = off;
 
     ret = do_queue_op(priv, &do_read_entries, &opargs);
     if (ret != 0) {
