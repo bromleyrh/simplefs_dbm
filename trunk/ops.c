@@ -2689,6 +2689,18 @@ do_rename(void *args)
         if (ret != 1)
             goto err3;
 
+        /* delete existing link or directory */
+
+        if (sde.ino == dde.ino) {
+            /* POSIX-1.2008, rename, para. 3:
+             * If the old argument and the new argument resolve to either the
+             * same existing directory entry or different directory entries for
+             * the same existing file, rename() shall return successfully and
+             * perform no other action. */
+            ret = 0;
+            goto err3;
+        }
+
         k.type = TYPE_STAT;
         k.ino = dde.ino;
 
@@ -2698,8 +2710,6 @@ do_rename(void *args)
                 ret = -ENOENT;
             goto err3;
         }
-
-        /* delete existing link or directory */
 
         if (!S_ISDIR(ss.st_mode) && S_ISDIR(ds.st_mode)) {
             ret = -EISDIR;
