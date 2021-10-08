@@ -12,6 +12,7 @@
 struct back_end {
     void                        *ctx;
     const struct back_end_ops   *ops;
+    int                         abort_asserted;
 };
 
 struct back_end_iter {
@@ -39,6 +40,8 @@ back_end_create(struct back_end **be, size_t key_size,
 
     ret->ops = ops;
 
+    ret->abort_asserted = 0;
+
     *be = ret;
     return 0;
 }
@@ -62,6 +65,8 @@ back_end_open(struct back_end **be, size_t key_size,
     }
 
     ret->ops = ops;
+
+    ret->abort_asserted = 0;
 
     *be = ret;
     return 0;
@@ -176,13 +181,25 @@ back_end_trans_new(struct back_end *be)
 int
 back_end_trans_abort(struct back_end *be)
 {
-    return (*(be->ops->trans_abort))(be->ctx);
+    int err;
+
+    be->abort_asserted = 1;
+    err = (*(be->ops->trans_abort))(be->ctx);
+    be->abort_asserted = 0;
+
+    return err;
 }
 
 int
 back_end_trans_commit(struct back_end *be)
 {
     return (*(be->ops->trans_commit))(be->ctx);
+}
+
+int
+back_end_trans_abort_asserted(struct back_end *be)
+{
+    return be->abort_asserted;
 }
 
 int

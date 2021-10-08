@@ -86,6 +86,8 @@ int back_end_trans_abort(struct back_end *be);
 
 int back_end_trans_commit(struct back_end *be);
 
+int back_end_trans_abort_asserted(struct back_end *be);
+
 int back_end_sync(struct back_end *be);
 
 int back_end_ctl(struct back_end *be, int op, void *args);
