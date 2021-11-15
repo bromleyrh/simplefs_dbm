@@ -78,13 +78,13 @@ static void do_fuse_unmount(const char *, struct fuse_chan *,
 
 static int do_unmount_path(const char *);
 
+static int open_log(const char *);
+
 static int init_fuse(struct fuse_args *, struct fuse_data *);
 static int process_fuse_events(struct fuse_data *);
 static void terminate_fuse(struct fuse_data *);
 
 static int unmount_fuse(struct fuse_data *);
-
-static int open_log(const char *);
 
 static void
 simplefs_exit(void *sctx)
@@ -470,6 +470,20 @@ do_unmount_path(const char *mountpoint)
 }
 
 static int
+open_log(const char *mountpoint)
+{
+    static char buf[32+PATH_MAX];
+
+    if (snprintf(buf, sizeof(buf), "simplefs:%s", mountpoint)
+        >= (int)sizeof(buf))
+        return -ENAMETOOLONG;
+
+    openlog(buf, LOG_PERROR | LOG_PID, LOG_USER);
+
+    return 0;
+}
+
+static int
 init_fuse(struct fuse_args *args, struct fuse_data *fusedata)
 {
     char *bn, *dn;
@@ -596,20 +610,6 @@ unmount_fuse(struct fuse_data *fusedata)
     return do_unmount_path(fusedata->mountpoint);
 }
 
-static int
-open_log(const char *mountpoint)
-{
-    static char buf[32+PATH_MAX];
-
-    if (snprintf(buf, sizeof(buf), "simplefs:%s", mountpoint)
-        >= (int)sizeof(buf))
-        return -ENAMETOOLONG;
-
-    openlog(buf, LOG_PERROR | LOG_PID, LOG_USER);
-
-    return 0;
-}
-
 int
 main(int argc, char **argv)
 {
@@ -622,10 +622,10 @@ main(int argc, char **argv)
         error(EXIT_FAILURE, -ret, "Error parsing command line");
 
     if (enable_debugging_features() != 0)
-        goto err;
+        goto err1;
 
     if (set_up_signal_handlers() == -1)
-        goto err;
+        goto err1;
 
     if (fusedata.md.pipefd != -1) {
         ret = set_cloexec(fusedata.md.pipefd);
@@ -639,13 +639,11 @@ main(int argc, char **argv)
         goto end;
     }
 
-    if (init_fuse(&args, &fusedata) != 0)
-        goto err;
+    if (open_log(fusedata.md.mountpoint) != 0)
+        goto err1;
 
-    if (open_log(fusedata.md.mountpoint) != 0) {
-        free((void *)(fusedata.mountpoint));
-        goto err;
-    }
+    if (init_fuse(&args, &fusedata) != 0)
+        goto err2;
 
     fuse_opt_free_args(&args);
 
@@ -661,15 +659,17 @@ main(int argc, char **argv)
         syslog(LOG_ERR, "Returned failure status");
     }
 
-    closelog();
-
     free((void *)(fusedata.mountpoint));
+
+    closelog();
 
 end:
     destroy_mount_data(&fusedata.md);
     return status;
 
-err:
+err2:
+    closelog();
+err1:
     destroy_mount_data(&fusedata.md);
     fuse_opt_free_args(&args);
     return EXIT_FAILURE;
