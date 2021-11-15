@@ -448,8 +448,10 @@ do_fuse_unmount(const char *mountpoint, struct fuse_chan *ch,
 #endif
 }
 
-/* Note: This function does not execute fusermount directly, but executes
-   fusermount after forking a child process to enable more flexible usage. */
+/*
+ * Note: This function does not execute fusermount directly, but executes
+ * fusermount after forking a child process to enable more flexible usage.
+ */
 static int
 do_unmount_path(const char *mountpoint)
 {
