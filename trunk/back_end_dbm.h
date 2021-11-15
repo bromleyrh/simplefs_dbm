@@ -18,6 +18,7 @@ struct db_alloc_cb {
 };
 
 struct db_args {
+    int                 wd;
     const char          *db_pathname;
     mode_t              db_mode;
     int                 ro;

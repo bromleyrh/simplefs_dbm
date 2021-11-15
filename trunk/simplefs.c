@@ -180,6 +180,9 @@ static void
 destroy_mount_data(struct mount_data *md)
 {
     free((void *)(md->mountpoint));
+
+    if (md->wd != -1)
+        close(md->wd);
     if (md->db_pathname != NULL)
         free((void *)(md->db_pathname));
 }
@@ -282,7 +285,7 @@ parse_cmdline(struct fuse_args *args, struct fuse_data *fusedata)
     };
 
     memset(&fusedata->md, 0, sizeof(fusedata->md));
-    fusedata->md.pipefd = -1;
+    fusedata->md.wd = fusedata->md.pipefd = -1;
 
     if (fuse_opt_parse(args, &fusedata->md, opts, &opt_proc) == -1)
         goto err1;
@@ -451,11 +454,11 @@ init_fuse(struct fuse_args *args, struct fuse_data *fusedata)
     char *bn, *dn;
     char buf[PATH_MAX];
     const char *errmsg;
-    int err;
+    int err = 0;
 
     if ((fuse_opt_add_arg(args, "-o") == -1)
         || (fuse_opt_add_arg(args, DEFAULT_FUSE_OPTIONS) == -1))
-        goto err2;
+        goto err1;
 
     dn = dirname_safe(fusedata->mountpoint, buf, sizeof(buf));
     if (dn == NULL) {
@@ -465,14 +468,33 @@ init_fuse(struct fuse_args *args, struct fuse_data *fusedata)
     }
     bn = strdup(basename_safe(fusedata->mountpoint));
     if (bn == NULL)
-        goto err2;
+        goto err1;
 
     fusedata->mountpoint = bn;
+
+    if ((fusedata->md.db_pathname == NULL)
+        || (fusedata->md.db_pathname[0] != '/')) {
+        errmsg = "Error opening directory";
+        fusedata->md.wd = open(".", O_CLOEXEC | O_DIRECTORY | O_RDONLY);
+        if (fusedata->md.wd == -1) {
+            if ((OPEN_MODE_EXEC == O_RDONLY) || (errno != EACCES)) {
+                err = MINUS_ERRNO;
+                goto err1;
+            }
+            /* retry open with search permissions only */
+            fusedata->md.wd = open(".",
+                                   O_CLOEXEC | O_DIRECTORY | OPEN_MODE_EXEC);
+            if (fusedata->md.wd == -1) {
+                err = MINUS_ERRNO;
+                goto err1;
+            }
+        }
+    }
 
     if (chdir(dn) == -1) {
         err = MINUS_ERRNO;
         errmsg = "Error changing directory";
-        goto err1;
+        goto err2;
     }
 
     fusedata->aborted = 0;
@@ -481,28 +503,34 @@ init_fuse(struct fuse_args *args, struct fuse_data *fusedata)
                       &fusedata->md, &sess_default_ops, fusedata);
     if (err) {
         errmsg = "Error initializing FUSE file system";
-        goto err1;
+        goto err2;
     }
 
     fusedata->sess = do_fuse_mount(fusedata->mountpoint, args,
                                    &request_fuse_ops, sizeof(request_fuse_ops),
                                    fusedata->ctx, &fusedata->chan);
     if (fusedata->sess == NULL) {
+        err = -EIO;
         errmsg = "Error mounting FUSE file system";
-        request_end(fusedata->ctx);
-        goto err1;
+        goto err3;
     }
 
     return 0;
 
+err3:
+    request_end(fusedata->ctx);
 err2:
-    err = -ENOMEM;
-    errmsg = "Out of memory";
+    if (fusedata->md.wd != -1)
+        close(fusedata->md.wd);
 err1:
     if (fusedata->mountpoint != fusedata->md.mountpoint)
         free((void *)(fusedata->mountpoint));
+    if (!err) {
+        err = -ENOMEM;
+        errmsg = "Out of memory";
+    }
     error(0, -err, "%s", errmsg);
-    return err ? err : -EIO;
+    return err;
 }
 
 static int

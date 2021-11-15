@@ -3738,6 +3738,7 @@ simplefs_init(void *rctx, struct session *sess, inum_t root_id)
     if (ret != 0)
         goto err2;
 
+    dbargs.wd = md->wd;
     dbargs.db_pathname = (md->db_pathname == NULL)
                          ? DB_PATHNAME : md->db_pathname;
     dbargs.db_mode = ACC_MODE_DEFAULT;
@@ -3885,6 +3886,11 @@ simplefs_init(void *rctx, struct session *sess, inum_t root_id)
             join_worker(priv);
             goto err6;
         }
+    }
+
+    if (md->wd != -1) {
+        close(md->wd);
+        md->wd = -1;
     }
 
     pthread_mutex_lock(&mtx);

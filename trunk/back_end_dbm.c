@@ -64,8 +64,10 @@ int db_hl_get_trans_state(struct dbh *);
 static void trans_cb(struct dbh *, int, int, int, void *);
 static void sync_cb(struct dbh *, int, void *);
 
-static int get_dir_relpath_components(const char *, int *, const char **,
+static int get_dir_relpath_components(struct db_args *, int *, const char **,
                                       char *, int);
+static void release_dir(struct db_args *, int);
+
 static int is_blkdev(int, const char *);
 
 static int do_create(struct dbh **, int, const char *, mode_t, size_t,
@@ -383,10 +385,17 @@ sync_cb(struct dbh *dbh, int status, void *ctx)
 }
 
 static int
-get_dir_relpath_components(const char *pathname, int *dfd,
+get_dir_relpath_components(struct db_args *dbargs, int *dfd,
                            const char **relpathname, char *buf, int create)
 {
+    const char *pathname = dbargs->db_pathname;
     int fd;
+
+    if (dbargs->wd >= 0) {
+        *dfd = dbargs->wd;
+        *relpathname = pathname;
+        return 0;
+    }
 
     if (dirname_safe(pathname, buf, PATH_MAX) == NULL)
         return -ENAMETOOLONG;
@@ -399,6 +408,13 @@ get_dir_relpath_components(const char *pathname, int *dfd,
     *dfd = fd;
     *relpathname = basename_safe(pathname);
     return 0;
+}
+
+static void
+release_dir(struct db_args *dbargs, int dfd)
+{
+    if (dfd != dbargs->wd)
+        close(dfd);
 }
 
 static int
@@ -518,8 +534,7 @@ back_end_dbm_create(void **ctx, size_t key_size, back_end_key_cmp_t key_cmp,
     struct db_ctx *ret;
     uint64_t blkdevsz;
 
-    err = get_dir_relpath_components(dbargs->db_pathname, &dfd, &relpath, buf,
-                                     1);
+    err = get_dir_relpath_components(dbargs, &dfd, &relpath, buf, 1);
     if (err)
         return err;
 
@@ -578,7 +593,7 @@ back_end_dbm_create(void **ctx, size_t key_size, back_end_key_cmp_t key_cmp,
         ret->sync_ctx = dbargs->sync_ctx;
     }
 
-    close(dfd);
+    release_dir(dbargs, dfd);
 
     dbargs->blkdev = blkdev;
     dbargs->hdrlen = hdrlen;
@@ -597,7 +612,7 @@ err3:
 err2:
     free(ret);
 err1:
-    close(dfd);
+    release_dir(dbargs, dfd);
     return err;
 }
 
@@ -616,8 +631,7 @@ back_end_dbm_open(void **ctx, size_t key_size, back_end_key_cmp_t key_cmp,
     struct db_ctx *ret;
     uint64_t blkdevsz;
 
-    err = get_dir_relpath_components(dbargs->db_pathname, &dfd, &relpath, buf,
-                                     0);
+    err = get_dir_relpath_components(dbargs, &dfd, &relpath, buf, 0);
     if (err)
         return err;
 
@@ -690,7 +704,7 @@ back_end_dbm_open(void **ctx, size_t key_size, back_end_key_cmp_t key_cmp,
         ret->sync_ctx = dbargs->sync_ctx;
     }
 
-    close(dfd);
+    release_dir(dbargs, dfd);
 
     dbargs->blkdev = blkdev;
     dbargs->hdrlen = hdrlen;
@@ -709,7 +723,7 @@ err3:
 err2:
     free(ret);
 err1:
-    close(dfd);
+    release_dir(dbargs, dfd);
     return err;
 }
 
