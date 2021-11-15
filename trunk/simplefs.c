@@ -19,6 +19,7 @@
 #include <fuse_lowlevel.h>
 
 #include <errno.h>
+#include <fcntl.h>
 #include <limits.h>
 #include <signal.h>
 #include <stddef.h>
@@ -51,6 +52,8 @@ extern struct fuse_lowlevel_ops request_fuse_ops;
 #define FUSERMOUNT_PATH "fusermount"
 
 #define DEFAULT_FUSE_OPTIONS "default_permissions"
+
+static int set_cloexec(int);
 
 static void int_handler(int);
 static void abrt_handler(int, siginfo_t *, void *);
@@ -95,6 +98,24 @@ simplefs_exit(void *sctx)
 static const struct sess_ops sess_default_ops = {
     .exit = &simplefs_exit
 };
+
+static int
+set_cloexec(int fd)
+{
+    int fl;
+
+    fl = fcntl(fd, F_GETFL);
+    if (fl == -1)
+        return MINUS_ERRNO;
+
+    if (!(fl & O_CLOEXEC)) {
+        fl |= O_CLOEXEC;
+        if (fcntl(fd, F_SETFL, fl) == -1)
+            return MINUS_ERRNO;
+    }
+
+    return 0;
+}
 
 static void
 int_handler(int signum)
@@ -605,6 +626,12 @@ main(int argc, char **argv)
 
     if (set_up_signal_handlers() == -1)
         goto err;
+
+    if (fusedata.md.pipefd != -1) {
+        ret = set_cloexec(fusedata.md.pipefd);
+        if (ret != 0)
+            goto err1;
+    }
 
     if (fusedata.md.unmount) {
         fuse_opt_free_args(&args);
