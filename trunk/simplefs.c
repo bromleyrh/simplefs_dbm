@@ -40,7 +40,9 @@ struct fuse_data {
     struct fuse_chan    *chan;
     struct fuse_session *sess;
     struct request_ctx  *ctx;
-    int                 aborted;
+    int                 aborted; /* session loop aborted by fuse_session_exit()
+                                    call in simplefs, rather than external
+                                    umount() on mount point */
 };
 
 extern int fuse_cache_debug;
@@ -594,11 +596,8 @@ err:
 static void
 terminate_fuse(struct fuse_data *fusedata)
 {
-    if (fusedata->aborted) {
-        /* session loop aborted by fuse_session_exit() call in simplefs, rather
-           than external umount() on mount point */
+    if (fusedata->aborted)
         do_fuse_unmount(fusedata->mountpoint, fusedata->chan, fusedata->sess);
-    }
     fuse_session_destroy(fusedata->sess);
 
     request_end(fusedata->ctx);
