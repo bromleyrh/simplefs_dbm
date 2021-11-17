@@ -432,6 +432,44 @@ do_fuse_session_loop_mt(struct fuse_session *se)
 #endif
 }
 
+/*
+ * Note: The fuse_unmount() function is not reliable, as it can fail without
+ * returning an error in at least the following scenarios:
+ *
+ * - It attempts to run the umount(1) program when the EUID is 0 and /etc/mtab
+ *   is to be updated, but this fails because
+ *   - either the fork() or execve() system call returns an error (such as
+ *     EAGAIN or ENOMEM), or
+ *   - the umount() system call returns ENOMEM in the umount(1) process
+ * - It attempts to call umount2() directly when the EUID is 0 and /etc/mtab is
+ *   not to be updated, and the system call returns ENOMEM
+ * - It attempts to run the fusermount(1) program when the EUID is not 0 and
+ *   - either the fork() or exeve() system call returns an error (such as EAGAIN
+ *     or ENOMEM), or
+ *   - the umount2() system call returns ENOMEM in the fusermount(1) process
+ *
+ * Note that in the above scenarios, the device /dev/fuse is closed and hence
+ * the FUSE connection is closed as well. This results in FUSE returning
+ * ENOTCONN errors for any file system operation on the mount point, until it is
+ * successfully unmounted. Later, this function may be updated to avoid the
+ * close of /dev/fuse so that a failed unmount may be retried by the file system
+ * process until successful.
+ *
+ * This function is currently only used when an error occurs during
+ * simplefs_init(). In this case, only one worker thread is processing requests
+ * from /dev/fuse. Hence, when the init request returns, all further request
+ * processing in user space should immediately cease. At the same time, the
+ * completion of the init request would permit the mount of the file system to
+ * complete and allow file system calls in other processes to be serviced by the
+ * FUSE kernel module, before the unmount of the file system can be started.
+ * However, this should not lead to the umount() or umount2() system call
+ * returning EBUSY. This is because any file system calls issued after the mount
+ * of the file system but before the unmount operation is processed will be
+ * aborted by closing /dev/fuse before proceeding with the unmount as described
+ * above. Thus, any file system calls that are processed by the VFS in this
+ * window, as well as any file system calls after an unmount that fails due to
+ * one of the reasons mentioned above, should return with ENOTCONN.
+ */
 static void
 do_fuse_unmount(const char *mountpoint, struct fuse_chan *ch,
                 struct fuse_session *se)
