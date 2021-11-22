@@ -45,8 +45,10 @@ struct request_ops {
     int (*new)(void *rctx);
     void (*end)(void *rctx);
 
+    int (*init_prepare)(void *rctx, struct session *sess, inum_t root_id);
     void (*init)(void *rctx, struct session *sess, inum_t root_id);
     void (*destroy)(void *rctx);
+    int (*destroy_finish)(void *rctx);
     void (*lookup)(void *req, inum_t parent, const char *name);
     void (*forget)(void *req, inum_t ino, uint64_t nlookup);
     void (*getattr)(void *req, inum_t ino, struct file_info *fi);
@@ -134,8 +136,10 @@ int request_new(struct request_ctx **ctx, const struct request_ops *req_ops,
                 const struct sess_ops *sess_ops, void *sctx);
 void request_end(struct request_ctx *ctx);
 
+int request_init_prepare(struct request_ctx *ctx, inum_t root_id);
 void request_init(struct request_ctx *ctx, inum_t root_id);
 void request_destroy(struct request_ctx *ctx);
+int request_destroy_finish(struct request_ctx *ctx);
 void request_lookup(struct request_ctx *ctx, void *req, inum_t parent,
                     const char *name);
 void request_forget(struct request_ctx *ctx, void *req, inum_t ino,

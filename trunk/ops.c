@@ -25,20 +25,16 @@
 
 #include <files/acc_ctl.h>
 
-#include <myutil/version.h>
-
 #include <assert.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <inttypes.h>
 #include <limits.h>
 #include <pthread.h>
-#include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <syslog.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -161,9 +157,6 @@ struct space_alloc_ctx {
     int64_t delta;
 };
 
-#define FSNAME PACKAGE_STRING
-#define LIBNAME "libutil " LIBUTIL_VERSION
-
 #ifndef ENOATTR
 #define ENOATTR ENODATA
 #endif
@@ -205,14 +198,9 @@ struct space_alloc_ctx {
 #define DEBUG_DUMP
 #endif
 
-static pthread_mutex_t mtx = PTHREAD_MUTEX_INITIALIZER;
-static int init;
-
 static const char null_data[PG_SIZE];
 
 #define ASSERT_UNDER_TRANS(be) (assert(back_end_trans_new(be) == -EBUSY))
-
-static void verror(int, const char *, va_list);
 
 static int uint64_cmp(uint64_t, uint64_t);
 
@@ -264,8 +252,6 @@ static int truncate_file(struct back_end *, inum_t, off_t, off_t, uint64_t *);
 static int delete_file(struct back_end *, inum_t, inum_t);
 
 static void free_iov(struct iovec *, int);
-
-static void abort_init(struct session *, int, const char *, ...);
 
 static int new_node(struct back_end *, struct ref_inodes *, inum_t,
                     const char *, uid_t, gid_t, mode_t, dev_t, off_t,
@@ -321,8 +307,6 @@ static int do_removexattr(void *);
 static int do_access(void *);
 static int do_create(void *);
 
-static void simplefs_init(void *, struct session *, inum_t);
-static void simplefs_destroy(void *);
 static void simplefs_lookup(void *, inum_t, const char *);
 static void simplefs_forget(void *, inum_t, uint64_t);
 static void simplefs_getattr(void *, inum_t, struct file_info *);
@@ -358,25 +342,6 @@ static void simplefs_create(void *, inum_t, const char *, mode_t,
                             struct file_info *);
 static void simplefs_fallocate(void *, inum_t, int, off_t, off_t,
                                struct file_info *);
-
-static void
-verror(int err, const char *fmt, va_list ap)
-{
-    char buf[128];
-
-    vsnprintf(buf, sizeof(buf), fmt, ap);
-
-    if (err) {
-        int old_errno = errno;
-
-        errno = (err < 0) ? -err : err;
-        perror(buf);
-        errno = old_errno;
-    } else {
-        fputs(buf, stderr);
-        fputc('\n', stderr);
-    }
-}
 
 static int
 uint64_cmp(uint64_t n1, uint64_t n2)
@@ -1316,18 +1281,6 @@ free_iov(struct iovec *iov, int count)
         free(iov[i].iov_base);
 
     free(iov);
-}
-
-static void
-abort_init(struct session *sess, int err, const char *fmt, ...)
-{
-    va_list ap;
-
-    va_start(ap, fmt);
-    verror(err, fmt, ap);
-    va_end(ap);
-
-    sess_exit(sess);
 }
 
 /*
@@ -3686,18 +3639,6 @@ err1:
     return ret;
 }
 
-int
-mount_status()
-{
-    int status;
-
-    pthread_mutex_lock(&mtx);
-    status = init;
-    pthread_mutex_unlock(&mtx);
-
-    return (status >= 0) ? 0 : status;
-}
-
 static void
 set_trans_cb(void *args, void (*cb)(int, int, int, void *), void *ctx)
 {
@@ -3707,13 +3648,8 @@ set_trans_cb(void *args, void (*cb)(int, int, int, void *), void *ctx)
     dbargs->trans_ctx = ctx;
 }
 
-/*
- * Note: If the init request performs an unmount due to an error, a forget
- * request for the root I-node is immediately issued, no destroy request is
- * issued, and the FUSE processing loop blocks until the init request returns.
- */
-static void
-simplefs_init(void *rctx, struct session *sess, inum_t root_id)
+static int
+simplefs_init_prepare(void *rctx, struct session *sess, inum_t root_id)
 {
     int ret;
     struct db_args dbargs;
@@ -3724,6 +3660,8 @@ simplefs_init(void *rctx, struct session *sess, inum_t root_id)
     struct fuse_cache_args args;
     struct mount_data *md = (struct mount_data *)rctx;
     struct ref_ino *refinop[4];
+
+    (void)sess;
 
     priv = do_malloc(sizeof(*priv));
     if (priv == NULL) {
@@ -3876,30 +3814,12 @@ simplefs_init(void *rctx, struct session *sess, inum_t root_id)
         goto err6;
     }
 
-    if (md->pipefd != -1) {
-        ssize_t res;
-
-        res = do_write(md->pipefd, SIMPLEFS_MOUNT_PIPE_MSG_OK,
-                       sizeof(SIMPLEFS_MOUNT_PIPE_MSG_OK), 4096);
-        if (res != sizeof(SIMPLEFS_MOUNT_PIPE_MSG_OK)) {
-            ret = (errno == 0) ? -EIO : MINUS_ERRNO;
-            join_worker(priv);
-            goto err6;
-        }
-    }
-
     if (md->wd != -1) {
         close(md->wd);
         md->wd = -1;
     }
 
-    pthread_mutex_lock(&mtx);
-    init = 1;
-    pthread_mutex_unlock(&mtx);
-
-    syslog(LOG_INFO, FSNAME " using " LIBNAME " initialized successfully");
-
-    return;
+    return 0;
 
 err7:
     space_alloc_abort_op(priv->be);
@@ -3914,27 +3834,31 @@ err3:
 err2:
     free(priv);
 err1:
-    pthread_mutex_lock(&mtx);
-    init = ret;
-    pthread_mutex_unlock(&mtx);
-    abort_init(sess, -ret, "Error mounting FUSE file system");
+    return ret;
 }
 
 static void
-simplefs_destroy(void *userdata)
+simplefs_init(void *rctx, struct session *sess, inum_t root_id)
+{
+    struct mount_data *md = (struct mount_data *)rctx;
+
+    (void)sess;
+    (void)root_id;
+
+    if (md->pipefd != -1) {
+        do_write(md->pipefd, SIMPLEFS_MOUNT_PIPE_MSG_OK,
+                 sizeof(SIMPLEFS_MOUNT_PIPE_MSG_OK), 4096);
+    }
+}
+
+static int
+simplefs_destroy_finish(void *userdata)
 {
     avl_tree_walk_ctx_t wctx = NULL;
-    int initialized;
     int ret, tmp;
     struct fspriv *priv;
     struct free_ref_inodes_ctx fctx;
     struct mount_data *md = (struct mount_data *)userdata;
-
-    pthread_mutex_lock(&mtx);
-    initialized = init;
-    pthread_mutex_unlock(&mtx);
-    if (initialized != 1)
-        return;
 
     priv = md->priv;
 
@@ -3965,14 +3889,7 @@ simplefs_destroy(void *userdata)
 
     free(priv);
 
-    pthread_mutex_lock(&mtx);
-    init = ret;
-    pthread_mutex_unlock(&mtx);
-
-    if (ret == 0)
-        syslog(LOG_INFO, FSNAME " terminated successfully");
-    else
-        syslog(LOG_ERR, FSNAME " terminated with error");
+    return ret;
 }
 
 static void
@@ -4031,19 +3948,9 @@ err:
 static void
 simplefs_forget(void *req, inum_t ino, uint64_t nlookup)
 {
-    int initialized;
     struct fspriv *priv;
     struct mount_data *md = req_userdata(req);
     struct op_args opargs;
-
-    pthread_mutex_lock(&mtx);
-    initialized = init;
-    pthread_mutex_unlock(&mtx);
-    if (initialized != 1) {
-        /* forget request sent by unmounting before initialization finished
-           successfully */
-        return;
-    }
 
     priv = md->priv;
 
@@ -5248,8 +5155,9 @@ err:
 }
 
 struct request_ops request_simplefs_ops = {
+    .init_prepare   = &simplefs_init_prepare,
     .init           = &simplefs_init,
-    .destroy        = &simplefs_destroy,
+    .destroy_finish = &simplefs_destroy_finish,
     .lookup         = &simplefs_lookup,
     .forget         = &simplefs_forget,
     .getattr        = &simplefs_getattr,

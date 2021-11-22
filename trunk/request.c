@@ -185,16 +185,30 @@ request_end(struct request_ctx *ctx)
         (*(ctx->req_ops->end))(ctx->rctx);
 }
 
+int
+request_init_prepare(struct request_ctx *ctx, inum_t root_id)
+{
+    return (*(ctx->req_ops->init_prepare))(ctx->rctx, &ctx->sess, root_id);
+}
+
 void
 request_init(struct request_ctx *ctx, inum_t root_id)
 {
-    (*(ctx->req_ops->init))(ctx->rctx, &ctx->sess, root_id);
+    if (ctx->req_ops->init != NULL)
+        (*(ctx->req_ops->init))(ctx->rctx, &ctx->sess, root_id);
 }
 
 void
 request_destroy(struct request_ctx *ctx)
 {
-    (*(ctx->req_ops->destroy))(ctx->rctx);
+    if (ctx->req_ops->destroy != NULL)
+        (*(ctx->req_ops->destroy))(ctx->rctx);
+}
+
+int
+request_destroy_finish(struct request_ctx *ctx)
+{
+    return (*(ctx->req_ops->destroy_finish))(ctx->rctx);
 }
 
 void
@@ -570,6 +584,12 @@ set_fuse_file_info(struct fuse_file_info *dst, const struct file_info *src)
     dst->fh = src->fh;
 }
 
+int
+request_fuse_init_prepare(struct request_ctx *ctx)
+{
+    return request_init_prepare(ctx, FUSE_ROOT_ID);
+}
+
 static void
 request_fuse_init(void *userdata, struct fuse_conn_info *conn)
 {
@@ -592,6 +612,12 @@ request_fuse_destroy(void *userdata)
     struct request_ctx *ctx = (struct request_ctx *)userdata;
 
     request_destroy(ctx);
+}
+
+int
+request_fuse_destroy_finish(struct request_ctx *ctx)
+{
+    return request_destroy_finish(ctx);
 }
 
 static void

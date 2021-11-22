@@ -4,6 +4,8 @@
 
 #define _GNU_SOURCE
 
+#include "config.h"
+
 #include "common.h"
 #include "ops.h"
 #include "request.h"
@@ -11,9 +13,12 @@
 #include "util.h"
 
 #include <forensics.h>
+#include <strings_ext.h>
 
 #include <files/acc_ctl.h>
 #include <files/util.h>
+
+#include <myutil/version.h>
 
 #include <fuse.h>
 #include <fuse_lowlevel.h>
@@ -45,15 +50,29 @@ struct fuse_data {
                                     umount() on mount point */
 };
 
+struct errpipe_msg {
+    int     err;
+    size_t  msglen;
+    char    buf[256];
+};
+
+#define ERRPIPE_MIN_MSGLEN offsetof(struct errpipe_msg, buf)
+
 extern int fuse_cache_debug;
 
 extern struct fuse_lowlevel_ops request_fuse_ops;
+
+#define FSNAME PACKAGE_STRING
+#define LIBNAME "libutil " LIBUTIL_VERSION
 
 #define SIMPLEFS_CORE_DIR "/var/tmp/simplefs/cores"
 
 #define FUSERMOUNT_PATH "fusermount"
 
 #define DEFAULT_FUSE_OPTIONS "default_permissions"
+
+int request_fuse_init_prepare(struct request_ctx *);
+int request_fuse_destroy_finish(struct request_ctx *);
 
 static int set_cloexec(int);
 
@@ -66,6 +85,9 @@ static int enable_debugging_features(void);
 
 static void destroy_mount_data(struct mount_data *);
 
+static int read_errpipe(int, const char **);
+static int write_errpipe(int, int, const char *);
+
 static int opt_proc(void *, const char *, int, struct fuse_args *);
 static int do_fuse_parse_cmdline(struct fuse_args *, char **, int *, int *);
 static int parse_cmdline(struct fuse_args *, struct fuse_data *);
@@ -73,7 +95,7 @@ static int parse_cmdline(struct fuse_args *, struct fuse_data *);
 static struct fuse_session *do_fuse_mount(const char *, struct fuse_args *,
                                           const struct fuse_lowlevel_ops *,
                                           size_t, void *, struct fuse_chan **);
-static int do_fuse_daemonize(void);
+static int do_fuse_daemonize(pid_t *);
 static int do_fuse_session_loop_mt(struct fuse_session *);
 static void do_fuse_unmount(const char *, struct fuse_chan *,
                             struct fuse_session *);
@@ -84,7 +106,7 @@ static int open_log(const char *);
 
 static int init_fuse(struct fuse_args *, struct fuse_data *);
 static int process_fuse_events(struct fuse_data *);
-static void terminate_fuse(struct fuse_data *);
+static int terminate_fuse(struct fuse_data *);
 
 static int unmount_fuse(struct fuse_data *);
 
@@ -389,10 +411,84 @@ do_fuse_mount(const char *mountpoint, struct fuse_args *args,
 }
 
 static int
-do_fuse_daemonize()
+read_errpipe(int pipefd, const char **buf)
+{
+    size_t numread;
+    ssize_t ret;
+    static struct errpipe_msg msg;
+
+    *buf = NULL;
+
+    for (numread = 0;; numread += ret) {
+        ret = read(pipefd, (char *)&msg + numread, sizeof(msg) - numread);
+        if (ret < 1) {
+            if (ret == 0)
+                break;
+            if (errno != EINTR)
+                return MINUS_ERRNO;
+            continue;
+        }
+    }
+
+    if ((numread < ERRPIPE_MIN_MSGLEN) || (numread != msg.msglen))
+        return -EIO;
+
+    if (msg.err)
+        *buf = msg.buf;
+    return msg.err;
+}
+
+static int
+write_errpipe(int pipefd, int err, const char *buf)
+{
+    size_t len;
+    ssize_t ret;
+    struct errpipe_msg msg;
+
+    msg.msglen = ERRPIPE_MIN_MSGLEN;
+    if (buf == NULL)
+        msg.err = 0;
+    else {
+        len = strlcpy(msg.buf, buf, sizeof(msg.buf));
+        if (len < sizeof(msg.buf)) {
+            msg.err = err;
+            msg.msglen += len;
+        } else {
+            msg.err = -EIO;
+            ++(msg.msglen);
+            msg.buf[0] = '\0';
+        }
+    }
+
+    for (len = 0; len < msg.msglen; len += ret) {
+        ret = write(pipefd, (char *)&msg + len, msg.msglen - len);
+        if (ret < 1) {
+            if (ret == 0)
+                break;
+            if (errno != EINTR)
+                return MINUS_ERRNO;
+            continue;
+        }
+    }
+
+    return 0;
+}
+
+static int
+do_fuse_daemonize(pid_t *fspid)
 {
     int dfd;
     int err;
+    pid_t pid;
+
+    pid = fork();
+    if (pid == -1)
+        return MINUS_ERRNO;
+
+    if (pid != 0) {
+        *fspid = pid;
+        return 1;
+    }
 
     dfd = open(".", O_DIRECTORY | OPEN_MODE_EXEC);
     if (dfd == -1)
@@ -455,20 +551,20 @@ do_fuse_session_loop_mt(struct fuse_session *se)
  * close of /dev/fuse so that a failed unmount may be retried by the file system
  * process until successful.
  *
- * This function is currently only used when an error occurs during
- * simplefs_init(). In this case, only one worker thread is processing requests
- * from /dev/fuse. Hence, when the init request returns, all further request
- * processing in user space should immediately cease. At the same time, the
- * completion of the init request would permit the mount of the file system to
- * complete and allow file system calls in other processes to be serviced by the
- * FUSE kernel module, before the unmount of the file system can be started.
- * However, this should not lead to the umount() or umount2() system call
- * returning EBUSY. This is because any file system calls issued after the mount
- * of the file system but before the unmount operation is processed will be
- * aborted by closing /dev/fuse before proceeding with the unmount as described
- * above. Thus, any file system calls that are processed by the VFS in this
- * window, as well as any file system calls after an unmount that fails due to
- * one of the reasons mentioned above, should return with ENOTCONN.
+ * This function can be used when an error occurs during simplefs_init(). In
+ * this case, only one worker thread is processing requests from /dev/fuse.
+ * Hence, when the init request returns, all further request processing in user
+ * space should immediately cease. At the same time, the completion of the init
+ * request would permit the mount of the file system to complete and allow file
+ * system calls in other processes to be serviced by the FUSE kernel module,
+ * before the unmount of the file system can be started. However, this should
+ * not lead to the umount() or umount2() system call returning EBUSY. This is
+ * because any file system calls issued after the mount of the file system but
+ * before the unmount operation is processed will be aborted by closing
+ * /dev/fuse before proceeding with the unmount as described above. Thus, any
+ * file system calls that are processed by the VFS in this window, as well as
+ * any file system calls after an unmount that fails due to one of the reasons
+ * mentioned above, should return with ENOTCONN.
  */
 static void
 do_fuse_unmount(const char *mountpoint, struct fuse_chan *ch,
@@ -531,7 +627,11 @@ init_fuse(struct fuse_args *args, struct fuse_data *fusedata)
     char *bn, *dn;
     char buf[PATH_MAX];
     const char *errmsg;
-    int err = 0;
+    int background;
+    int errpipe[2];
+    int res = 0;
+    int status;
+    pid_t pid;
 
     if ((fuse_opt_add_arg(args, "-o") == -1)
         || (fuse_opt_add_arg(args, DEFAULT_FUSE_OPTIONS) == -1))
@@ -539,7 +639,7 @@ init_fuse(struct fuse_args *args, struct fuse_data *fusedata)
 
     dn = dirname_safe(fusedata->mountpoint, buf, sizeof(buf));
     if (dn == NULL) {
-        err = -ENAMETOOLONG;
+        res = -ENAMETOOLONG;
         errmsg = "Pathname too long";
         goto err1;
     }
@@ -555,45 +655,101 @@ init_fuse(struct fuse_args *args, struct fuse_data *fusedata)
         fusedata->md.wd = open(".", O_CLOEXEC | O_DIRECTORY | O_RDONLY);
         if (fusedata->md.wd == -1) {
             if ((OPEN_MODE_EXEC == O_RDONLY) || (errno != EACCES)) {
-                err = MINUS_ERRNO;
+                res = MINUS_ERRNO;
                 goto err1;
             }
             /* retry open with search permissions only */
             fusedata->md.wd = open(".",
                                    O_CLOEXEC | O_DIRECTORY | OPEN_MODE_EXEC);
             if (fusedata->md.wd == -1) {
-                err = MINUS_ERRNO;
+                res = MINUS_ERRNO;
                 goto err1;
             }
         }
     }
 
     if (chdir(dn) == -1) {
-        err = MINUS_ERRNO;
+        res = MINUS_ERRNO;
         errmsg = "Error changing directory";
         goto err2;
     }
 
-    fusedata->aborted = 0;
+    errmsg = "Error initializing FUSE file system";
 
-    err = request_new(&fusedata->ctx, REQUEST_DEFAULT, REPLY_DEFAULT,
+    res = request_new(&fusedata->ctx, REQUEST_DEFAULT, REPLY_DEFAULT,
                       &fusedata->md, &sess_default_ops, fusedata);
-    if (err) {
-        errmsg = "Error initializing FUSE file system";
+    if (res != 0)
         goto err2;
+
+    background = !(fusedata->foreground);
+
+    if (background) {
+        if (pipe(errpipe) == -1)
+            goto err3;
+
+        res = do_fuse_daemonize(&pid);
+        if (res != 0) {
+            if (res != 1)
+                goto err4;
+            close(errpipe[1]);
+            goto parent_end;
+        }
+
+        close(errpipe[0]);
     }
+
+    res = request_fuse_init_prepare(fusedata->ctx);
+    if (res != 0)
+        goto err4;
 
     fusedata->sess = do_fuse_mount(fusedata->mountpoint, args,
                                    &request_fuse_ops, sizeof(request_fuse_ops),
                                    fusedata->ctx, &fusedata->chan);
     if (fusedata->sess == NULL) {
-        err = -EIO;
+        res = -EIO;
         errmsg = "Error mounting FUSE file system";
-        goto err3;
+        if (background)
+            write_errpipe(errpipe[1], res, errmsg);
+        goto err5;
     }
+
+    if (background) {
+        res = write_errpipe(errpipe[1], 0, NULL);
+        close(errpipe[1]);
+        if (res != 0)
+            goto err6;
+    }
+
+    fusedata->aborted = 0;
+
+    syslog(LOG_INFO, FSNAME " using " LIBNAME " initialized successfully");
 
     return 0;
 
+parent_end:
+    res = read_errpipe(errpipe[0], &errmsg);
+    close(errpipe[0]);
+    if (res != 0) {
+        waitpid(pid, &status, 0);
+        if (errmsg == NULL)
+            errmsg = "Error mounting FUSE file system";
+        goto err3;
+    }
+    request_end(fusedata->ctx);
+    if (fusedata->md.wd != -1)
+        close(fusedata->md.wd);
+    if (fusedata->mountpoint != fusedata->md.mountpoint)
+        free((void *)(fusedata->mountpoint));
+    return 1;
+
+err6:
+    do_fuse_unmount(fusedata->mountpoint, fusedata->chan, fusedata->sess);
+    fuse_session_destroy(fusedata->sess);
+err5:
+    request_fuse_destroy_finish(fusedata->ctx);
+err4:
+    if (background)
+        close(errpipe[1]);
 err3:
     request_end(fusedata->ctx);
 err2:
@@ -602,45 +758,43 @@ err2:
 err1:
     if (fusedata->mountpoint != fusedata->md.mountpoint)
         free((void *)(fusedata->mountpoint));
-    if (!err) {
-        err = -ENOMEM;
+    if (res == 0) {
+        res = -ENOMEM;
         errmsg = "Out of memory";
     }
-    error(0, -err, "%s", errmsg);
-    return err;
+    error(0, -res, "%s", errmsg);
+    return res;
 }
 
 static int
 process_fuse_events(struct fuse_data *fusedata)
 {
-    int ret;
-
-    if (!(fusedata->foreground)) {
-        ret = do_fuse_daemonize();
-        if (ret != 0)
-            goto err;
-    }
-
     if (do_fuse_session_loop_mt(fusedata->sess) == -1) {
-        ret = -EIO;
-        goto err;
+        error(0, 0, "Error mounting FUSE file system");
+        return -EIO;
     }
 
     return 0;
-
-err:
-    error(0, -ret, "Error mounting FUSE file system");
-    return ret;
 }
 
-static void
+static int
 terminate_fuse(struct fuse_data *fusedata)
 {
+    int ret;
+
     if (fusedata->aborted)
         do_fuse_unmount(fusedata->mountpoint, fusedata->chan, fusedata->sess);
     fuse_session_destroy(fusedata->sess);
 
+    ret = request_fuse_destroy_finish(fusedata->ctx);
+    if (ret == 0)
+        syslog(LOG_INFO, FSNAME " terminated successfully");
+    else
+        syslog(LOG_ERR, FSNAME " terminated with error");
+
     request_end(fusedata->ctx);
+
+    return ret;
 }
 
 static int
@@ -652,7 +806,7 @@ unmount_fuse(struct fuse_data *fusedata)
 int
 main(int argc, char **argv)
 {
-    int ret, status;
+    int ret, status, tmp;
     struct fuse_args args = FUSE_ARGS_INIT(argc, argv);
     struct fuse_data fusedata;
 
@@ -681,16 +835,22 @@ main(int argc, char **argv)
     if (open_log(fusedata.md.mountpoint) != 0)
         goto err1;
 
-    if (init_fuse(&args, &fusedata) != 0)
-        goto err2;
+    ret = init_fuse(&args, &fusedata);
+    if (ret != 0) {
+        if (ret != 1)
+            goto err2;
+        goto parent_end;
+    }
 
     fuse_opt_free_args(&args);
 
     ret = process_fuse_events(&fusedata);
 
-    terminate_fuse(&fusedata);
+    tmp = terminate_fuse(&fusedata);
+    if (tmp != 0)
+        ret = tmp;
 
-    if ((ret == 0) && (mount_status() == 0)) {
+    if (ret == 0) {
         status = EXIT_SUCCESS;
         syslog(LOG_INFO, "Returned success status");
     } else {
@@ -705,6 +865,12 @@ main(int argc, char **argv)
 end:
     destroy_mount_data(&fusedata.md);
     return status;
+
+parent_end:
+    closelog();
+    destroy_mount_data(&fusedata.md);
+    fuse_opt_free_args(&args);
+    return EXIT_SUCCESS;
 
 err2:
     closelog();
