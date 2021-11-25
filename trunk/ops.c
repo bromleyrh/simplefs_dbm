@@ -3165,9 +3165,11 @@ do_write_data(void *args)
             if (write_buf == null_data)
                 bufp = null_data;
             else {
-                memset(buf, 0, pgoff);
-                memcpy(buf + pgoff, write_buf + write_size - size, sz);
-                memset(buf + pgoff + sz, 0, sizeof(buf) - pgoff - sz);
+                mempset(mempcpy(mempset(buf, 0, pgoff),
+                                write_buf + write_size - size,
+                                sz),
+                        0,
+                        sizeof(buf) - pgoff - sz);
                 bufp = buf;
             }
 
