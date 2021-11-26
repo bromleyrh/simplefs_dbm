@@ -9,7 +9,7 @@ SUBDIRS = man
 EXTRA_DIST = build-aux mount.simplefs-autofs obj.idl
 
 noinst_HEADERS = back_end.h back_end_dbm.h blkdev.h common.h compat.h \
-	file_tab.h fuse_cache.h ops.h request.h simplefs.h util.h
+	file_tab.h fuse_cache.h fuse_conn.h ops.h request.h simplefs.h util.h
 
 bin_PROGRAMS = mkfs.simplefs mount.simplefs simplefs simplefs_dbg \
 	umount.simplefs
@@ -88,7 +88,7 @@ sys_dep_cppflags = -Isys_dep
 include sys_dep/Makefile.am
 
 simplefs_SOURCES = back_end.c back_end_dbm.c blkdev.c compat.c file_tab.c \
-	fuse_cache.c ops.c request.c simplefs.c util.c
+	fuse_cache.c fuse_conn.c ops.c request.c simplefs.c util.c
 simplefs_CPPFLAGS = $(AM_CPPFLAGS) $(sys_dep_cppflags) $(fuse_defines) \
 	@fuse_cppflags@ @libn_cppflags@ @libutil_cppflags@
 simplefs_CFLAGS = $(AM_CFLAGS)
