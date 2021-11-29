@@ -109,26 +109,241 @@ struct fuse_out_header {
     uint8_t     data[0];
 };
 
-#define FUSE_ASYNC_READ              1
-#define FUSE_POSIX_LOCKS             2
-#define FUSE_FILE_OPS                4
-#define FUSE_ATOMIC_O_TRUNC          8
-#define FUSE_EXPORT_SUPPORT         16
-#define FUSE_BIG_WRITES             32
-#define FUSE_DONT_MASK              64
-#define FUSE_SPLICE_WRITE          128
-#define FUSE_SPLICE_MOVE           256
-#define FUSE_SPLICE_READ           512
-#define FUSE_FLOCK_LOCKS          1024
-#define FUSE_HAS_IOCTL_DIR        2048
-#define FUSE_AUTO_INVAL_DATA      4096
-#define FUSE_DO_READDIRPLUS       8192
-#define FUSE_ASYNC_DIO           16384
-#define FUSE_WRITEBACK_CACHE     32768
-#define FUSE_NO_OPEN_SUPPORT     65536
-#define FUSE_PARALLEL_DIROPS    131072
-#define FUSE_HANDLE_KILLPRIV    262144
-#define FUSE_POSIX_ACL          524288
+struct fuse_entry_out {
+    uint64_t            nodeid;
+    uint64_t            generation;
+    uint64_t            entry_valid;
+    uint64_t            attr_valid;
+    uint32_t            entry_valid_nsec;
+    uint32_t            attr_valid_nsec;
+    struct fuse_attr    attr;
+};
+
+struct fuse_attr_out {
+    uint64_t            attr_valid;
+    uint32_t            attr_valid_nsec;
+    uint32_t            dummy;
+    struct fuse_attr    attr;
+};
+
+struct fuse_dirent {
+    uint64_t    ino;
+    uint64_t    off;
+    uint32_t    namelen;
+    uint32_t    type;
+    char        name[0];
+};
+
+/* FORGET */
+
+struct fuse_forget_in {
+    uint64_t nlookup;
+};
+
+/* GETATTR */
+
+#define FUSE_GETATTR_FH 1
+
+struct fuse_getattr_in {
+    uint32_t getattr_flags;
+    uint32_t dummy;
+    uint64_t fh;
+};
+
+/* SETATTR */
+
+#define FATTR_MODE         1
+#define FATTR_UID          2
+#define FATTR_GID          4
+#define FATTR_SIZE         8
+#define FATTR_ATIME       16
+#define FATTR_MTIME       32
+#define FATTR_FH          64
+#define FATTR_ATIME_NOW  128
+#define FATTR_MTIME_NOW  256
+#define FATTR_LOCKOWNER  512
+#define FATTR_CTIME     1024
+
+struct fuse_setattr_in {
+    uint32_t valid;
+    uint32_t padding;
+    uint64_t fh;
+    uint64_t size;
+    uint64_t lock_owner;
+    uint64_t atime;
+    uint64_t mtime;
+    uint64_t ctime;
+    uint32_t atimensec;
+    uint32_t mtimensec;
+    uint32_t ctimensec;
+    uint32_t mode;
+    uint32_t unused4;
+    uint32_t uid;
+    uint32_t gid;
+    uint32_t unused5;
+};
+
+/* MKNOD */
+
+struct fuse_mknod_in {
+    uint32_t mode;
+    uint32_t rdev;
+    uint32_t umask;
+    uint32_t padding;
+};
+
+/* MKDIR */
+
+struct fuse_mkdir_in {
+    uint32_t mode;
+    uint32_t umask;
+};
+
+/* RENAME */
+
+struct fuse_rename_in {
+    uint64_t newdir;
+};
+
+/* LINK */
+
+struct fuse_link_in {
+    uint64_t oldnodeid;
+};
+
+/* OPEN */
+
+struct fuse_open_in {
+    uint32_t flags;
+    uint32_t unused;
+};
+
+#define FOPEN_DIRECT_IO     1
+#define FOPEN_KEEP_CACHE    2
+#define FOPEN_NONSEEKABLE   4
+#define FOPEN_CACHE_DIR     8
+
+struct fuse_open_out {
+    uint64_t fh;
+    uint32_t open_flags;
+    uint32_t padding;
+};
+
+/* READ */
+
+#define FUSE_READ_LOCKOWNER 2
+
+#define FUSE_MIN_READ_BUFFER 8192
+
+struct fuse_read_in {
+    uint64_t fh;
+    uint64_t offset;
+    uint32_t size;
+    uint32_t read_flags;
+    uint64_t lock_owner;
+    uint32_t flags;
+    uint32_t padding;
+};
+
+/* WRITE */
+
+#define FUSE_WRITE_CACHE        1
+#define FUSE_WRITE_LOCKOWNER    2
+
+struct fuse_write_in {
+    uint64_t fh;
+    uint64_t offset;
+    uint32_t size;
+    uint32_t write_flags;
+    uint64_t lock_owner;
+    uint32_t flags;
+    uint32_t padding;
+};
+
+struct fuse_write_out {
+    uint32_t size;
+    uint32_t padding;
+};
+
+/* STATFS */
+
+struct fuse_statfs_out {
+    struct fuse_kstatfs st;
+};
+
+/* RELEASE */
+
+#define FUSE_RELEASE_FLUSH          1
+#define FUSE_RELEASE_FLOCK_UNLOCK   2
+
+struct fuse_release_in {
+    uint64_t fh;
+    uint32_t flags;
+    uint32_t release_flags;
+    uint64_t lock_owner;
+};
+
+/* FSYNC */
+
+struct fuse_fsync_in {
+    uint64_t fh;
+    uint32_t fsync_flags;
+    uint32_t padding;
+};
+
+/* SETXATTR */
+
+struct fuse_setxattr_in {
+    uint32_t size;
+    uint32_t flags;
+};
+
+/* GETXATTR */
+
+struct fuse_getxattr_in {
+    uint32_t size;
+    uint32_t padding;
+};
+
+struct fuse_getxattr_out {
+    uint32_t size;
+    uint32_t padding;
+};
+
+/* FLUSH */
+
+struct fuse_flush_in {
+    uint64_t fh;
+    uint32_t unused;
+    uint32_t padding;
+    uint64_t lock_owner;
+};
+
+/* INIT */
+
+#define FUSE_ASYNC_READ               1
+#define FUSE_POSIX_LOCKS              2
+#define FUSE_FILE_OPS                 4
+#define FUSE_ATOMIC_O_TRUNC           8
+#define FUSE_EXPORT_SUPPORT          16
+#define FUSE_BIG_WRITES              32
+#define FUSE_DONT_MASK               64
+#define FUSE_SPLICE_WRITE           128
+#define FUSE_SPLICE_MOVE            256
+#define FUSE_SPLICE_READ            512
+#define FUSE_FLOCK_LOCKS           1024
+#define FUSE_HAS_IOCTL_DIR         2048
+#define FUSE_AUTO_INVAL_DATA       4096
+#define FUSE_DO_READDIRPLUS        8192
+#define FUSE_ASYNC_DIO            16384
+#define FUSE_WRITEBACK_CACHE      32768
+#define FUSE_NO_OPEN_SUPPORT      65536
+#define FUSE_PARALLEL_DIROPS     131072
+#define FUSE_HANDLE_KILLPRIV     262144
+#define FUSE_POSIX_ACL           524288
+#define FUSE_ABORT_ERROR        1048576
+#define FUSE_MAX_PAGES          2097152
+#define FUSE_CACHE_SYMLINKS     4194304
 
 struct fuse_init_in {
     uint32_t major;
@@ -149,88 +364,36 @@ struct fuse_init_out {
     uint32_t unused[9];
 };
 
-struct fuse_entry_out {
-    uint64_t            nodeid;
-    uint64_t            generation;
-    uint64_t            entry_valid;
-    uint64_t            attr_valid;
-    uint32_t            entry_valid_nsec;
-    uint32_t            attr_valid_nsec;
-    struct fuse_attr    attr;
-};
-
-#define FUSE_GETATTR_FH 1
-
-struct fuse_getattr_in {
-    uint32_t getattr_flags;
-    uint32_t dummy;
-    uint64_t fh;
-};
-
-struct fuse_attr_out {
-    uint64_t            attr_valid;
-    uint32_t            attr_valid_nsec;
-    uint32_t            dummy;
-    struct fuse_attr    attr;
-};
+/* ACCESS */
 
 struct fuse_access_in {
     uint32_t mask;
     uint32_t padding;
 };
 
-struct fuse_open_in {
+/* CREATE */
+
+struct fuse_create_in {
     uint32_t flags;
-    uint32_t unused;
-};
-
-#define FOPEN_DIRECT_IO     1
-#define FOPEN_KEEP_CACHE    2
-#define FOPEN_NONSEEKABLE   4
-
-struct fuse_open_out {
-    uint64_t fh;
-    uint32_t open_flags;
+    uint32_t mode;
+    uint32_t umask;
     uint32_t padding;
 };
 
-struct fuse_flush_in {
-    uint64_t fh;
-    uint32_t unused;
-    uint32_t padding;
-    uint64_t lock_owner;
-};
-
-#define FUSE_RELEASE_FLUSH          1
-#define FUSE_RELEASE_FLOCK_UNLOCK   2
-
-struct fuse_release_in {
-    uint64_t fh;
-    uint32_t flags;
-    uint32_t release_flags;
-    uint64_t lock_owner;
-};
-
-#define FUSE_READ_LOCKOWNER 2
-
-#define FUSE_MIN_READ_BUFFER 8192
-
-struct fuse_read_in {
-    uint64_t fh;
-    uint64_t offset;
-    uint32_t size;
-    uint32_t read_flags;
-    uint64_t lock_owner;
-    uint32_t flags;
-    uint32_t padding;
-};
-
-struct fuse_statfs_out {
-    struct fuse_kstatfs st;
-};
+/* INTERRUPT */
 
 struct fuse_interrupt_in {
     uint64_t unique;
+};
+
+/* FALLOCATE */
+
+struct fuse_fallocate_in {
+    uint64_t fh;
+    uint64_t offset;
+    uint64_t length;
+    uint32_t mode;
+    uint32_t padding;
 };
 
 /* vi: set expandtab sw=4 ts=4: */
