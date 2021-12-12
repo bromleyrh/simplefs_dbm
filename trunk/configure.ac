@@ -108,9 +108,6 @@ AC_SUBST([libjson_link_dep])
 AC_SUBST([libtest_link_dep])
 AC_SUBST([libutil_link_dep])
 
-req_priv="libjson libutil"
-AC_SUBST([req_priv])
-
 AC_ARG_ENABLE([sanitizers],
               [  --enable-sanitizers     enable GCC sanitizers],
               [case "$enableval" in
