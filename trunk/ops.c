@@ -1250,7 +1250,10 @@ delete_file(struct back_end *be, inum_t root_id, inum_t ino)
         if (S_ISLNK(s.st_mode)) /* size does not include null terminator */
             ++size;
 
-        numpg = (size + PG_SIZE - 1) / PG_SIZE;
+        in
+            numpg = (addos64s64(size, PG_SIZE) - 1) / PG_SIZE;
+        trap
+            numpg = OFF_MAX / PG_SIZE + 1;
 
         k.type = TYPE_PAGE;
 
