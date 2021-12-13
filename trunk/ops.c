@@ -1168,8 +1168,14 @@ truncate_file(struct back_end *be, inum_t ino, off_t oldsize, off_t newsize,
     if (newsize >= oldsize)
         goto end;
 
-    oldnumpg = (oldsize + PG_SIZE - 1) / PG_SIZE;
-    newnumpg = (newsize + PG_SIZE - 1) / PG_SIZE;
+    in
+        oldnumpg = (addos64s64(oldsize, PG_SIZE) - 1) / PG_SIZE;
+    trap
+        oldnumpg = OFF_MAX / PG_SIZE + 1;
+    in
+        newnumpg = (addos64s64(newsize, PG_SIZE) - 1) / PG_SIZE;
+    trap
+        newnumpg = OFF_MAX / PG_SIZE + 1;
 
     k.type = TYPE_PAGE;
     k.ino = ino;
