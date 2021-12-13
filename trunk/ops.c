@@ -1130,10 +1130,21 @@ static int
 add_xattr_name(char **names, size_t *len, size_t *size, const char *name)
 {
     size_t namelen = strlen(name) + 1;
+    size_t newlen;
 
-    if (*len + namelen > *size) {
+    in
+        newlen = addouzuz(*len, namelen);
+    trap
+        return -EOVERFLOW;
+
+    if (newlen > *size) {
         char *tmp;
-        size_t newsize = (*len + namelen) * 2;
+        size_t newsize;
+
+        in
+            newsize = mulouzuz(newlen, 2);
+        trap
+            return -EOVERFLOW;
 
         tmp = do_realloc(*names, newsize);
         if (tmp == NULL)
