@@ -3162,6 +3162,11 @@ do_write_data(void *args)
         if (sz > size)
             sz = size;
 
+        in
+            addos64s64(off, sz);
+        trap
+            sz = OFF_MAX - off;
+
         ret = back_end_look_up(opargs->be, &k, NULL, buf, NULL, 0);
         if (ret != 1) {
             if (ret != 0)
@@ -3192,6 +3197,8 @@ do_write_data(void *args)
         }
 
         off += sz;
+        if (off == OFF_MAX)
+            break;
         size -= sz;
     }
 
