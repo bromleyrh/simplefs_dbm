@@ -19,6 +19,7 @@
 #include "simplefs.h"
 #include "util.h"
 
+#include <arithmetic.h>
 #include <avl_tree.h>
 #include <fifo.h>
 #include <strings_ext.h>
@@ -3055,7 +3056,11 @@ do_read_data(void *args)
     size = opargs->op_data.rdwr_data.size;
 
     firstpgidx = off / PG_SIZE;
-    lastpgidx = (MIN(off + (off_t)size, s.st_size) - 1) / PG_SIZE;
+    in {
+        lastpgidx = (MIN(addos64s64(off, (off_t)size), s.st_size) - 1)
+                    / PG_SIZE;
+    } trap
+        lastpgidx = OFF_MAX / PG_SIZE;
     count = lastpgidx - firstpgidx + 1;
 
     iov = do_calloc(count, sizeof(*iov));

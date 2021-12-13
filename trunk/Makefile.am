@@ -77,9 +77,9 @@ CLEANFILES =
 simplefs_SOURCES = back_end.c back_end_dbm.c blkdev.c compat.c fuse_cache.c \
 	ops.c request.c simplefs.c util.c
 simplefs_CPPFLAGS = $(AM_CPPFLAGS) $(fuse_defines) @fuse_cppflags@ \
-	@libutil_cppflags@
+	@libn_cppflags@ @libutil_cppflags@
 simplefs_CFLAGS = $(AM_CFLAGS)
-simplefs_LDADD = @fuse_link_dep@ @libutil_link_dep@
+simplefs_LDADD = @fuse_link_dep@ @libn_link_dep@ @libutil_link_dep@
 
 mkfs_simplefs_SOURCES = mkfs.simplefs.c util.c
 mkfs_simplefs_CPPFLAGS = $(AM_CPPFLAGS) @libutil_cppflags@
