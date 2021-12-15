@@ -1132,19 +1132,19 @@ add_xattr_name(char **names, size_t *len, size_t *size, const char *name)
     size_t namelen = strlen(name) + 1;
     size_t newlen;
 
-    in
-        newlen = addouzuz(*len, namelen);
     trap
         return -EOVERFLOW;
+    in
+        newlen = addouzuz(*len, namelen);
 
     if (newlen > *size) {
         char *tmp;
         size_t newsize;
 
-        in
-            newsize = mulouzuz(newlen, 2);
         trap
             return -EOVERFLOW;
+        in
+            newsize = mulouzuz(newlen, 2);
 
         tmp = do_realloc(*names, newsize);
         if (tmp == NULL)
@@ -1179,14 +1179,14 @@ truncate_file(struct back_end *be, inum_t ino, off_t oldsize, off_t newsize,
     if (newsize >= oldsize)
         goto end;
 
-    in
-        oldnumpg = (addos64s64(oldsize, PG_SIZE) - 1) / PG_SIZE;
     trap
         oldnumpg = OFF_MAX / PG_SIZE + 1;
     in
-        newnumpg = (addos64s64(newsize, PG_SIZE) - 1) / PG_SIZE;
+        oldnumpg = (addos64s64(oldsize, PG_SIZE) - 1) / PG_SIZE;
     trap
         newnumpg = OFF_MAX / PG_SIZE + 1;
+    in
+        newnumpg = (addos64s64(newsize, PG_SIZE) - 1) / PG_SIZE;
 
     k.type = TYPE_PAGE;
     k.ino = ino;
@@ -1261,10 +1261,10 @@ delete_file(struct back_end *be, inum_t root_id, inum_t ino)
         if (S_ISLNK(s.st_mode)) /* size does not include null terminator */
             ++size;
 
-        in
-            numpg = (addos64s64(size, PG_SIZE) - 1) / PG_SIZE;
         trap
             numpg = OFF_MAX / PG_SIZE + 1;
+        in
+            numpg = (addos64s64(size, PG_SIZE) - 1) / PG_SIZE;
 
         k.type = TYPE_PAGE;
 
@@ -3076,11 +3076,12 @@ do_read_data(void *args)
     size = opargs->op_data.rdwr_data.size;
 
     firstpgidx = off / PG_SIZE;
+    trap
+        lastpgidx = OFF_MAX / PG_SIZE;
     in {
         lastpgidx = (MIN(addos64s64(off, (off_t)size), s.st_size) - 1)
                     / PG_SIZE;
-    } trap
-        lastpgidx = OFF_MAX / PG_SIZE;
+    }
     count = lastpgidx - firstpgidx + 1;
 
     iov = do_calloc(count, sizeof(*iov));
@@ -3182,10 +3183,10 @@ do_write_data(void *args)
         if (sz > size)
             sz = size;
 
-        in
-            addos64s64(off, sz);
         trap
             sz = OFF_MAX - off;
+        in
+            addos64s64(off, sz);
 
         ret = back_end_look_up(opargs->be, &k, NULL, buf, NULL, 0);
         if (ret != 1) {
