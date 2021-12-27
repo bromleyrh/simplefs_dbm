@@ -598,7 +598,6 @@ do_unmount_path(const char *mountpoint)
     if (pid == 0) {
         execlp(FUSERMOUNT_PATH, FUSERMOUNT_PATH, "-u", mountpoint, NULL);
         _exit(EXIT_FAILURE);
-        return -EIO;
     }
 
     if (waitpid(pid, &status, 0) == -1)
