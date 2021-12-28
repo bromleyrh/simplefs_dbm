@@ -112,7 +112,7 @@ do_mount(char **argv, int unmount)
             argvp = argv;
         }
         execvp(argvp[0], argvp);
-        exit(EXIT_FAILURE);
+        _exit(EXIT_FAILURE);
     }
 
     if (waitpid(pid, &status, 0) == -1)
@@ -183,10 +183,10 @@ do_start_simplefs(int mount_argc, char **mount_argv, sigset_t *set)
 
         if ((sigprocmask(SIG_SETMASK, set, NULL) != 0)
             || (redirect_std_fds("/dev/null") != 0) || (setsid() == -1))
-            exit(EXIT_FAILURE);
+            _exit(EXIT_FAILURE);
 
         if (snprintf(buf, sizeof(buf), "%d", pipefd[1]) >= (int)sizeof(buf))
-            exit(EXIT_FAILURE);
+            _exit(EXIT_FAILURE);
 
         if (mount_argv == NULL) {
             execlp(SIMPLEFS_PATH, SIMPLEFS_PATH, "-f", "-o",
@@ -197,7 +197,7 @@ do_start_simplefs(int mount_argc, char **mount_argv, sigset_t *set)
             execvp(SIMPLEFS_PATH, mount_argv);
         }
 
-        exit(EXIT_FAILURE);
+        _exit(EXIT_FAILURE);
     }
 
     close(pipefd[1]);
