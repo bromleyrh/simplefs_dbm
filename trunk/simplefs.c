@@ -5,6 +5,7 @@
 #include "config.h"
 
 #include "common.h"
+#include "fuse_conn.h"
 #include "ops.h"
 #include "request.h"
 #include "simplefs.h"
@@ -17,9 +18,6 @@
 #include <files/util.h>
 
 #include <myutil/version.h>
-
-#include <fuse.h>
-#include <fuse_lowlevel.h>
 
 #include <errno.h>
 #include <fcntl.h>
@@ -43,10 +41,10 @@ struct fuse_data {
     char                *mountpoint;
     int                 foreground;
     struct mount_data   md;
-    struct fuse_chan    *chan;
-    struct fuse_session *sess;
+    void                *chan;
+    struct fuse_conn    *sess;
     struct request_ctx  *ctx;
-    int                 aborted; /* session loop aborted by fuse_session_exit()
+    int                 aborted; /* session loop aborted by fuse_conn_destroy()
                                     call in simplefs, rather than external
                                     umount() on mount point */
 };
@@ -61,7 +59,7 @@ struct errpipe_msg {
 
 extern int fuse_cache_debug;
 
-extern struct fuse_lowlevel_ops request_fuse_ops;
+extern struct fuse_conn_ops request_fuse_ops;
 
 #define FSNAME PACKAGE_STRING
 #define LIBNAME "libutil " LIBUTIL_VERSION
@@ -93,25 +91,25 @@ static void destroy_mount_data(struct mount_data *);
 static int read_errpipe(int, const char **);
 static int write_errpipe(int, int, const char *);
 
-static int opt_proc(void *, const char *, int, struct fuse_args *);
-static int do_fuse_parse_cmdline(struct fuse_args *, char **, int *, int *);
-static int parse_cmdline(struct fuse_args *, struct fuse_data *);
+static int opt_proc(void *, const char *, int, struct fuse_conn_args *);
+static int do_fuse_parse_cmdline(struct fuse_conn_args *, char **, int *,
+                                 int *);
+static int parse_cmdline(struct fuse_conn_args *, struct fuse_data *);
 
 static int set_privs(char *);
 
-static int do_fuse_mount(struct fuse_session **, const char *,
-                         struct fuse_args *, const struct fuse_lowlevel_ops *,
+static int do_fuse_mount(struct fuse_conn **, const char *,
+                         struct fuse_conn_args *, const struct fuse_conn_ops *,
                          size_t, void *, struct fuse_chan **);
 static int do_fuse_daemonize(pid_t *);
-static int do_fuse_session_loop_mt(struct fuse_session *);
-static void do_fuse_unmount(const char *, struct fuse_chan *,
-                            struct fuse_session *);
+static int do_fuse_session_loop_mt(struct fuse_conn *);
+static int do_fuse_unmount(const char *, void *, struct fuse_conn *);
 
 static int do_unmount_path(const char *);
 
 static int open_log(const char *);
 
-static int init_fuse(struct fuse_args *, struct fuse_data *);
+static int init_fuse(struct fuse_conn_args *, struct fuse_data *);
 static int process_fuse_events(struct fuse_data *);
 static int terminate_fuse(struct fuse_data *);
 
@@ -122,7 +120,7 @@ simplefs_exit(void *sctx)
 {
     struct fuse_data *fusedata = sctx;
 
-    fuse_session_exit(fusedata->sess);
+    fuse_conn_destroy(fusedata->sess, 1);
     fusedata->aborted = 1;
 }
 
@@ -329,7 +327,7 @@ destroy_mount_data(struct mount_data *md)
 #define FLAG_MAP_ENTRY(fl, keep) {#fl, offsetof(struct mount_data, fl), keep}
 
 static int
-opt_proc(void *data, const char *arg, int key, struct fuse_args *outargs)
+opt_proc(void *data, const char *arg, int key, struct fuse_conn_args *outargs)
 {
     size_t i;
     struct mount_data *md = data;
@@ -351,7 +349,7 @@ opt_proc(void *data, const char *arg, int key, struct fuse_args *outargs)
 
     (void)outargs;
 
-    if (key == FUSE_OPT_KEY_NONOPT) {
+    if (key == FUSE_CONN_OPT_KEY_NONOPT) {
         if (md->mountpoint == NULL) {
             md->mountpoint = strdup(arg);
             return md->mountpoint == NULL ? -1 : 0;
@@ -359,7 +357,7 @@ opt_proc(void *data, const char *arg, int key, struct fuse_args *outargs)
         return 1;
     }
 
-    if (key != FUSE_OPT_KEY_OPT)
+    if (key != FUSE_CONN_OPT_KEY_OPT)
         return 1;
 
     for (i = 0; i < ARRAY_SIZE(flag_map); i++) {
@@ -382,52 +380,31 @@ opt_proc(void *data, const char *arg, int key, struct fuse_args *outargs)
 #undef FLAG_MAP_ENTRY
 
 static int
-do_fuse_parse_cmdline(struct fuse_args *args, char **mountpoint,
+do_fuse_parse_cmdline(struct fuse_conn_args *args, char **mountpoint,
                       int *multithreaded, int *foreground)
 {
-    int ret;
-#if FUSE_USE_VERSION == 32
-    struct fuse_cmdline_opts opts;
-#endif
-
-#if FUSE_USE_VERSION != 32
-    ret = fuse_parse_cmdline(args, mountpoint, multithreaded, foreground);
-#else
-    omemset(&opts, 0);
-    ret = fuse_parse_cmdline(args, &opts);
-#endif
-    if (ret == -1)
-        return ret;
-
-#if FUSE_USE_VERSION == 32
-    if (mountpoint != NULL)
-        *mountpoint = opts.mountpoint;
-    if (multithreaded != NULL)
-        *multithreaded = !(opts.singlethread);
-    if (foreground != NULL)
-        *foreground = opts.foreground;
-
-#endif
-    return 0;
+    return fuse_conn_args_parse_opts_std(args, mountpoint, multithreaded,
+                                         foreground);
 }
 
 static int
-parse_cmdline(struct fuse_args *args, struct fuse_data *fusedata)
+parse_cmdline(struct fuse_conn_args *args, struct fuse_data *fusedata)
 {
     int err = -EINVAL, res;
 
-    static const struct fuse_opt opts[] = {
+    static const struct fuse_conn_opt opts[] = {
         {"privs=%s",    offsetof(struct mount_data, creds),         0},
         {"-F %s",       offsetof(struct mount_data, db_pathname),   0},
         {"-p %d",       offsetof(struct mount_data, pipefd),        0},
         {"-u",          offsetof(struct mount_data, unmount),       1},
-        FUSE_OPT_END
+        FUSE_CONN_OPT_END
     };
 
     omemset(&fusedata->md, 0);
     fusedata->md.wd = fusedata->md.pipefd = -1;
 
-    if (fuse_opt_parse(args, &fusedata->md, opts, &opt_proc) == -1)
+    err = fuse_conn_args_parse_opts(args, &fusedata->md, opts, &opt_proc);
+    if (err)
         goto err1;
 
     if (fusedata->md.debug)
@@ -442,9 +419,11 @@ parse_cmdline(struct fuse_args *args, struct fuse_data *fusedata)
         }
     }
 
-    if (!fusedata->md.unmount
-        && do_fuse_parse_cmdline(args, NULL, NULL, &fusedata->foreground) == -1)
-        goto err2;
+    if (!fusedata->md.unmount) {
+        err = do_fuse_parse_cmdline(args, NULL, NULL, &fusedata->foreground);
+        if (err)
+            goto err2;
+    }
 
     if (fusedata->md.mountpoint == NULL) {
         error(0, 0, "Missing mountpoint parameter");
@@ -458,7 +437,7 @@ err2:
     if (fusedata->md.db_pathname != NULL)
         free(fusedata->md.db_pathname);
 err1:
-    fuse_opt_free_args(args);
+    fuse_conn_args_free(args);
     return err;
 }
 
@@ -549,46 +528,28 @@ err:
 }
 
 static int
-do_fuse_mount(struct fuse_session **sess, const char *mountpoint,
-              struct fuse_args *args, const struct fuse_lowlevel_ops *ops,
-              size_t op_size, void *userdata, struct fuse_chan **ch)
+do_fuse_mount(struct fuse_conn **se, const char *mountpoint,
+              struct fuse_conn_args *args, const struct fuse_conn_ops *ops,
+              size_t op_size, void *userdata, void **ch)
 {
-#if FUSE_USE_VERSION == 32
-    struct fuse_session *ret;
+    int err;
+    struct fuse_conn *ret;
 
-    (void)ch;
+    (void)op_size;
 
-    ret = fuse_session_new(args, ops, op_size, userdata);
-    if (ret == NULL)
-        return ERR_TAG(EIO);
+    err = fuse_conn_new(&ret, args, ops, userdata);
+    if (err)
+        return ERR_TAG(-err);
 
-    if (fuse_session_mount(ret, mountpoint) == -1) {
-        fuse_session_destroy(ret);
-        return ERR_TAG(EIO);
+    err = fuse_conn_mount(ret, AT_FDCWD, mountpoint);
+    if (err) {
+        fuse_conn_destroy(ret, 1);
+        return ERR_TAG(-err);
     }
 
-    *sess = ret;
+    *se = ret;
+    *ch = NULL;
     return 0;
-#else
-    struct fuse_chan *chan;
-    struct fuse_session *ret;
-
-    chan = fuse_mount(mountpoint, args);
-    if (chan == NULL)
-        return ERR_TAG(EIO);
-
-    ret = fuse_lowlevel_new(args, ops, op_size, userdata);
-    if (ret == NULL) {
-        fuse_unmount(mountpoint, chan);
-        return ERR_TAG(EIO);
-    }
-
-    fuse_session_add_chan(ret, chan);
-
-    *sess = ret;
-    *ch = chan;
-    return 0;
-#endif
 }
 
 static int
@@ -679,9 +640,9 @@ do_fuse_daemonize(pid_t *fspid)
         goto err1;
     }
 
-    if (fuse_daemonize(0) == -1) {
+    if (fuse_background(0) == -1) {
         err = ERR_TAG(EIO);
-        goto err2;
+        goto err;
     }
 
     if (fchdir(dfd) == -1) {
@@ -702,20 +663,12 @@ err1:
 }
 
 static int
-do_fuse_session_loop_mt(struct fuse_session *se)
+do_fuse_session_loop_mt(struct fuse_conn *se)
 {
     int ret;
-#if FUSE_USE_VERSION == 32
-    struct fuse_loop_config mtconf;
 
-    mtconf.clone_fd = 0;
-    mtconf.max_idle_threads = 10;
-
-    ret = fuse_session_loop_mt(se, &mtconf);
-#else
-    ret = fuse_session_loop_mt(se);
-#endif
-    return ret == -1 ? ERR_TAG(EIO) : 0;
+    ret = fuse_conn_loop(se);
+    return ret == 0 ? 0 : ERR_TAG(-ret);
 }
 
 /*
@@ -756,20 +709,13 @@ do_fuse_session_loop_mt(struct fuse_session *se)
  * any file system calls after an unmount that fails due to one of the reasons
  * mentioned above, should return with ENOTCONN.
  */
-static void
-do_fuse_unmount(const char *mountpoint, struct fuse_chan *ch,
-                struct fuse_session *se)
+static int
+do_fuse_unmount(const char *mountpoint, void *ch, struct fuse_conn *se)
 {
-#if FUSE_USE_VERSION == 32
-    (void)mountpoint;
     (void)ch;
-
-    fuse_session_unmount(se);
-#else
     (void)se;
 
-    fuse_unmount(mountpoint, ch);
-#endif
+    return fuse_exec_unmount(AT_FDCWD, mountpoint);
 }
 
 /*
@@ -810,7 +756,7 @@ open_log(const char *mountpoint)
 }
 
 static int
-init_fuse(struct fuse_args *args, struct fuse_data *fusedata)
+init_fuse(struct fuse_conn_args *args, struct fuse_data *fusedata)
 {
     char *bn, *dn;
     char buf[PATH_MAX];
@@ -821,8 +767,8 @@ init_fuse(struct fuse_args *args, struct fuse_data *fusedata)
     int tmp;
     pid_t pid;
 
-    if (fuse_opt_add_arg(args, "-o") == -1
-        || fuse_opt_add_arg(args, DEFAULT_FUSE_OPTIONS) == -1) {
+    if (fuse_conn_args_add_mount_opt(args, "-o") == -1
+        || fuse_conn_args_add_mount_opt(args, DEFAULT_FUSE_OPTIONS) == -1) {
         res = ERR_TAG(ENOMEM);
         goto err1;
     }
@@ -993,7 +939,7 @@ terminate_fuse(struct fuse_data *fusedata)
 
     if (fusedata->aborted)
         do_fuse_unmount(fusedata->mountpoint, fusedata->chan, fusedata->sess);
-    fuse_session_destroy(fusedata->sess);
+    fuse_conn_destroy(fusedata->sess, fusedata->aborted);
 
     ret = request_fuse_destroy_finish(fusedata->ctx);
     if (ret == 0)
@@ -1028,7 +974,7 @@ int
 main(int argc, char **argv)
 {
     int ret, status, tmp;
-    struct fuse_args args = FUSE_ARGS_INIT(argc, argv);
+    struct fuse_conn_args args = FUSE_CONN_ARGS_INIT(argc, argv);
     struct fuse_data fusedata;
 
     ret = parse_cmdline(&args, &fusedata);
@@ -1055,7 +1001,7 @@ main(int argc, char **argv)
     }
 
     if (fusedata.md.unmount) {
-        fuse_opt_free_args(&args);
+        fuse_conn_args_free(&args);
         status = unmount_fuse(&fusedata) == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
         goto end;
     }
@@ -1070,7 +1016,7 @@ main(int argc, char **argv)
         goto parent_end;
     }
 
-    fuse_opt_free_args(&args);
+    fuse_conn_args_free(&args);
 
     ret = process_fuse_events(&fusedata);
 
@@ -1097,14 +1043,14 @@ end:
 parent_end:
     closelog();
     destroy_mount_data(&fusedata.md);
-    fuse_opt_free_args(&args);
+    fuse_conn_args_free(&args);
     return EXIT_SUCCESS;
 
 err2:
     closelog();
 err1:
     destroy_mount_data(&fusedata.md);
-    fuse_opt_free_args(&args);
+    fuse_conn_args_free(&args);
     return EXIT_FAILURE;
 }
 
