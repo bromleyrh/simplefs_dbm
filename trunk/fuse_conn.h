@@ -6,13 +6,12 @@
 #define _FUSE_CONN_H
 
 #include <stddef.h>
+#include <stdint.h>
 
 #include <sys/stat.h>
 #include <sys/types.h>
 
-struct fuse_conn_session;
-
-struct fuse_conn_chan;
+struct fuse_conn;
 
 struct fuse_conn_params {
     unsigned want;
@@ -93,6 +92,14 @@ struct fuse_conn_ops {
                         const char *name);
     void (*statfs)(fuse_conn_req_t req, fuse_conn_ino_t ino);
 };
+
+int fuse_conn_new(struct fuse_conn **conn, const struct fuse_conn_ops *ops);
+
+int fuse_conn_destroy(struct fuse_conn *conn, int force);
+
+int fuse_conn_mount(struct fuse_conn *conn, int dfd, const char *target);
+
+int fuse_conn_loop(struct fuse_conn *conn);
 
 #endif
 
