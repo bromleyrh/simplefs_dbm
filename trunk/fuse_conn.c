@@ -2,12 +2,37 @@
  * fuse_conn.c
  */
 
+#include "common.h"
 #include "fuse_conn.h"
 
+#include <errno.h>
+#include <fcntl.h>
+#include <stddef.h>
 #include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+
+#define FUSE_DEVICE "/dev/fuse"
+
+#define MOUNT_BIN "mount"
 
 #define FUSE_KERNEL_VERSION 7
 #define FUSE_KERNEL_MINOR_VERSION 26
+
+struct fuse_conn {
+    const struct fuse_conn_ops  *ops;
+    enum {
+        DEV_OPEN = 1,
+        DEV_MOUNTED,
+        DEV_UNMOUNTED
+    } state;
+    int                         devfd;
+};
 
 enum fuse_opcode {
     FUSE_LOOKUP         = 1,
@@ -395,5 +420,121 @@ struct fuse_fallocate_in {
     uint32_t mode;
     uint32_t padding;
 };
+
+static int mount_device(int, const char *);
+
+static int process_fuse_requests(struct fuse_conn *);
+
+static int
+mount_device(int dfd, const char *target)
+{
+    int err;
+    int status;
+    pid_t pid;
+
+    pid = fork();
+    if (pid == -1)
+        return MINUS_ERRNO;
+    if (pid == 0) {
+        if (fchdir(dfd) == -1)
+            perror("Error changing directory");
+        else {
+            execlp(MOUNT_BIN, MOUNT_BIN, "-t", "fuse", "fuse", target, NULL);
+            perror("Error executing " MOUNT_BIN);
+        }
+        _exit(EXIT_FAILURE);
+    }
+
+    if (waitpid(pid, &status, 0) == -1) {
+        err = MINUS_ERRNO;
+        perror("Error executing " MOUNT_BIN);
+        return err;
+    }
+    if (!WIFEXITED(status) || (WEXITSTATUS(status) != 0)) {
+        fputs("Error mounting FUSE file system\n", stderr);
+        return -EIO;
+    }
+
+    return 0;
+}
+
+static int
+process_fuse_requests(struct fuse_conn *conn)
+{
+    (void)conn;
+
+    return -ENOSYS;
+}
+
+int
+fuse_conn_new(struct fuse_conn **conn, const struct fuse_conn_ops *ops)
+{
+    int err;
+    struct fuse_conn *ret;
+
+    ret = malloc(sizeof(*ret));
+    if (ret == NULL)
+        return MINUS_ERRNO;
+
+    ret->devfd = open(FUSE_DEVICE, O_RDWR);
+    if (ret->devfd == -1) {
+        err = MINUS_ERRNO;
+        free(ret);
+        return err;
+    }
+    ret->state = DEV_OPEN;
+
+    ret->ops = ops;
+
+    *conn = ret;
+    return 0;
+}
+
+int
+fuse_conn_destroy(struct fuse_conn *conn, int force)
+{
+    int ret;
+
+    if (!force && (conn->state != DEV_UNMOUNTED))
+        return -EINVAL;
+
+    ret = (close(conn->devfd) == -1) ? MINUS_ERRNO : 0;
+
+    free(conn);
+
+    return ret;
+}
+
+int
+fuse_conn_mount(struct fuse_conn *conn, int dfd, const char *target)
+{
+    int ret;
+
+    if (conn->state != DEV_OPEN)
+        return -EINVAL;
+
+    ret = mount_device(dfd, target);
+    if (ret == 0)
+        conn->state = DEV_MOUNTED;
+
+    return ret;
+}
+
+int
+fuse_conn_loop(struct fuse_conn *conn)
+{
+    int ret;
+
+    if (conn->state != DEV_MOUNTED)
+        return -EINVAL;
+
+    ret = process_fuse_requests(conn);
+    if (ret == 1) {
+        conn->state = DEV_UNMOUNTED;
+        ret = 0;
+    }
+
+    return ret;
+}
 
 /* vi: set expandtab sw=4 ts=4: */
