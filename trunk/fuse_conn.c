@@ -26,6 +26,7 @@
 
 struct fuse_conn {
     const struct fuse_conn_ops  *ops;
+    void                        *userdata;
     enum {
         DEV_OPEN = 1,
         DEV_MOUNTED,
@@ -436,7 +437,7 @@ mount_device(int dfd, const char *target)
     if (pid == -1)
         return MINUS_ERRNO;
     if (pid == 0) {
-        if (fchdir(dfd) == -1)
+        if ((dfd != AT_FDCWD) && (fchdir(dfd) == -1))
             perror("Error changing directory");
         else {
             execlp(MOUNT_BIN, MOUNT_BIN, "-t", "fuse", "fuse", target, NULL);
@@ -467,10 +468,65 @@ process_fuse_requests(struct fuse_conn *conn)
 }
 
 int
-fuse_conn_new(struct fuse_conn **conn, const struct fuse_conn_ops *ops)
+fuse_conn_args_parse_opts(struct fuse_conn_args *args, void *data,
+                          const struct fuse_conn_opt *opts,
+                          int (*opt_proc)(void *, const char *, int,
+                                          struct fuse_conn_args *))
+{
+    (void)args;
+    (void)data;
+    (void)opts;
+    (void)opt_proc;
+
+    return -ENOSYS;
+}
+
+int
+fuse_conn_args_parse_opts_std(struct fuse_conn_args *args, char **mountpoint,
+                              int *multithreaded, int *foreground)
+{
+    (void)args;
+    (void)mountpoint;
+    (void)foreground;
+
+    *multithreaded = 0;
+
+    return -ENOSYS;
+}
+
+int
+fuse_conn_args_add_mount_opt(struct fuse_conn_args *args, const char *mntopt)
+{
+    (void)args;
+    (void)mntopt;
+
+    return -ENOSYS;
+}
+
+void
+fuse_conn_args_free(struct fuse_conn_args *args)
+{
+    (void)args;
+
+    return;
+}
+
+int
+fuse_background(int flags)
+{
+    (void)flags;
+
+    return -ENOSYS;
+}
+
+int
+fuse_conn_new(struct fuse_conn **conn, const struct fuse_conn_args *args,
+              const struct fuse_conn_ops *ops, void *userdata)
 {
     int err;
     struct fuse_conn *ret;
+
+    (void)args;
 
     ret = malloc(sizeof(*ret));
     if (ret == NULL)
@@ -485,6 +541,7 @@ fuse_conn_new(struct fuse_conn **conn, const struct fuse_conn_ops *ops)
     ret->state = DEV_OPEN;
 
     ret->ops = ops;
+    ret->userdata = userdata;
 
     *conn = ret;
     return 0;
@@ -535,6 +592,15 @@ fuse_conn_loop(struct fuse_conn *conn)
     }
 
     return ret;
+}
+
+int
+fuse_exec_unmount(int dfd, const char *target)
+{
+    (void)dfd;
+    (void)target;
+
+    return -ENOSYS;
 }
 
 /* vi: set expandtab sw=4 ts=4: */
