@@ -13,6 +13,18 @@
 
 struct fuse_conn;
 
+struct fuse_conn_opt {
+    const char  *fmt;
+    size_t      off;
+    int         key;
+};
+
+struct fuse_conn_args {
+    int     argc;
+    char    **argv;
+    int     own_argv;
+};
+
 struct fuse_conn_params {
     unsigned want;
 };
@@ -93,13 +105,39 @@ struct fuse_conn_ops {
     void (*statfs)(fuse_conn_req_t req, fuse_conn_ino_t ino);
 };
 
-int fuse_conn_new(struct fuse_conn **conn, const struct fuse_conn_ops *ops);
+#define FUSE_CONN_OPT_END {NULL, 0, -1}
+
+#define FUSE_CONN_OPT_KEY_NONOPT -1
+#define FUSE_CONN_OPT_KEY_OPT -2
+
+#define FUSE_CONN_ARGS_INIT(argc, argv) {argc, argv, 0}
+
+int fuse_conn_args_parse_opts(struct fuse_conn_args *args, void *data,
+                              const struct fuse_conn_opt *opts,
+                              int (*opt_proc)(void *, const char *, int,
+                                              struct fuse_conn_args *));
+
+int fuse_conn_args_parse_opts_std(struct fuse_conn_args *args,
+                                  char **mountpoint, int *multithreaded,
+                                  int *foreground);
+
+int fuse_conn_args_add_mount_opt(struct fuse_conn_args *args,
+                                 const char *mntopt);
+
+void fuse_conn_args_free(struct fuse_conn_args *);
+
+int fuse_background(int flags);
+
+int fuse_conn_new(struct fuse_conn **conn, const struct fuse_conn_args *args,
+                  const struct fuse_conn_ops *ops, void *userdata);
 
 int fuse_conn_destroy(struct fuse_conn *conn, int force);
 
 int fuse_conn_mount(struct fuse_conn *conn, int dfd, const char *target);
 
 int fuse_conn_loop(struct fuse_conn *conn);
+
+int fuse_exec_unmount(int dfd, const char *target);
 
 #endif
 
