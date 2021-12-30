@@ -20,6 +20,7 @@
 #include <fcntl.h>
 #include <inttypes.h>
 #include <limits.h>
+#include <paths.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -83,9 +84,8 @@ struct walk_ctx {
 };
 
 #define FUSE_CACHE_TEST_TMPDIR "fuse_cache_test_XXXXXX"
-#define TMPDIR "/tmp"
 
-#define FUSE_CACHE_LOG_PREFIX TMPDIR "/fuse_cache_log_"
+#define FUSE_CACHE_LOG_PREFIX _PATH_TMP "fuse_cache_log_"
 
 #define MAX_DATA_LEN (128 * 1024)
 
