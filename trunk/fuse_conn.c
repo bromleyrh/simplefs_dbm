@@ -7,22 +7,40 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <paths.h>
+#include <search.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 
-#define FUSE_DEVICE "/dev/fuse"
+#define FUSE_DEVICE _PATH_DEV "fuse"
 
 #define MOUNT_BIN "mount"
 
 #define FUSE_KERNEL_VERSION 7
 #define FUSE_KERNEL_MINOR_VERSION 26
+
+struct arg {
+    struct arg  *next;
+    struct arg  *prev;
+    const char  *s;
+};
+
+struct argspriv {
+    struct arg *args_list;
+};
+
+struct std_opt_data {
+    char    *mountpoint;
+    int     foreground;
+};
 
 struct fuse_conn {
     const struct fuse_conn_ops  *ops;
@@ -422,9 +440,132 @@ struct fuse_fallocate_in {
     uint32_t padding;
 };
 
+static int init_argspriv(struct argspriv **);
+
+static int conv_argv_to_list(int, char **, struct arg **);
+
+static int args_match(struct arg *, const struct fuse_conn_opt *);
+static int identify_match(struct arg *, const struct fuse_conn_opt *, int *,
+                          int *);
+
+static int perform_match_action(struct arg *, int,
+                                const struct fuse_conn_opt *);
+
 static int mount_device(int, const char *);
 
 static int process_fuse_requests(struct fuse_conn *);
+
+static int
+init_argspriv(struct argspriv **priv)
+{
+    struct argspriv *ret;
+
+    ret = malloc(sizeof(*ret));
+    if (ret == NULL)
+        return MINUS_ERRNO;
+
+    ret->args_list = NULL;
+
+    *priv = ret;
+    return 0;
+}
+
+static int
+conv_argv_to_list(int argc, char **argv, struct arg **list)
+{
+    int err;
+    int i;
+    struct arg *arg, *firstarg, *tmp;
+
+    if (argc == 0) {
+        *list = NULL;
+        return 0;
+    }
+
+    firstarg = malloc(sizeof(*firstarg));
+    if (firstarg == NULL)
+        return MINUS_ERRNO;
+
+    firstarg->s = strdup(argv[0]);
+    if (firstarg->s == NULL) {
+        free(firstarg);
+        return MINUS_ERRNO;
+    }
+
+    insque(firstarg, NULL);
+
+    tmp = firstarg;
+
+    for (i = 1; i < argc; i++) {
+        arg = malloc(sizeof(*arg));
+        if (arg == NULL) {
+            err = MINUS_ERRNO;
+            goto err;
+        }
+        arg->s = strdup(argv[i]);
+        if (arg->s == NULL) {
+            err = MINUS_ERRNO;
+            free(arg);
+            goto err;
+        }
+        insque(arg, tmp);
+        tmp = arg;
+    }
+
+    *list = firstarg;
+    return 0;
+
+err:
+    for (arg = firstarg; arg != NULL; arg = tmp) {
+        tmp = arg->next;
+        free((void *)(arg->s));
+        free(arg);
+    }
+    return err;
+}
+
+static int
+args_match(struct arg *arg, const struct fuse_conn_opt *opts)
+{
+    (void)arg;
+    (void)opts;
+
+    return 0;
+}
+
+static int
+identify_match(struct arg *arg, const struct fuse_conn_opt *opts, int *nargs,
+               int *opti)
+{
+    int i;
+    int res;
+
+    val->type = 0;
+
+    for (i = 0; opts[i].fmt != NULL; i++) {
+        res = args_match(arg, &opts[i]);
+        if (res != 0) {
+            if (res < 0)
+                return res;
+            break;
+        }
+    }
+
+    *nargs = res;
+    *opti = i;
+    return 0;
+}
+
+static int
+perform_match_action(struct arg *arg, int nargs,
+                     const struct fuse_conn_opt *opt)
+{
+    (void)arg;
+    (void)nargs;
+    (void)opt;
+
+    return 0;
+}
 
 static int
 mount_device(int dfd, const char *target)
@@ -473,42 +614,144 @@ fuse_conn_args_parse_opts(struct fuse_conn_args *args, void *data,
                           int (*opt_proc)(void *, const char *, int,
                                           struct fuse_conn_args *))
 {
-    (void)args;
+    int err;
+    struct arg *arg;
+    struct argspriv *priv;
+
     (void)data;
-    (void)opts;
     (void)opt_proc;
 
-    return -ENOSYS;
+    priv = (struct argspriv *)(args->priv);
+
+    if (priv == NULL) {
+        err = init_argspriv((struct argspriv **)&args->priv);
+        if (err)
+            return err;
+        err = conv_argv_to_list(args->argc, args->argv, &priv->args_list);
+        if (err)
+            return err;
+    }
+
+    for (arg = priv->args_list; arg != NULL; arg = arg->next) {
+        int nargs, opti;
+
+        err = identify_match(arg, opts, &nargs, &opti);
+        if (err)
+            return err;
+        if (nargs > 0) {
+            err = perform_match_action(arg, nargs, &opts[opti]);
+            if (err)
+                return err;
+        }
+    }
+
+    return 0;
 }
 
 int
 fuse_conn_args_parse_opts_std(struct fuse_conn_args *args, char **mountpoint,
                               int *multithreaded, int *foreground)
 {
-    (void)args;
-    (void)mountpoint;
-    (void)foreground;
+    int err;
+    struct arg *arg;
+    struct argspriv *priv;
+    struct std_opt_data data;
 
+    static const struct fuse_conn_opt opts[] = {
+        {"%s", offsetof(struct std_opt_data, mountpoint), 0},
+        {"-f", offsetof(struct std_opt_data, foreground), 1}
+    };
+
+    priv = (struct argspriv *)(args->priv);
+
+    if (priv == NULL) {
+        err = init_argspriv((struct argspriv **)&args->priv);
+        if (err)
+            return err;
+        err = conv_argv_to_list(args->argc, args->argv, &priv->args_list);
+        if (err)
+            return err;
+    }
+
+    for (arg = priv->args_list; arg != NULL; arg = arg->next) {
+        int nargs, opti;
+
+        err = identify_match(arg, opts, &nargs, &opti);
+        if (err)
+            return err;
+        if (nargs > 0) {
+            err = perform_match_action(arg, nargs, &opts[opti]);
+            if (err)
+                return err;
+        }
+    }
+
+    *mountpoint = data.mountpoint;
     *multithreaded = 0;
-
-    return -ENOSYS;
+    *foreground = data.foreground;
+    return 0;
 }
 
 int
 fuse_conn_args_add_mount_opt(struct fuse_conn_args *args, const char *mntopt)
 {
-    (void)args;
-    (void)mntopt;
+    int err;
+    struct arg *new_arg;
+    struct argspriv *priv;
 
-    return -ENOSYS;
+    new_arg = malloc(sizeof(*new_arg));
+    if (new_arg == NULL)
+        return MINUS_ERRNO;
+
+    new_arg->s = strdup(mntopt);
+    if (new_arg->s == NULL) {
+        err = MINUS_ERRNO;
+        goto err1;
+    }
+
+    priv = (struct argspriv *)(args->priv);
+
+    if (priv == NULL) {
+        err = init_argspriv((struct argspriv **)&args->priv);
+        if (err)
+            goto err2;
+        err = conv_argv_to_list(args->argc, args->argv, &priv->args_list);
+        if (err)
+            return err;
+    }
+
+    insque(new_arg, priv->args_list);
+    if (priv->args_list == NULL)
+        priv->args_list = new_arg;
+
+    return 0;
+
+err2:
+    free((void *)(new_arg->s));
+err1:
+    free(new_arg);
+    return err;
 }
 
 void
 fuse_conn_args_free(struct fuse_conn_args *args)
 {
-    (void)args;
+    struct arg *arg;
+    struct argspriv *priv;
 
-    return;
+    priv = (struct argspriv *)(args->priv);
+
+    if (priv == NULL)
+        return;
+
+    for (arg = priv->args_list; arg != NULL; arg = arg->next) {
+        free((void *)(arg->s));
+        free(arg);
+    }
+
+    free(priv);
+
+    args->priv = NULL;
 }
 
 int
