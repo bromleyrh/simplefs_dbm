@@ -541,8 +541,8 @@ do_fuse_session_loop_mt(struct fuse_session *se)
  * - It attempts to call umount2() directly when the EUID is 0 and /etc/mtab is
  *   not to be updated, and the system call returns ENOMEM
  * - It attempts to run the fusermount(1) program when the EUID is not 0 and
- *   - either the fork() or exeve() system call returns an error (such as EAGAIN
- *     or ENOMEM), or
+ *   - either the fork() or execve() system call returns an error (such as
+ *     EAGAIN or ENOMEM), or
  *   - the umount2() system call returns ENOMEM in the fusermount(1) process
  *
  * Note that in the above scenarios, the device /dev/fuse is closed and hence
