@@ -26,6 +26,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
+#include <paths.h>
 #include <signal.h>
 #include <stddef.h>
 #include <stdlib.h>
@@ -65,7 +66,7 @@ extern struct fuse_lowlevel_ops request_fuse_ops;
 #define FSNAME PACKAGE_STRING
 #define LIBNAME "libutil " LIBUTIL_VERSION
 
-#define SIMPLEFS_CORE_DIR "/var/tmp/simplefs/cores"
+#define SIMPLEFS_CORE_DIR _PATH_VARTMP "simplefs/cores"
 
 #define FUSERMOUNT_PATH "fusermount"
 
