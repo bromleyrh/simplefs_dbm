@@ -22,7 +22,7 @@ struct fuse_conn_opt {
 struct fuse_conn_args {
     int     argc;
     char    **argv;
-    int     own_argv;
+    void    *priv;
 };
 
 struct fuse_conn_params {
@@ -110,7 +110,7 @@ struct fuse_conn_ops {
 #define FUSE_CONN_OPT_KEY_NONOPT -1
 #define FUSE_CONN_OPT_KEY_OPT -2
 
-#define FUSE_CONN_ARGS_INIT(argc, argv) {argc, argv, 0}
+#define FUSE_CONN_ARGS_INIT(argc, argv) {argc, argv, NULL}
 
 int fuse_conn_args_parse_opts(struct fuse_conn_args *args, void *data,
                               const struct fuse_conn_opt *opts,
