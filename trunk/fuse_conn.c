@@ -5,6 +5,7 @@
 #include "common.h"
 #include "fuse_conn.h"
 
+#include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <paths.h>
@@ -31,6 +32,17 @@ struct arg {
     struct arg  *next;
     struct arg  *prev;
     const char  *s;
+};
+
+struct argval {
+    union {
+        long        lval;
+        const char  *sval;
+    };
+    enum {
+        LONG = 1,
+        STRING
+    } type;
 };
 
 struct argspriv {
@@ -444,9 +456,14 @@ static int init_argspriv(struct argspriv **);
 
 static int conv_argv_to_list(int, char **, struct arg **);
 
-static int args_match(struct arg *, const struct fuse_conn_opt *);
+static int handle_fmt_space(const char **, const char **, struct arg **);
+static int handle_fmt_conv(const char **, const char *, struct argval *);
+
+static int args_match(struct arg *, const struct fuse_conn_opt *,
+                      struct argval *);
+
 static int identify_match(struct arg *, const struct fuse_conn_opt *, int *,
-                          int *);
+                          int *, struct argval *);
 
 static int perform_match_action(struct arg *, int,
                                 const struct fuse_conn_opt *);
@@ -525,17 +542,90 @@ err:
 }
 
 static int
-args_match(struct arg *arg, const struct fuse_conn_opt *opts)
+handle_fmt_space(const char **fmts, const char **args, struct arg **arg)
 {
-    (void)arg;
-    (void)opts;
+    if (**args == '\0') { /* next argument */
+        *arg = (*arg)->next;
+        if (*arg == NULL)
+            return -EINVAL;
+        *args = &(*arg)->s[0];
+    }
+
+    while (isspace(*(++(*fmts))))
+        ;
 
     return 0;
 }
 
 static int
+handle_fmt_conv(const char **fmts, const char *args, struct argval *val)
+{
+    char *endptr;
+    long lval;
+
+    ++(*fmts);
+
+    switch (**fmts) {
+    case 'd':
+        errno = 0;
+        lval = strtol(args, &endptr, 10);
+        if (errno != 0)
+            return MINUS_ERRNO;
+        if (*endptr != '\0')
+            return -EINVAL;
+        val->lval = lval;
+        val->type = LONG;
+        ++(*fmts);
+        break;
+    case 's':
+        val->sval = args;
+        val->type = STRING;
+        ++(*fmts);
+    case '%':
+        break;
+    default:
+        return -EINVAL;
+    }
+
+    return 0;
+}
+
+static int
+args_match(struct arg *arg, const struct fuse_conn_opt *opt, struct argval *val)
+{
+    const char *args, *fmts;
+    int err;
+
+    fmts = &opt->fmt[0];
+    args = &arg->s[0];
+
+    for (;;) {
+        if (isspace(*fmts)) {
+            err = handle_fmt_space(&fmts, &args, &arg);
+            if (err)
+                return err;
+        }
+        if (*fmts == '%') {
+            err = handle_fmt_conv(&fmts, args, val);
+            if (err)
+                return err;
+            continue;
+        }
+        /* exact match */
+        if (*args != *fmts)
+            return 0;
+        if (*fmts == '\0')
+            break;
+        ++fmts;
+        ++args;
+    }
+
+    return 1;
+}
+
+static int
 identify_match(struct arg *arg, const struct fuse_conn_opt *opts, int *nargs,
-               int *opti)
+               int *opti, struct argval *val)
 {
     int i;
     int res;
@@ -543,7 +633,7 @@ identify_match(struct arg *arg, const struct fuse_conn_opt *opts, int *nargs,
     val->type = 0;
 
     for (i = 0; opts[i].fmt != NULL; i++) {
-        res = args_match(arg, &opts[i]);
+        res = args_match(arg, &opts[i], val);
         if (res != 0) {
             if (res < 0)
                 return res;
@@ -634,8 +724,9 @@ fuse_conn_args_parse_opts(struct fuse_conn_args *args, void *data,
 
     for (arg = priv->args_list; arg != NULL; arg = arg->next) {
         int nargs, opti;
+        struct argval val;
 
-        err = identify_match(arg, opts, &nargs, &opti);
+        err = identify_match(arg, opts, &nargs, &opti, &val);
         if (err)
             return err;
         if (nargs > 0) {
@@ -675,8 +766,9 @@ fuse_conn_args_parse_opts_std(struct fuse_conn_args *args, char **mountpoint,
 
     for (arg = priv->args_list; arg != NULL; arg = arg->next) {
         int nargs, opti;
+        struct argval val;
 
-        err = identify_match(arg, opts, &nargs, &opti);
+        err = identify_match(arg, opts, &nargs, &opti, &val);
         if (err)
             return err;
         if (nargs > 0) {
