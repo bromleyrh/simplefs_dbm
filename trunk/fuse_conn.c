@@ -465,8 +465,12 @@ static int args_match(struct arg *, const struct fuse_conn_opt *,
 static int identify_match(struct arg *, const struct fuse_conn_opt *, int *,
                           int *, struct argval *);
 
-static int perform_match_action(struct arg *, int,
-                                const struct fuse_conn_opt *);
+static int std_opt_proc(void *, const char *, int, struct fuse_conn_args *);
+
+static int perform_match_action(struct fuse_conn_args *, struct arg *, int,
+                                const struct fuse_conn_opt *, struct argval *,
+                                void *, int (*)(void *, const char *, int,
+                                                struct fuse_conn_args *));
 
 static int mount_device(int, const char *);
 
@@ -647,12 +651,48 @@ identify_match(struct arg *arg, const struct fuse_conn_opt *opts, int *nargs,
 }
 
 static int
-perform_match_action(struct arg *arg, int nargs,
-                     const struct fuse_conn_opt *opt)
+std_opt_proc(void *data, const char *arg, int key,
+             struct fuse_conn_args *outargs)
 {
+    (void)data;
     (void)arg;
-    (void)nargs;
-    (void)opt;
+    (void)key;
+    (void)outargs;
+
+    return 1;
+}
+
+static int
+perform_match_action(struct fuse_conn_args *args, struct arg *arg, int nargs,
+                     const struct fuse_conn_opt *opt, struct argval *val,
+                     void *data, int (*opt_proc)(void *, const char *, int,
+                                                 struct fuse_conn_args *))
+{
+    int i;
+    int keep;
+    struct arg *tmp;
+
+    static const size_t valsizes[] = {
+        [LONG]      = sizeof(((struct argval *)NULL)->lval),
+        [STRING]    = sizeof(((struct argval *)NULL)->sval)
+    };
+
+    if (opt->off == (size_t)-1) {
+        keep = (*opt_proc)(data, arg->s, opt->key, args);
+        if (keep == -1)
+            return -EIO;
+    } else {
+        memcpy((char *)data + opt->off, val, valsizes[val->type]);
+        keep = 0;
+    }
+
+    if (!keep) {
+        for (i = 0; i < nargs; i++) {
+            tmp = arg->next;
+            remque(arg);
+            arg = tmp;
+        }
+    }
 
     return 0;
 }
@@ -708,9 +748,6 @@ fuse_conn_args_parse_opts(struct fuse_conn_args *args, void *data,
     struct arg *arg;
     struct argspriv *priv;
 
-    (void)data;
-    (void)opt_proc;
-
     priv = (struct argspriv *)(args->priv);
 
     if (priv == NULL) {
@@ -730,7 +767,8 @@ fuse_conn_args_parse_opts(struct fuse_conn_args *args, void *data,
         if (err)
             return err;
         if (nargs > 0) {
-            err = perform_match_action(arg, nargs, &opts[opti]);
+            err = perform_match_action(args, arg, nargs, &opts[opti], &val,
+                                       data, opt_proc);
             if (err)
                 return err;
         }
@@ -772,7 +810,8 @@ fuse_conn_args_parse_opts_std(struct fuse_conn_args *args, char **mountpoint,
         if (err)
             return err;
         if (nargs > 0) {
-            err = perform_match_action(arg, nargs, &opts[opti]);
+            err = perform_match_action(args, arg, nargs, &opts[opti], &val,
+                                       &data, &std_opt_proc);
             if (err)
                 return err;
         }
