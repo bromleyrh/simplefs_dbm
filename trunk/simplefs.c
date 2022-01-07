@@ -252,7 +252,7 @@ opt_proc(void *data, const char *arg, int key, struct fuse_args *outargs)
         FLAG_MAP_ENTRY(debug,   0)
     };
 
-    static const char *filter_opts[] = {
+    static const char *const filter_opts[] = {
         "nodev", "noexec", "nosuid", "rw", "user"
     };
 
