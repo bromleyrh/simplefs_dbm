@@ -436,7 +436,7 @@ compat_init(struct back_end *be, uint64_t user_ver, uint64_t fs_ver,
     int ret;
     size_t i;
 
-    static const struct {
+    static const struct ent {
         uint64_t        user_ver;
         uint64_t        fs_ver;
         check_init_fn_t *check_init;
@@ -446,11 +446,11 @@ compat_init(struct back_end *be, uint64_t user_ver, uint64_t fs_ver,
         {3, 4, &check_init_ro_or_fmtconv, &init_ver_3_to_4},
         {4, 5, &check_init_default,       &init_ver_4_to_5},
         {5, 6, &check_init_ro_or_fmtconv, &init_ver_5_to_6}
-    }, *conv;
+    };
 
     if (user_ver != fs_ver) {
         for (i = 0; i < ARRAY_SIZE(conv_fns); i++) {
-            conv = &conv_fns[i];
+            const struct ent *conv = &conv_fns[i];
 
             if ((conv->user_ver != user_ver) || (conv->fs_ver != fs_ver))
                 continue;

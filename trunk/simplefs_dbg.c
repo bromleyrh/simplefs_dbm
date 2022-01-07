@@ -296,14 +296,14 @@ scan_int(char *str, void *data, size_t off, int is_signed, int width, int base)
     char fmt[16];
     size_t i;
 
-    static const struct {
+    static const struct ent {
         size_t  size_signed;
         size_t  size_unsigned;
         char    typemod;
     } sizeinfo[] = {
         {sizeof(int),       sizeof(unsigned),           '\0'},
         {sizeof(long long), sizeof(unsigned long long), 'L'}
-    }, *sizeinfop;
+    };
 
     switch (base) {
     case 8:
@@ -317,6 +317,8 @@ scan_int(char *str, void *data, size_t off, int is_signed, int width, int base)
     }
 
     for (i = 0;; i++) {
+        const struct ent *sizeinfop;
+
         if (i == ARRAY_SIZE(sizeinfo))
             return -EINVAL;
         sizeinfop = &sizeinfo[i];
@@ -371,7 +373,7 @@ set_header(const struct db_key *key, void **data, size_t *datasize)
     size_t i;
     struct db_obj_header *hdr = *(struct db_obj_header **)data;
 
-    static const struct {
+    static const struct ent {
         const char  *nm;
         size_t      hdroff;
         int         (*scan_field)(char *, void *, size_t, int, int, int);
@@ -381,15 +383,14 @@ set_header(const struct db_key *key, void **data, size_t *datasize)
     } scandescs[] = {
         {"version",     HDROFF(version),    &scan_int,  0, 8, 10},
         {"numinodes",   HDROFF(numinodes),  &scan_int,  0, 8, 10}
-    }, *scandescp;
+    };
 
     (void)key;
     (void)datasize;
 
     for (i = 0; i < ARRAY_SIZE(scandescs); i++) {
         char prompt[32];
-
-        scandescp = &scandescs[i];
+        const struct ent *scandescp = &scandescs[i];
 
         snprintf(prompt, sizeof(prompt), "%s: ", scandescp->nm);
         arg = readline(prompt);
@@ -446,7 +447,7 @@ set_stat(const struct db_key *key, void **data, size_t *datasize)
     size_t i;
     struct db_obj_stat *s = *(struct db_obj_stat **)data;
 
-    static const struct {
+    static const struct ent {
         const char  *nm;
         size_t      statoff;
         int         (*scan_field)(char *, void *, size_t, int, int, int);
@@ -468,15 +469,14 @@ set_stat(const struct db_key *key, void **data, size_t *datasize)
         {"st_mtim",     STATOFF(st_mtim),       &scan_time, 0, 0,  0},
         {"st_ctim",     STATOFF(st_ctim),       &scan_time, 0, 0,  0},
         {"num_ents",    STATOFF(num_ents),      &scan_int,  0, 4, 10}
-    }, *scandescp;
+    };
 
     (void)key;
     (void)datasize;
 
     for (i = 0; i < ARRAY_SIZE(scandescs); i++) {
         char prompt[32];
-
-        scandescp = &scandescs[i];
+        const struct ent *scandescp = &scandescs[i];
 
         snprintf(prompt, sizeof(prompt), "%s: ", scandescp->nm);
         arg = readline(prompt);
@@ -708,7 +708,7 @@ dump_db_obj(FILE *f, const void *key, const void *data, size_t datasize,
 {
     struct db_key *k = (struct db_key *)key;
 
-    static const struct {
+    static const struct ent {
         const char  *dispstr;
         size_t      datasize;
         void        (*disp_data)(FILE *, const struct db_key *, const void *,
@@ -728,7 +728,8 @@ dump_db_obj(FILE *f, const void *key, const void *data, size_t datasize,
                                    0,              &disp_xattr},
         [TYPE_ULINKED_INODE]    = {"Unlinked I-node entry",
                                    0,              &disp_ulinked_inode}
-    }, *objinfop;
+    };
+    const struct ent *objinfop;
 
     (void)ctx;
 
@@ -860,7 +861,7 @@ cmd_find(struct dbh *dbh)
     } data;
     void *d;
 
-    static const struct {
+    static const struct ent {
         const char          *nm;
         size_t              datasize;
         int                 (*get_args)(struct db_key *);
@@ -888,7 +889,8 @@ cmd_find(struct dbh *dbh)
         [TYPE_FREE_INO]         = {"TYPE_FREE_INO",         OBJSZ(free_ino),
                                    &get_key_ino,
                                    &disp_free_ino_full}
-    }, *typep;
+    };
+    const struct ent *typep;
 
     for (i = 0; i < ARRAY_SIZE(typemap); i++) {
         typep = &typemap[i];
@@ -997,7 +999,7 @@ cmd_insert(struct dbh *dbh)
     } data;
     void *d;
 
-    static const struct {
+    static const struct ent {
         const char          *nm;
         size_t              datasize;
         int                 (*get_args)(struct db_key *);
@@ -1025,7 +1027,8 @@ cmd_insert(struct dbh *dbh)
         [TYPE_FREE_INO]         = {"TYPE_FREE_INO",         OBJSZ(free_ino),
                                    &get_key_ino,
                                    &set_free_ino}
-    }, *typep;
+    };
+    const struct ent *typep;
 
     for (i = 0; i < ARRAY_SIZE(typemap); i++) {
         typep = &typemap[i];
@@ -1117,7 +1120,7 @@ cmd_remove(struct dbh *dbh)
     size_t i;
     struct db_key k;
 
-    static const struct {
+    static const struct ent {
         const char          *nm;
         int                 (*get_args)(struct db_key *);
     } typemap[] = {
@@ -1128,7 +1131,8 @@ cmd_remove(struct dbh *dbh)
         [TYPE_XATTR]            = {"TYPE_XATTR",            &get_key_ino_name},
         [TYPE_ULINKED_INODE]    = {"TYPE_ULINKED_INODE",    &get_key_ino},
         [TYPE_FREE_INO]         = {"TYPE_FREE_INO",         &get_key_ino}
-    }, *typep;
+    };
+    const struct ent *typep;
 
     for (i = 0; i < ARRAY_SIZE(typemap); i++) {
         typep = &typemap[i];
@@ -1202,7 +1206,7 @@ cmd_update(struct dbh *dbh)
     } data;
     void *d;
 
-    static const struct {
+    static const struct ent {
         const char          *nm;
         size_t              datasize;
         int                 (*get_args)(struct db_key *);
@@ -1230,7 +1234,8 @@ cmd_update(struct dbh *dbh)
         [TYPE_FREE_INO]         = {"TYPE_FREE_INO",         OBJSZ(free_ino),
                                    &get_key_ino,
                                    &set_free_ino}
-    }, *typep;
+    };
+    const struct ent *typep;
 
     for (i = 0; i < ARRAY_SIZE(typemap); i++) {
         typep = &typemap[i];
@@ -1332,7 +1337,7 @@ process_cmd(struct dbh *dbh)
     char *cmd;
     unsigned char i;
 
-    static const struct {
+    static const struct ent {
         const char  *cmd;
         int         (*fn)(struct dbh *);
     } cmds[] = {
@@ -1343,7 +1348,8 @@ process_cmd(struct dbh *dbh)
         [(unsigned char)'q'] = {"quit",    &cmd_quit},
         [(unsigned char)'r'] = {"remove",  &cmd_remove},
         [(unsigned char)'u'] = {"update",  &cmd_update}
-    }, *cmdp;
+    };
+    const struct ent *cmdp;
 
     cmd = readline("Command: ");
     if (cmd == NULL) {

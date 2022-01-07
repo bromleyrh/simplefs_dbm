@@ -241,7 +241,7 @@ opt_proc(void *data, const char *arg, int key, struct fuse_args *outargs)
     size_t i;
     struct mount_data *md = (struct mount_data *)data;
 
-    static const struct {
+    static const struct ent {
         const char  *opt;
         size_t      optoff;
         int         keep;
@@ -250,7 +250,7 @@ opt_proc(void *data, const char *arg, int key, struct fuse_args *outargs)
         FLAG_MAP_ENTRY(lkw,     0),
         FLAG_MAP_ENTRY(fmtconv, 0),
         FLAG_MAP_ENTRY(debug,   0)
-    }, *fl;
+    };
 
     static const char *filter_opts[] = {
         "nodev", "noexec", "nosuid", "rw", "user"
@@ -270,7 +270,7 @@ opt_proc(void *data, const char *arg, int key, struct fuse_args *outargs)
         return 1;
 
     for (i = 0; i < ARRAY_SIZE(flag_map); i++) {
-        fl = &flag_map[i];
+        const struct ent *fl = &flag_map[i];
 
         if (strcmp(fl->opt, arg) == 0) {
             *(unsigned *)(((char *)md) + fl->optoff) = 1;
