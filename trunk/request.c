@@ -666,13 +666,13 @@ static void
 request_fuse_setattr(fuse_req_t req, fuse_ino_t ino, struct stat *attr,
                      int to_set, struct fuse_file_info *fi)
 {
-    struct file_info filei, *fileip;
     int set;
     size_t i;
+    struct file_info filei, *fileip;
     struct request_ctx *ctx = fuse_req_userdata(req);
     REQUEST_FUSE(r);
 
-    static const struct {
+    static const struct ent {
         int fuse_flag;
         int flag;
     } fl_map[] = {
@@ -684,11 +684,11 @@ request_fuse_setattr(fuse_req_t req, fuse_ino_t ino, struct stat *attr,
         FLAG_MAP_ENTRY(MTIME),
         FLAG_MAP_ENTRY(ATIME_NOW),
         FLAG_MAP_ENTRY(MTIME_NOW)
-    }, *fl;
+    };
 
     set = 0;
     for (i = 0; i < ARRAY_SIZE(fl_map); i++) {
-        fl = &fl_map[i];
+        const struct ent *fl = &fl_map[i];
 
         if (to_set & fl->fuse_flag)
             set |= fl->flag;
