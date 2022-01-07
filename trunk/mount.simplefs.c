@@ -8,6 +8,7 @@
 #include <fcntl.h>
 #include <libgen.h>
 #include <limits.h>
+#include <paths.h>
 #include <signal.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -182,7 +183,7 @@ do_start_simplefs(int mount_argc, char **mount_argv, sigset_t *set)
         close(pipefd[0]);
 
         if ((sigprocmask(SIG_SETMASK, set, NULL) != 0)
-            || (redirect_std_fds("/dev/null") != 0) || (setsid() == -1))
+            || (redirect_std_fds(_PATH_DEVNULL) != 0) || (setsid() == -1))
             _exit(EXIT_FAILURE);
 
         if (snprintf(buf, sizeof(buf), "%d", pipefd[1]) >= (int)sizeof(buf))

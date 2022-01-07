@@ -8,6 +8,7 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <paths.h>
 #include <stdlib.h>
 #include <unistd.h>
 
@@ -126,7 +127,7 @@ do_symlink_at(int dfd, const char *name, mode_t mode, void *ctx)
     (void)mode;
     (void)ctx;
 
-    return symlinkat("/dev/null", dfd, name);
+    return symlinkat(_PATH_DEVNULL, dfd, name);
 }
 
 int
