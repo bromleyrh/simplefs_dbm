@@ -135,7 +135,7 @@ main(int argc, char **argv)
     int dfd;
     size_t i;
 
-    static const struct {
+    static const struct ent {
         const char  *nm;
         int         (*fn)(int, const char *, mode_t, void *);
         void        *ctx;
@@ -146,7 +146,8 @@ main(int argc, char **argv)
         {"linkat",      &do_link_at,    FILE_NAME,  0},
         {"renameat",    &do_rename_at,  FILE_NAME,  0},
         {"symlinkat",   &do_symlink_at, NULL,       0}
-    }, *t;
+    };
+    const struct ent *t;
 
     (void)argc;
     (void)argv;
