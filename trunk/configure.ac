@@ -2,10 +2,10 @@
 # configure.ac
 #
 
-env_cflags="$CFLAGS"
-
 AC_INIT([simplefs], m4_esyscmd_s([cat .version]))
 AC_PREREQ([2.69])
+
+env_cflags="$CFLAGS"
 
 AC_CONFIG_SRCDIR([simplefs.c])
 AC_CONFIG_AUX_DIR([build-aux])
