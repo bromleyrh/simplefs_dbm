@@ -22,16 +22,16 @@ AM_INIT_AUTOMAKE([foreign no-define subdir-objects])
 AM_SILENT_RULES([yes])
 LT_INIT([disable-static])
 
-case $target_os in
-    *darwin*)
-        platform=darwin;;
-    *freebsd*)
-        platform=freebsd;;
-    *linux*)
-        platform=linux;;
-    *)
-        AC_MSG_ERROR([unsupported platform], [1]);;
-esac
+AS_CASE(
+    [$target_os],
+        [*darwin*],
+            [platform=darwin],
+        [*freebsd*],
+            [platform=freebsd],
+        [*linux*],
+            [platform=linux],
+        [AC_MSG_ERROR([unsupported platform], [1])]
+)
 AM_CONDITIONAL([APPLE], [test "x$platform" = "xdarwin"])
 AM_CONDITIONAL([FREEBSD], [test "x$platform" = "xfreebsd"])
 AM_CONDITIONAL([LINUX], [test "x$platform" = "xlinux"])
@@ -69,14 +69,15 @@ AX_FUNC_ERROR
 
 AC_ARG_WITH([libfuse-3],
             [  --with-libfuse-3        use libfuse 3],
-            [case "$withval" in
-                 yes)
-                     libfuse3=true;;
-                 no)
-                     libfuse3=false;;
-                 *)
-                     AC_MSG_ERROR([invalid "--with-libfuse-3" argument]);;
-             esac],
+            [AS_CASE(
+                ["$withval"],
+                    [yes],
+                        [libfuse3=true],
+                    [no],
+                        [libfuse3=false],
+                    [AC_MSG_ERROR([invalid "--with-libfuse-3" argument])]
+             )
+            ],
             [libfuse3=false])
 AM_CONDITIONAL([LIBFUSE_3], [test x$libfuse3 = xtrue])
 
@@ -114,55 +115,60 @@ AC_SUBST([libutil_link_dep])
 
 AC_ARG_ENABLE([sanitizers],
               [  --enable-sanitizers     enable GCC sanitizers],
-              [case "$enableval" in
-                   yes)
-                       sanitizers=true;;
-                   no)
-                       sanitizers=false;;
-                   *)
-                       AC_MSG_ERROR([invalid "--enable-sanitizers" argument]);;
-               esac],
+              [AS_CASE(
+                  ["$enableval"],
+                      [yes],
+                          [sanitizers=true],
+                      [no],
+                          [sanitizers=false],
+                      [AC_MSG_ERROR([invalid "--enable-sanitizers" argument])]
+               )
+              ],
               [sanitizers=false])
 
 AC_ARG_ENABLE([debugging],
               [  --enable-debugging      enable debugging],
-              [case "$enableval" in
-                   yes)
-                       debug=true;;
-                   no)
-                       debug=false;;
-                   *)
-                       AC_MSG_ERROR([invalid "--enable-debugging" argument]);;
-               esac],
+              [AS_CASE(
+                  ["$enableval"],
+                      [yes],
+                          [debug=true],
+                      [no],
+                          [debug=false],
+                      [AC_MSG_ERROR([invalid "--enable-debugging" argument])]
+               )
+              ],
               [debug=false])
 AM_CONDITIONAL([DEBUG], [test x$debug = xtrue])
 
 AC_ARG_ENABLE([assertions],
               [  --enable-assertions     enable debugging assertions],
-              [case "$enableval" in
-                   yes)
-                       assertions=true;;
-                   no)
-                       assertions=false;;
-                   *)
-                       AC_MSG_ERROR([invalid "--enable-assertions" argument]);;
-               esac],
+              [AS_CASE(
+                  ["$enableval"],
+                      [yes],
+                          [assertions=true],
+                      [no],
+                          [assertions=false],
+                      [AC_MSG_ERROR([invalid "--enable-assertions" argument])]
+               )
+              ],
               [assertions=false])
 AM_CONDITIONAL([ASSERTIONS], [test x$assertions = xtrue])
 
 AC_ARG_ENABLE([coverage_analysis],
               [  --enable-coverage-analysis
                           enable code coverage analysis],
-              [case "$enableval" in
-                   yes)
-                       coverage_analysis=true;;
-                   no)
-                       coverage_analysis=false;;
-                   *)
-                       AC_MSG_ERROR(
-                           [invalid "--enable-coverage-analysis" argument]
-                       );;
-               esac],
+              [AS_CASE(
+                  ["$enableval"],
+                      [yes],
+                          [coverage_analysis=true],
+                      [no],
+                          [coverage_analysis=false],
+                      [AC_MSG_ERROR(
+                          [invalid "--enable-coverage-analysis" argument]
+                       )
+                      ]
+               )
+              ],
               [coverage_analysis=false])
 AM_CONDITIONAL([COVERAGE_ANALYSIS], [test x$coverage_analysis = xtrue])
 
