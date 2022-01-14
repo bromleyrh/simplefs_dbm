@@ -5,7 +5,7 @@
 AC_INIT([simplefs], m4_esyscmd_s([cat .version]))
 AC_PREREQ([2.69])
 
-env_cflags="$CFLAGS"
+env_cflags=$CFLAGS
 
 AC_CONFIG_SRCDIR([simplefs.c])
 AC_CONFIG_AUX_DIR([build-aux])
@@ -48,7 +48,7 @@ AM_CONDITIONAL([GCC], [test "x$CC" = "xgcc"])
 
 AX_CHECK_COMPILE_FLAG([-Werror -fstack-protector-all],
     [stack_protector="-fstack-protector-all"],
-    [stack_protector=""]
+    [stack_protector=]
 )
 AC_SUBST([stack_protector])
 
@@ -182,12 +182,12 @@ AC_SUBST([sanitizer])
 
 AC_ARG_WITH([pkgconfigdir],
             [  --with-pkgconfigdir=DIR install pkg-config data in DIR],
-            [pkgconfigdir="$withval"],
+            [pkgconfigdir=$withval],
             [pkgconfigdir="$libdir/pkgconfig"])
 AC_SUBST([pkgconfigdir])
 
 dnl FIXME: Later, only prevent Autoconf from adding "-g -O2" to CFLAGS
-CFLAGS="$env_cflags"
+CFLAGS=$env_cflags
 
 AC_CONFIG_FILES([Makefile man/Makefile])
 AC_CONFIG_HEADERS([config.h])

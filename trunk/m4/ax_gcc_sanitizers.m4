@@ -15,12 +15,12 @@ AC_DEFUN([AX_GCC_SANITIZERS],
          fsanitizer="-fsanitize=address -fsanitize=undefined"
          fsanitizer="$fsanitizer -fsanitize-undefined-trap-on-error"
          AX_CHECK_COMPILE_FLAG([-fsanitize=address],
-             [ax_cv_gcc_sanitizers="$fsanitizer"],
-             [ax_cv_gcc_sanitizers=""]
+             [ax_cv_gcc_sanitizers=$fsanitizer],
+             [ax_cv_gcc_sanitizers=]
          )
          AS_IF(
             [test "x$asan_libs" = x || test "x$ubsan_libs" = x],
-            [ax_cv_gcc_sanitizers=""]
+            [ax_cv_gcc_sanitizers=]
          )
         ]
      )
