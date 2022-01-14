@@ -32,9 +32,9 @@ AS_CASE(
             [platform=linux],
         [AC_MSG_ERROR([unsupported platform], [1])]
 )
-AM_CONDITIONAL([APPLE], [test "x$platform" = "xdarwin"])
-AM_CONDITIONAL([FREEBSD], [test "x$platform" = "xfreebsd"])
-AM_CONDITIONAL([LINUX], [test "x$platform" = "xlinux"])
+AM_CONDITIONAL([APPLE], [test $platform = "darwin"])
+AM_CONDITIONAL([FREEBSD], [test $platform = "freebsd"])
+AM_CONDITIONAL([LINUX], [test $platform = "linux"])
 
 AC_PROG_CC
 AC_PROG_INSTALL
@@ -79,12 +79,12 @@ AC_ARG_WITH([libfuse-3],
              )
             ],
             [libfuse3=false])
-AM_CONDITIONAL([LIBFUSE_3], [test x$libfuse3 = xtrue])
+AM_CONDITIONAL([LIBFUSE_3], [test $libfuse3 = true])
 
 AS_IF(
-    [test x$platform = xdarwin],
+    [test $platform = darwin],
     [fusepkg=osxfuse],
-    [test x$libfuse3 = xtrue],
+    [test $libfuse3 = true],
     [fusepkg=fuse3],
     [fusepkg=fuse]
 )
@@ -138,7 +138,7 @@ AC_ARG_ENABLE([debugging],
                )
               ],
               [debug=false])
-AM_CONDITIONAL([DEBUG], [test x$debug = xtrue])
+AM_CONDITIONAL([DEBUG], [test $debug = true])
 
 AC_ARG_ENABLE([assertions],
               [  --enable-assertions     enable debugging assertions],
@@ -170,14 +170,14 @@ AC_ARG_ENABLE([coverage_analysis],
                )
               ],
               [coverage_analysis=false])
-AM_CONDITIONAL([COVERAGE_ANALYSIS], [test x$coverage_analysis = xtrue])
+AM_CONDITIONAL([COVERAGE_ANALYSIS], [test $coverage_analysis = true])
 
 AS_IF(
-    [test "x$sanitizers" = xtrue],
+    [test $sanitizers = true],
     [AX_GCC_SANITIZERS
      sanitizer=$ax_cv_gcc_sanitizers]
 )
-AM_CONDITIONAL([SANITIZERS], [test x$sanitizers = xtrue])
+AM_CONDITIONAL([SANITIZERS], [test $sanitizers = true])
 AC_SUBST([sanitizer])
 
 AC_ARG_WITH([pkgconfigdir],

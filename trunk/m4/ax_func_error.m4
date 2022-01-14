@@ -44,7 +44,7 @@ AC_DEFUN([AX_FUNC_ERROR],
         ]
      )
      AS_IF(
-        [test "x$ax_cv_have_error" = "xno"],
+        [test $ax_cv_have_error = no],
         [AC_CACHE_CHECK(
             [for errc and warnc],
             [ax_cv_have_errc_warnc],
@@ -62,9 +62,9 @@ AC_DEFUN([AX_FUNC_ERROR],
         ]
      )
      AS_IF(
-        [test "x$ax_cv_have_error" = "xyes"],
+        [test $ax_cv_have_error = yes],
         [DEF_HAVE_ERROR],
-        [test "x$ax_cv_have_errc_warnc" = "xyes"],
+        [test $ax_cv_have_errc_warnc = yes],
         [DEF_HAVE_ERRC
          DEF_HAVE_WARNC]
      )
