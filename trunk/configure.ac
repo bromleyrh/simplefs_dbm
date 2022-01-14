@@ -56,9 +56,9 @@ AC_CHECK_HEADERS([linux/fs.h linux/magic.h sys/xattr.h])
 
 AC_CHECK_TYPES([clockid_t], [], [],
                [
-               #include <time.h>
-               ]
-               )
+#include <time.h>
+]
+)
 
 AC_CHECK_MEMBERS([struct stat.st_atimespec, struct stat.st_mtimespec,
                   struct stat.st_ctimespec])
