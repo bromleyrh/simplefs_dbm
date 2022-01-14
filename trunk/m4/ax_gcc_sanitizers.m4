@@ -25,7 +25,7 @@ AC_DEFUN([AX_GCC_SANITIZERS],
         ]
      )
      AS_IF(
-        [test "$ax_cv_gcc_sanitizers_cached" = "true"],
+        [test $ax_cv_gcc_sanitizers_cached = true],
         [AS_ECHO([])]
      )
     ]
