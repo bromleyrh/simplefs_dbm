@@ -82,7 +82,7 @@ AC_ARG_WITH([libfuse-3],
 AM_CONDITIONAL([LIBFUSE_3], [test $libfuse3 = true])
 
 AS_IF(
-    [test $platform = darwin],
+    [test $platform = "darwin"],
     [fusepkg=osxfuse],
     [test $libfuse3 = true],
     [fusepkg=fuse3],

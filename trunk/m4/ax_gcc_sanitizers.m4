@@ -19,7 +19,7 @@ AC_DEFUN([AX_GCC_SANITIZERS],
              [ax_cv_gcc_sanitizers=]
          )
          AS_IF(
-            [test "x$asan_libs" = x || test "x$ubsan_libs" = x],
+            [test "x$asan_libs" = "x" || test "x$ubsan_libs" = "x"],
             [ax_cv_gcc_sanitizers=]
          )
         ]
