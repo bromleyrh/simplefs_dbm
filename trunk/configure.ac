@@ -70,7 +70,7 @@ AX_FUNC_ERROR
 AC_ARG_WITH([libfuse-3],
             [  --with-libfuse-3        use libfuse 3],
             [AS_CASE(
-                ["$withval"],
+                [$withval],
                     [yes],
                         [libfuse3=true],
                     [no],
@@ -116,7 +116,7 @@ AC_SUBST([libutil_link_dep])
 AC_ARG_ENABLE([sanitizers],
               [  --enable-sanitizers     enable GCC sanitizers],
               [AS_CASE(
-                  ["$enableval"],
+                  [$enableval],
                       [yes],
                           [sanitizers=true],
                       [no],
@@ -129,7 +129,7 @@ AC_ARG_ENABLE([sanitizers],
 AC_ARG_ENABLE([debugging],
               [  --enable-debugging      enable debugging],
               [AS_CASE(
-                  ["$enableval"],
+                  [$enableval],
                       [yes],
                           [debug=true],
                       [no],
@@ -143,7 +143,7 @@ AM_CONDITIONAL([DEBUG], [test $debug = true])
 AC_ARG_ENABLE([assertions],
               [  --enable-assertions     enable debugging assertions],
               [AS_CASE(
-                  ["$enableval"],
+                  [$enableval],
                       [yes],
                           [assertions=true],
                       [no],
@@ -158,7 +158,7 @@ AC_ARG_ENABLE([coverage_analysis],
               [  --enable-coverage-analysis
                           enable code coverage analysis],
               [AS_CASE(
-                  ["$enableval"],
+                  [$enableval],
                       [yes],
                           [coverage_analysis=true],
                       [no],
