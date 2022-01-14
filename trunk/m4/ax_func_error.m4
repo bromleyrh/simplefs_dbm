@@ -61,12 +61,13 @@ AC_DEFUN([AX_FUNC_ERROR],
          )
         ]
      )
-     if test "x$ax_cv_have_error" = "xyes"; then
-         DEF_HAVE_ERROR
-     elif test "x$ax_cv_have_errc_warnc" = "xyes"; then
-         DEF_HAVE_ERRC
-         DEF_HAVE_WARNC
-     fi
+     AS_IF(
+        [test "x$ax_cv_have_error" = "xyes"],
+        [DEF_HAVE_ERROR],
+        [test "x$ax_cv_have_errc_warnc" = "xyes"],
+        [DEF_HAVE_ERRC
+         DEF_HAVE_WARNC]
+     )
     ]
 )
 

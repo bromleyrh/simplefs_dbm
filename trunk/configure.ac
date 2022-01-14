@@ -80,13 +80,13 @@ AC_ARG_WITH([libfuse-3],
             [libfuse3=false])
 AM_CONDITIONAL([LIBFUSE_3], [test x$libfuse3 = xtrue])
 
-if test x$platform = xdarwin; then
-    fusepkg=osxfuse
-elif test x$libfuse3 = xtrue; then
-    fusepkg=fuse3
-else
-    fusepkg=fuse
-fi
+AS_IF(
+    [test x$platform = xdarwin],
+    [fusepkg=osxfuse],
+    [test x$libfuse3 = xtrue],
+    [fusepkg=fuse3],
+    [fusepkg=fuse]
+)
 
 fuse_cppflags=`eval $pkgcfg --cflags $fusepkg 2>/dev/null`
 libjson_cppflags=`eval $pkgcfg --cflags libjson`
@@ -166,10 +166,11 @@ AC_ARG_ENABLE([coverage_analysis],
               [coverage_analysis=false])
 AM_CONDITIONAL([COVERAGE_ANALYSIS], [test x$coverage_analysis = xtrue])
 
-if test "x$sanitizers" = xtrue; then
-    AX_GCC_SANITIZERS
-    sanitizer=$ax_cv_gcc_sanitizers
-fi
+AS_IF(
+    [test "x$sanitizers" = xtrue],
+    [AX_GCC_SANITIZERS
+     sanitizer=$ax_cv_gcc_sanitizers]
+)
 AM_CONDITIONAL([SANITIZERS], [test x$sanitizers = xtrue])
 AC_SUBST([sanitizer])
 
