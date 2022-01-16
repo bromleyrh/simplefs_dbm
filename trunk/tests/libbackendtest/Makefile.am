@@ -21,7 +21,8 @@ CLEANFILES += tests/libbackendtest/test_back_end_config_gram_spec.h
 
 tests/libbackendtest/test_back_end_config_gram_spec.h: \
 	tests/libbackendtest/$(backendtest_sp)
-	$(spec_to_h) tests/libbackendtest/$(backendtest_sp) $(backendtest_gram) > $@
+	$(spec_to_h) "tests/libbackendtest/$(backendtest_sp)" $(backendtest_gram) \
+		> $@
 
 check_LTLIBRARIES += tests/libbackendtest/libbackendtest.la
 

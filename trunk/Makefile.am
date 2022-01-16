@@ -103,8 +103,8 @@ include scripts/Makefile.am
 include tests/Makefile.am
 
 install-exec-hook:
-	ln -fs mount.simplefs $(bindir)/mount.simplefs-file
-	ln -fs mount.simplefs-autofs $(bindir)/umount.simplefs-autofs
+	ln -fs mount.simplefs "$(bindir)/mount.simplefs-file"
+	ln -fs mount.simplefs-autofs "$(bindir)/umount.simplefs-autofs"
 
 .PHONY: distclean-local
 
