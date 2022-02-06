@@ -36,8 +36,7 @@ init_perf_test(struct perf_test_ctx **ctx, const struct perf_test_ops *ops,
     int err;
     struct perf_test_ctx *ret;
 
-    ret = do_malloc(sizeof(*ret));
-    if (ret == NULL)
+    if (oemalloc(&ret) == NULL)
         return MINUS_ERRNO;
 
     err = (*(ops->init_ctx))(&ret->ctx, args);

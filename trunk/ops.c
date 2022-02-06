@@ -903,8 +903,7 @@ inc_refcnt(struct back_end *be, struct ref_inodes *ref_inodes, inum_t ino,
         struct db_key k;
         struct db_obj_stat s;
 
-        refinop = do_malloc(sizeof(*refinop));
-        if (refinop == NULL) {
+        if (oemalloc(&refinop) == NULL) {
             ret = MINUS_ERRNO;
             goto err1;
         }
@@ -3084,8 +3083,7 @@ do_read_data(void *args)
     }
     count = lastpgidx - firstpgidx + 1;
 
-    iov = do_calloc(count, sizeof(*iov));
-    if (iov == NULL)
+    if (oecalloc(&iov, count) == NULL)
         return MINUS_ERRNO;
 
     k.type = TYPE_PAGE;
@@ -3698,8 +3696,7 @@ simplefs_init_prepare(void *rctx, struct session *sess, inum_t root_id)
 
     (void)sess;
 
-    priv = do_malloc(sizeof(*priv));
-    if (priv == NULL) {
+    if (oemalloc(&priv) == NULL) {
         ret = MINUS_ERRNO;
         goto err1;
     }
@@ -4452,8 +4449,7 @@ simplefs_open(void *req, inum_t ino, struct file_info *fi)
 
     opargs.ino = ino;
 
-    ofile = do_malloc(sizeof(*ofile));
-    if (ofile == NULL) {
+    if (oemalloc(&ofile) == NULL) {
         ret = MINUS_ERRNO;
         goto err1;
     }
@@ -4612,8 +4608,7 @@ simplefs_opendir(void *req, inum_t ino, struct file_info *fi)
 
     opargs.ino = ino;
 
-    odir = do_malloc(sizeof(*odir));
-    if (odir == NULL) {
+    if (oemalloc(&odir) == NULL) {
         ret = MINUS_ERRNO;
         goto err1;
     }
@@ -5102,8 +5097,7 @@ simplefs_create(void *req, inum_t parent, const char *name, mode_t mode,
     opargs.op_data.mknod_data.name = name;
     opargs.op_data.mknod_data.mode = mode;
 
-    ofile = do_malloc(sizeof(*ofile));
-    if (ofile == NULL) {
+    if (oemalloc(&ofile) == NULL) {
         ret = MINUS_ERRNO;
         goto err1;
     }

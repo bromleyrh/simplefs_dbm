@@ -808,8 +808,7 @@ op_list_init(struct op_list *list, const char *name)
 {
     struct op *ops;
 
-    ops = do_malloc(OP_LIST_INIT_SIZE * sizeof(*ops));
-    if (ops == NULL)
+    if (oeallocarray(&ops, OP_LIST_INIT_SIZE) == NULL)
         return MINUS_ERRNO;
 
     list->ops = ops;
@@ -835,8 +834,7 @@ op_list_reserve(struct op_list *list, int num)
         int newsz = newlen * 2;
         struct op *tmp;
 
-        tmp = do_realloc(list->ops, newsz * sizeof(*tmp));
-        if (tmp == NULL)
+        if (oereallocarray(list->ops, &tmp, newsz) == NULL)
             return MINUS_ERRNO;
 
         list->ops = tmp;
@@ -1383,8 +1381,7 @@ fuse_cache_create(void **ctx, size_t key_size, back_end_key_cmp_t key_cmp,
     struct fuse_cache *ret;
     struct fuse_cache_args *cache_args = (struct fuse_cache_args *)args;
 
-    ret = do_malloc(sizeof(*ret));
-    if (ret == NULL)
+    if (oemalloc(&ret) == NULL)
         return MINUS_ERRNO;
 
     ret->ops = cache_args->ops;
@@ -1449,8 +1446,7 @@ fuse_cache_open(void **ctx, size_t key_size, back_end_key_cmp_t key_cmp,
     struct fuse_cache *ret;
     struct fuse_cache_args *cache_args = (struct fuse_cache_args *)args;
 
-    ret = do_malloc(sizeof(*ret));
-    if (ret == NULL)
+    if (oemalloc(&ret) == NULL)
         return MINUS_ERRNO;
 
     ret->ops = cache_args->ops;
@@ -1557,8 +1553,7 @@ fuse_cache_insert(void *ctx, const void *key, const void *data, size_t datasize)
 
     /* insert into cache */
 
-    o = do_malloc(sizeof(*o));
-    if (o == NULL)
+    if (oemalloc(&o) == NULL)
         return MINUS_ERRNO;
 
     res = init_cache_obj(o, NULL, key, data, datasize, cache);
@@ -1650,8 +1645,7 @@ fuse_cache_replace(void *ctx, const void *key, const void *data,
     if (res != 0)
         return res;
 
-    o = do_malloc(sizeof(*o));
-    if (o == NULL)
+    if (oemalloc(&o) == NULL)
         return MINUS_ERRNO;
 
     res = avl_tree_new_node(&n, cache->cache);
@@ -2133,8 +2127,7 @@ fuse_cache_iter_new(void **iter, void *ctx)
     struct fuse_cache *cache = (struct fuse_cache *)ctx;
     struct fuse_cache_iter *ret;
 
-    ret = do_malloc(sizeof(*ret));
-    if (ret == NULL)
+    if (oemalloc(&ret) == NULL)
         return MINUS_ERRNO;
 
     ret->cache = cache;

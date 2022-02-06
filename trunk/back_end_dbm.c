@@ -544,16 +544,14 @@ back_end_dbm_create(void **ctx, size_t key_size, back_end_key_cmp_t key_cmp,
         goto err1;
     }
 
-    ret = do_malloc(sizeof(*ret));
-    if (ret == NULL) {
+    if (oemalloc(&ret) == NULL) {
         err = MINUS_ERRNO;
         goto err1;
     }
     ret->key_size = key_size;
     ret->key_cmp = key_cmp;
 
-    ret->key_ctx = do_malloc(sizeof(*(ret->key_ctx)));
-    if (ret->key_ctx == NULL) {
+    if (oemalloc(&ret->key_ctx) == NULL) {
         err = MINUS_ERRNO;
         goto err2;
     }
@@ -641,16 +639,14 @@ back_end_dbm_open(void **ctx, size_t key_size, back_end_key_cmp_t key_cmp,
         goto err1;
     }
 
-    ret = do_malloc(sizeof(*ret));
-    if (ret == NULL) {
+    if (oemalloc(&ret) == NULL) {
         err = MINUS_ERRNO;
         goto err1;
     }
     ret->key_size = key_size;
     ret->key_cmp = key_cmp;
 
-    ret->key_ctx = do_malloc(sizeof(*(ret->key_ctx)));
-    if (ret->key_ctx == NULL) {
+    if (oemalloc(&ret->key_ctx) == NULL) {
         err = MINUS_ERRNO;
         goto err2;
     }
@@ -820,8 +816,7 @@ back_end_dbm_iter_new(void **iter, void *ctx)
     struct db_iter *ret;
     struct db_ctx *dbctx = (struct db_ctx *)ctx;
 
-    ret = do_malloc(sizeof(*ret));
-    if (ret == NULL)
+    if (oemalloc(&ret) == NULL)
         return MINUS_ERRNO;
 
     err = db_hl_iter_new(&ret->iter, dbctx->dbh);

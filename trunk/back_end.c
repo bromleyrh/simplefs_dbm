@@ -28,8 +28,7 @@ back_end_create(struct back_end **be, size_t key_size,
     int err;
     struct back_end *ret;
 
-    ret = do_malloc(sizeof(*ret));
-    if (ret == NULL)
+    if (oemalloc(&ret) == NULL)
         return MINUS_ERRNO;
 
     err = (*(ops->create))(&ret->ctx, key_size, key_cmp, args);
@@ -54,8 +53,7 @@ back_end_open(struct back_end **be, size_t key_size,
     int err;
     struct back_end *ret;
 
-    ret = do_malloc(sizeof(*ret));
-    if (ret == NULL)
+    if (oemalloc(&ret) == NULL)
         return MINUS_ERRNO;
 
     err = (*(ops->open))(&ret->ctx, key_size, key_cmp, args);
@@ -124,8 +122,7 @@ back_end_iter_new(struct back_end_iter **iter, struct back_end *be)
     int err;
     struct back_end_iter *ret;
 
-    ret = do_malloc(sizeof(*ret));
-    if (ret == NULL)
+    if (oemalloc(&ret) == NULL)
         return MINUS_ERRNO;
 
     err = (*(be->ops->iter_new))(&ret->ctx, be->ctx);

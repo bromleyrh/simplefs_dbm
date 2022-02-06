@@ -358,8 +358,7 @@ fs_blkdev_openfs(void **ctx, void *args)
     size_t i;
     struct blkdev_ctx *ret;
 
-    ret = do_malloc(sizeof(*ret));
-    if (ret == NULL)
+    if (oemalloc(&ret) == NULL)
         return MINUS_ERRNO;
 
     ret->args = (struct blkdev_args *)args;

@@ -155,8 +155,7 @@ request_new(struct request_ctx **ctx, const struct request_ops *req_ops,
     int err;
     struct request_ctx *ret;
 
-    ret = do_malloc(sizeof(*ret));
-    if (ret == NULL)
+    if (oemalloc(&ret) == NULL)
         return MINUS_ERRNO;
 
     if (req_ops->new != NULL) {
