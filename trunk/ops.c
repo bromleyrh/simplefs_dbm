@@ -1386,7 +1386,7 @@ new_node(struct back_end *be, struct ref_inodes *ref_inodes, inum_t parent,
         deserialize_stat(attr, &s);
         attr->st_nlink = 1;
     }
-    memcpy(inop, refinop, 2 * sizeof(struct ref_ino *));
+    omemcpy_array(inop, refinop, 2);
 
     return 0;
 
@@ -1551,7 +1551,7 @@ new_dir(struct back_end *be, inum_t root_id, struct ref_inodes *ref_inodes,
         deserialize_stat(attr, &s);
         attr->st_nlink = 2;
     }
-    memcpy(inop, refinop, 4 * sizeof(struct ref_ino *));
+    omemcpy_array(inop, refinop, 4);
 
     return 0;
 
