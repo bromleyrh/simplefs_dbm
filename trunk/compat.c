@@ -11,6 +11,8 @@
 #include "common.h"
 #undef NO_ASSERT
 
+#include <strings_ext.h>
+
 #include <fuse_lowlevel.h>
 
 #include <assert.h>
@@ -131,7 +133,7 @@ init_ver_2_to_3(struct back_end *be, size_t hdrlen, size_t jlen, int ro,
 
         cur_rng = (sk.ino - FUSE_ROOT_ID) / FREE_INO_RANGE_SZ;
         base = sk.ino;
-        memset(freeino.used_ino, 0, sizeof(freeino.used_ino));
+        omemset(&freeino.used_ino, 0);
         for (numinodes = 1;; numinodes++) {
             uint32_t rng;
 

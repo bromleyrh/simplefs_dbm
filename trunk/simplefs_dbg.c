@@ -351,7 +351,7 @@ scan_time(char *str, void *data, size_t off, int is_signed, int width, int base)
     (void)width;
     (void)base;
 
-    memset(&tm, 0, sizeof(tm));
+    omemset(&tm, 0);
     if (strptime(str, "%Y-%m-%d %H:%M:%S", &tm) == NULL)
         return 2;
     tm.tm_isdst = -1;
@@ -1061,7 +1061,7 @@ cmd_insert(struct dbh *dbh)
         d = NULL;
         datasize = 0;
     } else {
-        memset(&data, 0, sizeof(data));
+        omemset(&data, 0);
         d = &data;
         datasize = typep->datasize;
     }

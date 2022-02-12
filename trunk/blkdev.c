@@ -9,6 +9,7 @@
 #include "util.h"
 
 #include <io_ext.h>
+#include <strings_ext.h>
 
 #include <errno.h>
 #include <fcntl.h>
@@ -645,7 +646,7 @@ fs_blkdev_fstat(void *ctx, int fd, struct stat *s)
     if (ret != 0)
         return ret;
 
-    memset(s, 0, sizeof(*s));
+    omemset(s, 0);
     s->st_mode = S_IFREG;
     s->st_rdev = (dev_t)~0;
     s->st_size = (fd == FD(bctx)) ? DATA_SIZE(bctx) : JOURNAL_SIZE;
@@ -788,7 +789,7 @@ fs_blkdev_fstatfs(void *ctx, int fd, struct statfs *buf)
     (void)ctx;
     (void)fd;
 
-    memset(buf, 0, sizeof(*buf));
+    omemset(buf, 0);
     /* Return f_type value other than NFS_SUPER_MAGIC */
     buf->f_type = ~NFS_SUPER_MAGIC;
 

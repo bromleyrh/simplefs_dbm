@@ -195,7 +195,7 @@ enable_debugging_features()
         .rlim_max = RLIM_INFINITY
     };
 
-    memset(&sa, 0, sizeof(sa));
+    omemset(&sa, 0);
     sa.sa_sigaction = &abrt_handler;
     sa.sa_flags = SA_SIGINFO;
     if ((sigaction(SIGABRT, &sa, NULL) == -1)
@@ -300,7 +300,7 @@ do_fuse_parse_cmdline(struct fuse_args *args, char **mountpoint,
 #if FUSE_USE_VERSION != 32
     ret = fuse_parse_cmdline(args, mountpoint, multithreaded, foreground);
 #else
-    memset(&opts, 0, sizeof(opts));
+    omemset(&opts, 0);
     ret = fuse_parse_cmdline(args, &opts);
 #endif
     if (ret == -1)
@@ -330,7 +330,7 @@ parse_cmdline(struct fuse_args *args, struct fuse_data *fusedata)
         FUSE_OPT_END
     };
 
-    memset(&fusedata->md, 0, sizeof(fusedata->md));
+    omemset(&fusedata->md, 0);
     fusedata->md.wd = fusedata->md.pipefd = -1;
 
     if (fuse_opt_parse(args, &fusedata->md, opts, &opt_proc) == -1)

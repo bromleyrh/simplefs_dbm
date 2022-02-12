@@ -694,7 +694,7 @@ get_ino(struct back_end *be, inum_t *ino)
             return res;
 
         k.ino += FREE_INO_RANGE_SZ;
-        memset(freeino.used_ino, 0, sizeof(freeino.used_ino));
+        omemset(&freeino.used_ino, 0);
         used_ino_set(freeino.used_ino, k.ino, k.ino, 1);
         freeino.flags = FREE_INO_LAST_USED;
         res = back_end_insert(be, &k, &freeino, sizeof(freeino));
@@ -749,7 +749,7 @@ release_ino(struct back_end *be, inum_t root_id, inum_t ino)
             return res;
 
         /* insert new free I-node number information object */
-        memset(freeino.used_ino, 0xff, sizeof(freeino.used_ino));
+        omemset(&freeino.used_ino, 0xff);
         used_ino_set(freeino.used_ino, k.ino, ino, 0);
         freeino.flags = 0;
         res = back_end_insert(be, &k, &freeino, sizeof(freeino));
@@ -1079,7 +1079,7 @@ do_set_ts(struct disk_timespec *ts, struct timespec *srcts)
     if (srcts == NULL) {
         srcts = &timespec;
         if (clock_gettime(CLOCK_REALTIME, srcts) != 0) {
-            memset(ts, 0, sizeof(*ts));
+            omemset(ts, 0);
             return;
         }
     }
@@ -2991,7 +2991,7 @@ do_read_entries(void *args)
 
         strlcpy(odir->cur_name, (const char *)(k.name), sizeof(odir->cur_name));
 
-        memset(&s, 0, sizeof(s));
+        omemset(&s, 0);
         s.st_ino = buf.de.ino;
 
         remsize = bufsize - buflen;
@@ -3780,7 +3780,7 @@ simplefs_init_prepare(void *rctx, struct session *sess, inum_t root_id)
 
         k.type = TYPE_FREE_INO;
         k.ino = root_id;
-        memset(freeino.used_ino, 0, sizeof(freeino.used_ino));
+        omemset(&freeino.used_ino, 0);
         used_ino_set(freeino.used_ino, k.ino, root_id, 1);
         freeino.flags = FREE_INO_LAST_USED;
         ret = back_end_insert(priv->be, &k, &freeino, sizeof(freeino));
@@ -3947,7 +3947,7 @@ simplefs_lookup(void *req, inum_t parent, const char *name)
     ret = do_queue_op(priv, &do_look_up, &opargs);
     if ((ret != 0) && (ret != 1))
         goto err;
-    memset(&e, 0, sizeof(e));
+    omemset(&e, 0);
     if (ret == 1) {
         e.ino = opargs.s.st_ino;
         deserialize_stat(&e.attr, &opargs.s);
@@ -4135,7 +4135,7 @@ simplefs_mknod(void *req, inum_t parent, const char *name, mode_t mode,
     if (ret != 0)
         goto err;
 
-    memset(&e, 0, sizeof(e));
+    omemset(&e, 0);
     e.ino = opargs.attr.st_ino;
     e.generation = 1;
     e.attr = opargs.attr;
@@ -4179,7 +4179,7 @@ simplefs_mkdir(void *req, inum_t parent, const char *name, mode_t mode)
     if (ret != 0)
         goto err;
 
-    memset(&e, 0, sizeof(e));
+    omemset(&e, 0);
     e.ino = opargs.attr.st_ino;
     e.generation = 1;
     e.attr = opargs.attr;
@@ -4323,7 +4323,7 @@ simplefs_symlink(void *req, const char *link, inum_t parent, const char *name)
     if (ret != 0)
         goto err;
 
-    memset(&e, 0, sizeof(e));
+    omemset(&e, 0);
     e.ino = opargs.attr.st_ino;
     e.generation = 1;
     e.attr = opargs.attr;
@@ -4404,7 +4404,7 @@ simplefs_link(void *req, inum_t ino, inum_t newparent, const char *newname)
     if (ret != 0)
         goto err;
 
-    memset(&e, 0, sizeof(e));
+    omemset(&e, 0);
     e.ino = opargs.s.st_ino;
     e.generation = 1;
     deserialize_stat(&e.attr, &opargs.s);

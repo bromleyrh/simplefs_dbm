@@ -5,6 +5,8 @@
 #include "common.h"
 #include "util.h"
 
+#include <strings_ext.h>
+
 #include <readline/history.h>
 #include <readline/readline.h>
 
@@ -113,7 +115,7 @@ init_header(int fd)
 {
     struct disk_header hdr;
 
-    memset(&hdr, 0, sizeof(hdr));
+    omemset(&hdr, 0);
     hdr.magic = MAGIC;
 
     return (do_ppwrite(fd, &hdr, sizeof(hdr), 0, 4096, NULL) == sizeof(hdr))
