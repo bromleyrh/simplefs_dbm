@@ -11,6 +11,7 @@
 #undef NO_ASSERT
 
 #include <bitmap.h>
+#include <strings_ext.h>
 
 #include <errno.h>
 #include <inttypes.h>
@@ -97,9 +98,8 @@ walk_fn3(const void *kv, void *ctx)
                               data->bitmap_pos, (unsigned *)(&data->bitmap_pos),
                               1) == 0)
         || (curr != data->bitmap_pos)) {
-        snprintf(output, sizeof(output),
-                 "Bitmap (%6d) and back end (%6d) differ\n",
-                 data->bitmap_pos, curr);
+        fillbuf(output, "Bitmap (%6d) and back end (%6d) differ\n",
+                data->bitmap_pos, curr);
         if (data->keys_found > 1)
             fputc('\n', stderr);
         fputs(output, stderr);
@@ -108,8 +108,7 @@ walk_fn3(const void *kv, void *ctx)
         return -EIO;
     }
 
-    snprintf(output, sizeof(output), "Bitmap and back end agree up to %6d",
-             data->bitmap_pos);
+    fillbuf(output, "Bitmap and back end agree up to %6d", data->bitmap_pos);
     fputc('\r', stderr);
     fputs(output, stderr);
     if (data->checklog != NULL) {

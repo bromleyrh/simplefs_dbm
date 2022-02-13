@@ -243,7 +243,7 @@ int_key_to_str(const void *k, void *ctx)
     int key = get_short_key((int *)k, (intptr_t)ctx);
     static char buf[16];
 
-    snprintf(buf, sizeof(buf), "%d", key);
+    fillbuf(buf, "%d", key);
     return buf;
 }
 

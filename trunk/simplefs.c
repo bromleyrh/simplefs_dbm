@@ -612,8 +612,7 @@ open_log(const char *mountpoint)
 {
     static char buf[32+PATH_MAX];
 
-    if (snprintf(buf, sizeof(buf), "simplefs:%s", mountpoint)
-        >= (int)sizeof(buf))
+    if (fmtbuf(buf, "simplefs:%s", mountpoint) != 0)
         return -ENAMETOOLONG;
 
     openlog(buf, LOG_PERROR | LOG_PID, LOG_USER);

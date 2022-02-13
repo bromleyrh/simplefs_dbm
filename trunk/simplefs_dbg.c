@@ -392,7 +392,7 @@ set_header(const struct db_key *key, void **data, size_t *datasize)
         char prompt[32];
         const struct ent *scandescp = &scandescs[i];
 
-        snprintf(prompt, sizeof(prompt), "%s: ", scandescp->nm);
+        fillbuf(prompt, "%s: ", scandescp->nm);
         arg = readline(prompt);
         if (arg == NULL)
             return 2;
@@ -478,7 +478,7 @@ set_stat(const struct db_key *key, void **data, size_t *datasize)
         char prompt[32];
         const struct ent *scandescp = &scandescs[i];
 
-        snprintf(prompt, sizeof(prompt), "%s: ", scandescp->nm);
+        fillbuf(prompt, "%s: ", scandescp->nm);
         arg = readline(prompt);
         if (arg == NULL)
             return 2;

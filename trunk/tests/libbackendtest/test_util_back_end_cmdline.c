@@ -11,6 +11,8 @@
 
 #include <test_util.h>
 
+#include <strings_ext.h>
+
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -74,8 +76,8 @@ be_test_opt_str(const char *test_opt_str, int order_stats)
     static const char std_opt_str[] = "bcdFi:k:Mn:P:p:Stvw:";
     static const char order_stats_opt_str[] = "O";
 
-    snprintf(buf, sizeof(buf), "%s%s%s", std_opt_str,
-             order_stats ? order_stats_opt_str : "", test_opt_str);
+    fillbuf(buf, "%s%s%s", std_opt_str, order_stats ? order_stats_opt_str : "",
+            test_opt_str);
 
     return buf;
 }
