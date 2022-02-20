@@ -693,7 +693,7 @@ get_ino(struct back_end *be, inum_t *ino)
             return res;
 
         k.ino += FREE_INO_RANGE_SZ;
-        omemset(&freeino.used_ino, 0);
+        memset(freeino.used_ino, 0, sizeof(freeino.used_ino));
         used_ino_set(freeino.used_ino, k.ino, k.ino, 1);
         freeino.flags = FREE_INO_LAST_USED;
         res = back_end_insert(be, &k, &freeino, sizeof(freeino));
@@ -748,7 +748,7 @@ release_ino(struct back_end *be, inum_t root_id, inum_t ino)
             return res;
 
         /* insert new free I-node number information object */
-        omemset(&freeino.used_ino, 0xff);
+        memset(freeino.used_ino, 0xff, sizeof(freeino.used_ino));
         used_ino_set(freeino.used_ino, k.ino, ino, 0);
         freeino.flags = 0;
         res = back_end_insert(be, &k, &freeino, sizeof(freeino));
@@ -3779,7 +3779,7 @@ simplefs_init_prepare(void *rctx, struct session *sess, inum_t root_id)
 
         k.type = TYPE_FREE_INO;
         k.ino = root_id;
-        omemset(&freeino.used_ino, 0);
+        memset(freeino.used_ino, 0, sizeof(freeino.used_ino));
         used_ino_set(freeino.used_ino, k.ino, root_id, 1);
         freeino.flags = FREE_INO_LAST_USED;
         ret = back_end_insert(priv->be, &k, &freeino, sizeof(freeino));
