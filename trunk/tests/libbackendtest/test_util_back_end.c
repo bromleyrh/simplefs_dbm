@@ -301,7 +301,7 @@ be_insert(struct be_ctx *bectx, int key, int *result, int repeat_allowed,
     ret = (*(bectx->ops.insert))(bectx->be, (void *)full_key);
     if (ret == 0) {
         if (verbose > 1)
-            fprintf(stderr, "Inserted %d\n", key);
+            infomsgf("Inserted %d\n", key);
         if (record_stats)
             ++(bectx->stats.num_keys);
     } else {
@@ -341,7 +341,7 @@ be_replace(struct be_ctx *bectx, int key, int *result, int nonexistent_allowed,
     ret = (*(bectx->ops.replace))(bectx->be, (void *)full_key);
     if (ret == 0) {
         if (verbose > 1)
-            fprintf(stderr, "Replaced %d\n", key);
+            infomsgf("Replaced %d\n", key);
     } else {
         if ((ret == -EADDRNOTAVAIL) && nonexistent_allowed) {
             if (verbose > 0)
@@ -379,7 +379,7 @@ be_delete(struct be_ctx *bectx, int key, int *result, int repeat_allowed,
     ret = (*(bectx->ops.delete))(bectx->be, (void *)full_key);
     if (ret == 0) {
         if (verbose > 1)
-            fprintf(stderr, "Deleted %d\n", key);
+            infomsgf("Deleted %d\n", key);
         if (record_stats)
             --(bectx->stats.num_keys);
     } else {
@@ -412,7 +412,7 @@ be_delete_from(struct be_ctx *bectx, int node, int *result, int repeat_allowed,
     ret = (*(bectx->ops.delete_from))(bectx->be, node, result);
     if (ret == 0) {
         if (verbose > 1)
-            fprintf(stderr, "Deleted %d from node\n", *result);
+            infomsgf("Deleted %d from node\n", *result);
         if (record_stats)
             --(bectx->stats.num_keys);
     } else {
@@ -450,10 +450,10 @@ be_find(struct be_ctx *bectx, int key, int *result, int verbose,
     ret = (*(bectx->ops.search))(bectx->be, (void *)full_key, res);
     if (ret == 1) {
         if (verbose)
-            fprintf(stderr, "Key %d found\n", key);
+            infomsgf("Key %d found\n", key);
     } else if (ret == 0) {
         if (verbose)
-            fprintf(stderr, "Key %d not found\n", key);
+            infomsgf("Key %d not found\n", key);
     } else {
         error(0, -ret, "Error looking up in back end");
         return ret;
@@ -510,10 +510,10 @@ be_select(struct be_ctx *bectx, int idx, int *result, int verbose,
         if (result != NULL)
             *result = short_res;
         if (verbose)
-            fprintf(stderr, "Key at index %d is %d\n", idx, short_res);
+            infomsgf("Key at index %d is %d\n", idx, short_res);
     } else if (ret == 0) {
         if (verbose)
-            fprintf(stderr, "Key at index %d not found\n", idx);
+            infomsgf("Key at index %d not found\n", idx);
     } else {
         assert(ret < 0);
         error(0, -ret, "Error looking up in back end");
@@ -544,10 +544,10 @@ be_get_index(struct be_ctx *bectx, int key, int *result, int verbose,
         if (result != NULL)
             *result = res;
         if (verbose)
-            fprintf(stderr, "Key %d has index %d\n", key, res);
+            infomsgf("Key %d has index %d\n", key, res);
     } else if (ret == 0) {
         if (verbose)
-            fprintf(stderr, "Key %d not found\n", key);
+            infomsgf("Key %d not found\n", key);
     } else {
         assert(ret < 0);
         error(0, -ret, "Error looking up in back end");
@@ -635,7 +635,7 @@ be_iter_get(struct be_ctx *bectx, void *iter, int *result, int verbose,
         if (result != NULL)
             *result = short_res;
         if (verbose)
-            fprintf(stderr, "Key at iterator position is %d\n", short_res);
+            infomsgf("Key at iterator position is %d\n", short_res);
     } else
         error(0, -ret, "Error accessing back end element");
 
@@ -687,10 +687,10 @@ be_iter_search(struct be_ctx *bectx, void *iter, int key, int verbose,
     ret = (*(bectx->ops.iter_search))(iter, full_key);
     if (ret == 1) {
         if (verbose)
-            fprintf(stderr, "Key %d found\n", key);
+            infomsgf("Key %d found\n", key);
     } else if (ret == 0) {
         if (verbose)
-            fprintf(stderr, "Key %d not found\n", key);
+            infomsgf("Key %d not found\n", key);
     } else {
         assert(ret < 0);
         error(0, -ret, "Error setting iterator position");
@@ -710,10 +710,10 @@ be_iter_select(struct be_ctx *bectx, void *iter, int idx, int verbose,
     ret = (*(bectx->ops.iter_select))(iter, idx);
     if (ret == 1) {
         if (verbose)
-            fprintf(stderr, "Key at index %d found\n", idx);
+            infomsgf("Key at index %d found\n", idx);
     } else if (ret == 0) {
         if (verbose)
-            fprintf(stderr, "Key at index %d not found\n", idx);
+            infomsgf("Key at index %d not found\n", idx);
     } else {
         assert(ret < 0);
         error(0, -ret, "Error setting iterator position");
@@ -815,7 +815,7 @@ do_iter_seek_single(struct be_ctx *bectx, void *iter, unsigned *curkey, int dir,
 
     if (use_be && use_bitmap && (ret == 1)) {
         if ((unsigned)res == *curkey)
-            fprintf(stderr, "\rBitmap and iterator agree up to %9d", res);
+            infomsgf("\rBitmap and iterator agree up to %9d", res);
         else {
             error(0, 0, "Bitmap and iterator differ at key %s of %u (%u vs. "
                   "%d)", (dir == 0) ? "left" : "right", oldkey, *curkey, res);
@@ -883,7 +883,7 @@ do_test_iter(struct be_ctx *bectx, void *iter, unsigned startkey, int max_key,
 
 end:
     if (nseeks > 0)
-        fputc('\n', stderr);
+        infochr('\n');
     return 0;
 }
 
@@ -1018,7 +1018,7 @@ empty_back_end(struct be_ctx *bectx)
     struct dynamic_array *key_list;
     struct empty_be_ctx wctx;
 
-    fputs("Emptying back end\n", stderr);
+    infomsg("Emptying back end\n");
 
     err = dynamic_array_new(&key_list, 1024, sizeof(int));
     if (err) {
@@ -1059,10 +1059,10 @@ empty_back_end(struct be_ctx *bectx)
         }
         bitmap_set(bmdata->bitmap, keys[i], 0);
         --(bectx->stats.num_keys);
-        fprintf(stderr, "\rRemoved %6d (%6zu/%6zu)", keys[i], i + 1, n);
+        infomsgf("\rRemoved %6d (%6zu/%6zu)", keys[i], i + 1, n);
     }
     if (i > 0)
-        fputc('\n', stderr);
+        infochr('\n');
 
     if (i == n) {
         assert(memcchr(bmdata->bitmap, 0, bmdata->bitmap_len * sizeof(unsigned))

@@ -800,13 +800,13 @@ cmd_dump(struct dbh *dbh)
         goto err2;
     }
 
-    fputs("Dumping...", stderr);
+    infomsg("Dumping...");
 
     err = dump_db(f, dbh);
-    fputc('\n', stderr);
+    infochr('\n');
     if (err) {
         if (err == 1) {
-            fputs("Dump interrupted\n", stderr);
+            infomsg("Dump interrupted\n");
             err = 2;
         }
         goto err3;
@@ -831,7 +831,7 @@ cmd_dump(struct dbh *dbh)
 
     free(path);
 
-    fputs("Dump file written\n", stderr);
+    infomsg("Dump file written\n");
 
     return 0;
 
@@ -896,7 +896,7 @@ cmd_find(struct dbh *dbh)
         typep = &typemap[i];
 
         if (typep->nm != NULL)
-            fprintf(stderr, "%zu: %s\n", i, typep->nm);
+            infomsgf("%zu: %s\n", i, typep->nm);
     }
 
     arg = readline("Type: ");
@@ -1034,7 +1034,7 @@ cmd_insert(struct dbh *dbh)
         typep = &typemap[i];
 
         if (typep->nm != NULL)
-            fprintf(stderr, "%zu: %s\n", i, typep->nm);
+            infomsgf("%zu: %s\n", i, typep->nm);
     }
 
     arg = readline("Type: ");
@@ -1138,7 +1138,7 @@ cmd_remove(struct dbh *dbh)
         typep = &typemap[i];
 
         if (typep->nm != NULL)
-            fprintf(stderr, "%zu: %s\n", i, typep->nm);
+            infomsgf("%zu: %s\n", i, typep->nm);
     }
 
     arg = readline("Type: ");
@@ -1241,7 +1241,7 @@ cmd_update(struct dbh *dbh)
         typep = &typemap[i];
 
         if (typep->nm != NULL)
-            fprintf(stderr, "%zu: %s\n", i, typep->nm);
+            infomsgf("%zu: %s\n", i, typep->nm);
     }
 
     arg = readline("Type: ");

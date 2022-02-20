@@ -283,7 +283,7 @@ open_blkdev(int fd, int create, int ro, int *initialized,
     if (err)
         return err;
     if (bctx->hdr.magic != MAGIC) { /* not formatted */
-        fputs("Device not formatted\n", stderr);
+        errmsg("Device not formatted\n");
         return -EILSEQ;
     }
     if (bctx->hdr.blkdevsz == 0) { /* not initialized */
@@ -302,8 +302,7 @@ open_blkdev(int fd, int create, int ro, int *initialized,
     }
     if (bctx->hdr.blkdevsz != blkdevsz) {
         /* device size changed after initialization */
-        fprintf(stderr, "Device size changed from %" PRIu64 "\n",
-                bctx->hdr.blkdevsz);
+        errmsgf("Device size changed from %" PRIu64 "\n", bctx->hdr.blkdevsz);
         return -EILSEQ;
     }
 

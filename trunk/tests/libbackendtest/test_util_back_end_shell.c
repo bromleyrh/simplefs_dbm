@@ -34,9 +34,9 @@ shell_check_assertion(void *ctx,
 
     ret = (*search_back_end)(ctx, assert_key, &res);
     if (ret == 1)
-        fprintf(stderr, "Assertion succeeded: key %d found\n", assert_key);
+        infomsgf("Assertion succeeded: key %d found\n", assert_key);
     else if (ret == 0) {
-        fprintf(stderr, "Assertion failed: key %d not found\n", assert_key);
+        errmsgf("Assertion failed: key %d not found\n", assert_key);
         while (!quit)
             pause();
         quit = 0;

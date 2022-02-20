@@ -421,8 +421,7 @@ reply_err(void *req, int err)
     struct request *r = (struct request *)req;
 
     if (err < 0) {
-        fprintf(stderr, "Error code in file system reply is negative: %d\n",
-                err);
+        errmsgf("Error code in file system reply is negative: %d\n", err);
         write_backtrace(stderr, 1);
         abort();
     }

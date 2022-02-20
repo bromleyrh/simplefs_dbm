@@ -77,7 +77,7 @@ parse_cmdline(int argc, char **argv, int *force, const char **dev)
     }
 
     if (optind != argc - 1) {
-        fprintf(stderr, "%s\n",
+        errmsgf("%s\n",
                 (optind == argc)
                 ? "Must specify device" : "Unrecognized arguments");
         return -1;
@@ -150,12 +150,12 @@ zero_data_and_journal_areas(int fd)
 
         totwritten += IO_SIZE;
 
-        fprintf(stderr, "\rWrote %19" PRIi64 " bytes", totwritten);
+        infomsgf("\rWrote %19" PRIi64 " bytes", totwritten);
     }
 
 end:
     if (totwritten > (off_t)sizeof(struct disk_header))
-        fprintf(stderr, "\rWrote %19" PRIi64 " bytes\n", totwritten);
+        infomsgf("\rWrote %19" PRIi64 " bytes\n", totwritten);
     return err;
 }
 
@@ -186,19 +186,19 @@ format_device(const char *dev, int force)
     }
 
     if (force)
-        fprintf(stderr, "Formatting of %s forced using \"-f\" option\n", dev);
+        infomsgf("Formatting of %s forced using \"-f\" option\n", dev);
     else {
-        fprintf(stderr, "Warning: Device %s will be completely overwritten.\n"
-                        "         All data on %s will be destroyed.\n"
-                        "         It is advised to mount the file system\n"
-                        "         on %s (if any), confirm the intended data\n"
-                        "         will be overwritten, and unmount it before\n"
-                        "         proceeding.\n",
-                dev, dev, dev);
+        infomsgf("Warning: Device %s will be completely overwritten.\n"
+                 "         All data on %s will be destroyed.\n"
+                 "         It is advised to mount the file system\n"
+                 "         on %s (if any), confirm the intended data\n"
+                 "         will be overwritten, and unmount it before\n"
+                 "         proceeding.\n",
+                 dev, dev, dev);
         res = query("Please confirm if formatting should proceed (y/n): ");
         if (res != 1) {
             close(fd);
-            fprintf(stderr, "Device %s not written\n", dev);
+            infomsgf("Device %s not written\n", dev);
             return (res == 0) ? -ECANCELED : -ENOMEM;
         }
     }
@@ -220,7 +220,7 @@ format_device(const char *dev, int force)
         goto err2;
     }
 
-    fprintf(stderr, "Device %s formatted successfully\n", dev);
+    infomsgf("Device %s formatted successfully\n", dev);
 
     return 0;
 

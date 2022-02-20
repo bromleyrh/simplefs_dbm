@@ -384,7 +384,7 @@ db_key_cmp(const void *k1, const void *k2, void *key_ctx)
     case TYPE_ULINKED_INODE:
         break;
     default:
-        fprintf(stderr, "Unrecognized object type %d in %s()\n", key1->type,
+        errmsgf("Unrecognized object type %d in %s()\n", key1->type,
                 __FUNCTION__);
         abort();
     }
@@ -548,8 +548,7 @@ dump_db_obj(FILE *f, const void *key, const void *data, size_t datasize,
                 (uint64_t)(k->ino));
         break;
     default:
-        fprintf(stderr, "Unrecognized object type %d in %s()\n", k->type,
-                __FUNCTION__);
+        errmsgf("Unrecognized object type %d in %s()\n", k->type, __FUNCTION__);
         abort();
     }
 }
@@ -1046,8 +1045,8 @@ remove_ulinked_nodes(struct back_end *be, inum_t root_id)
         if (ret != 0)
             goto err1;
 
-        fprintf(stderr, "Warning: Removing I-node %" PRIu64 " with no links\n",
-                (uint64_t)(k.ino));
+        infomsgf("Warning: Removing I-node %" PRIu64 " with no links\n",
+                 (uint64_t)(k.ino));
 
         ret = delete_file(be, root_id, k.ino);
         if (ret != 0)
@@ -3748,8 +3747,8 @@ simplefs_init_prepare(void *rctx, struct session *sess, inum_t root_id)
             goto err5;
 
         if (dbargs.ro) {
-            fputs("Warning: Ignoring read-only mount flag (creating file "
-                  "system)\n", stderr);
+            infomsg("Warning: Ignoring read-only mount flag (creating file "
+                    "system)\n");
         }
 
         sctx.delta = 0;

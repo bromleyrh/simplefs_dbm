@@ -445,12 +445,11 @@ trans_cb(int trans_type, int act, int status, void *ctx)
     };
 
     if (fuse_cache_debug) {
-        fprintf(stderr,
-                "Transaction data:\n"
-                "\tType: %s transaction\n"
-                "\tAction: %s\n"
-                "\tStatus: %d\n",
-                type2str[trans_type], act2str[act], status);
+        infomsgf("Transaction data:\n"
+                 "\tType: %s transaction\n"
+                 "\tAction: %s\n"
+                 "\tStatus: %d\n",
+                 type2str[trans_type], act2str[act], status);
     }
 
     if ((status != 0) && (act != DB_HL_ACT_ABORT))
@@ -549,15 +548,15 @@ obj_verify_refcnt_cb(const void *k, void *ctx)
     (void)ctx;
 
     if (o->in_cache != o->chk_in_cache) {
-        fputs("Object has incorrect in_cache status\n", stderr);
+        errmsg("Object has incorrect in_cache status\n");
         return -EIO;
     }
     if (o->lists != o->chk_lists) {
-        fputs("Object has incorrect list membership flags\n", stderr);
+        errmsg("Object has incorrect list membership flags\n");
         return -EIO;
     }
     if (o->refcnt != o->chk_refcnt) {
-        fputs("Object has incorrect refcnt\n", stderr);
+        errmsg("Object has incorrect refcnt\n");
         return -EIO;
     }
 
@@ -586,12 +585,11 @@ chk_process_cache_refs(struct avl_tree *objs, struct avl_tree *cache)
         assert(CACHE_OBJ_VALID(o));
 
         if (!(o->in_cache)) {
-            fputs("Object in cache has in_cache status 0\n", stderr);
+            errmsg("Object in cache has in_cache status 0\n");
             goto chk_err;
         }
         if (o->refcnt < 1) {
-            fprintf(stderr, "Object in cache has invalid refcnt %d\n",
-                    o->refcnt);
+            errmsgf("Object in cache has invalid refcnt %d\n", o->refcnt);
             goto chk_err;
         }
 
@@ -634,13 +632,13 @@ chk_process_list_refs(struct avl_tree *objs, int which, struct op_list *list)
         assert(CACHE_OBJ_VALID(o));
 
         if (!(o->lists & which)) {
-            fprintf(stderr, "Object in list %s does not have list flag set\n",
+            errmsgf("Object in list %s does not have list flag set\n",
                     list->name);
             return -EIO;
         }
         if (o->refcnt < 1) {
-            fprintf(stderr, "Object in list %s has invalid refcnt %d\n",
-                    list->name, o->refcnt);
+            errmsgf("Object in list %s has invalid refcnt %d\n", list->name,
+                    o->refcnt);
             return -EIO;
         }
 
@@ -758,8 +756,8 @@ check_consistency(struct fuse_cache *cache)
 
     /* check transaction state */
     if (cache->trans_state != back_end_dbm_get_trans_state(cache->ctx)) {
-        fputs("Cache transaction state and back end transaction state differ\n",
-              stderr);
+        errmsg("Cache transaction state and back end transaction state "
+               "differ\n");
         err = -EIO;
         goto err;
     }
@@ -793,12 +791,12 @@ check_consistency(struct fuse_cache *cache)
     if (err)
         goto err;
 
-    fputs("Consistency check passed\n", stderr);
+    infomsg("Consistency check passed\n");
 
     return;
 
 err:
-    fprintf(stderr, "Consistency check encountered error %d\n", err);
+    errmsgf("Consistency check encountered error %d\n", err);
     write_backtrace(stderr, 1);
     abort();
 }

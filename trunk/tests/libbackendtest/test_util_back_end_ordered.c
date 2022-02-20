@@ -90,7 +90,7 @@ walk_fn3(const void *kv, void *ctx)
     ++(data->keys_found);
     if (check_increasing(&data->prevkey, curr) == -1) {
         if (data->keys_found > 1)
-            fputc('\n', stderr);
+            infochr('\n');
         return -EIO;
     }
 
@@ -101,16 +101,16 @@ walk_fn3(const void *kv, void *ctx)
         fillbuf(output, "Bitmap (%6d) and back end (%6d) differ\n",
                 data->bitmap_pos, curr);
         if (data->keys_found > 1)
-            fputc('\n', stderr);
-        fputs(output, stderr);
+            infochr('\n');
+        infomsg(output);
         if (data->checklog != NULL)
             fputs(output, data->checklog);
         return -EIO;
     }
 
     fillbuf(output, "Bitmap and back end agree up to %6d", data->bitmap_pos);
-    fputc('\r', stderr);
-    fputs(output, stderr);
+    infochr('\r');
+    infomsg(output);
     if (data->checklog != NULL) {
         fputs(output, data->checklog);
         fputc('\n', data->checklog);
@@ -159,8 +159,8 @@ verify_insertion_ordered(struct be_ctx *bectx)
             return -EIO;
         }
 
-        fprintf(stderr, "%u keys found, %u keys inserted\n", data.keys_found,
-                stats.num_keys);
+        infomsgf("%u keys found, %u keys inserted\n", data.keys_found,
+                 stats.num_keys);
 
         if (data.keys_found != stats.num_keys) {
             error(0, 0, "Number of keys returned by walk (%u) != num_keys in "
@@ -217,12 +217,12 @@ verify_rand_ordered(struct be_ctx *bectx)
         goto end2;
     }
     if (data.keys_found > 0)
-        fputc('\n', stderr);
+        infochr('\n');
 
     if (bitmap_find_next_set(data.bmdata->bitmap, data.bmdata->bitmap_len,
                              data.bitmap_pos, (unsigned *)(&data.bitmap_pos), 1)
         != 0) {
-        fputs("Bitmap and back end differ\n", stderr);
+        infomsg("Bitmap and back end differ\n");
         fputs("Bitmap and back end differ\n", data.checklog);
         ret = -EIO;
     }

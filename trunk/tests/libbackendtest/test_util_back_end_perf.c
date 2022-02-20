@@ -160,7 +160,7 @@ be_perf_test_do_op(void *ctx)
         return -EIO;
     }
 
-    fprintf(stderr, "\rn == %u: %u", targs->n, targs->nops);
+    infomsgf("\rn == %u: %u", targs->n, targs->nops);
 
     return (++(targs->nops) == NUM_PERF_TEST_OPS) ? 1 : 0;
 }
@@ -208,11 +208,10 @@ be_test_perf(struct be_ctx *bectx, const struct be_params *bep,
         if (ret != 0)
             goto err2;
 
-        fprintf(stderr,
-                "\nTest for n == %u: %.6f s\n",
-                n,
-                (double)(info.tot_tm.tv_sec)
-                + (double)(info.tot_tm.tv_nsec) / 1000000000.0);
+        infomsgf("\nTest for n == %u: %.6f s\n",
+                 n,
+                 (double)(info.tot_tm.tv_sec)
+                 + (double)(info.tot_tm.tv_nsec) / 1000000000.0);
     }
 
     end_perf_test(tctx);

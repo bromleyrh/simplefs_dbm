@@ -672,7 +672,7 @@ back_end_dbm_open(void **ctx, size_t key_size, back_end_key_cmp_t key_cmp,
         if (err) {
             if (err != -EROFS)
                 goto err4;
-            fputs("Replaying file system journal\n", stderr);
+            infomsg("Replaying file system journal\n");
         } else {
             err = db_hl_close(ret->dbh);
             if (err)

@@ -51,7 +51,7 @@ check_init_default(struct back_end *be, int ro, int fmtconv)
 
     if (ro) {
         if (fmtconv)
-            fputs("Warning: Ignoring fmtconv mount flag\n", stderr);
+            infomsg("Warning: Ignoring fmtconv mount flag\n");
         return 0;
     }
 
@@ -65,7 +65,7 @@ check_init_ro_or_fmtconv(struct back_end *be, int ro, int fmtconv)
 
     if (ro) {
         if (fmtconv)
-            fputs("Warning: Ignoring fmtconv mount flag\n", stderr);
+            infomsg("Warning: Ignoring fmtconv mount flag\n");
         return 0;
     }
 
@@ -139,7 +139,7 @@ init_ver_2_to_3(struct back_end *be, size_t hdrlen, size_t jlen, int ro,
 
             assert(numinodes <= FREE_INO_RANGE_SZ);
 
-            fprintf(stderr, "Found I-node %" PRIu64 "\n", (uint64_t)(sk.ino));
+            infomsgf("Found I-node %" PRIu64 "\n", (uint64_t)(sk.ino));
 
             used_ino_set(freeino.used_ino, base, sk.ino, 1);
 
@@ -269,8 +269,7 @@ init_ver_3_to_4(struct back_end *be, size_t hdrlen, size_t jlen, int ro,
 
     hdr.usedbytes = hdrlen + db_hdrlen + actx.tot_sz;
 
-    fprintf(stderr, "Total allocated space: %" PRIu64 " bytes\n",
-            hdr.usedbytes);
+    infomsgf("Total allocated space: %" PRIu64 " bytes\n", hdr.usedbytes);
 
     hdr.version = 4;
 
@@ -297,10 +296,9 @@ init_ver_4_to_5(struct back_end *be, size_t hdrlen, size_t jlen, int ro,
 
     hdr.usedbytes += jlen;
 
-    fprintf(stderr,
-            "Journal area size: %zu bytes\n"
-            "Total allocated space: %" PRIu64 " bytes\n",
-            jlen, hdr.usedbytes);
+    infomsgf("Journal area size: %zu bytes\n"
+             "Total allocated space: %" PRIu64 " bytes\n",
+             jlen, hdr.usedbytes);
 
     hdr.version = 5;
 
@@ -395,9 +393,8 @@ init_ver_5_to_6(struct back_end *be, size_t hdrlen, size_t jlen, int ro,
 
         s.st_blocks = n * BLOCKS_PER_PG;
 
-        fprintf(stderr, "Updating st_blocks for I-node %" PRIu64 " to %" PRIi64
-                        "\n",
-                k.ino, (int64_t)(s.st_blocks));
+        infomsgf("Updating st_blocks for I-node %" PRIu64 " to %" PRIi64 "\n",
+                 k.ino, (int64_t)(s.st_blocks));
 
         res = back_end_replace(be, &k, &s, sizeof(s));
         if (res != 0)

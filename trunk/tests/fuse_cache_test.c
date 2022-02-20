@@ -254,8 +254,7 @@ fn2(const void *key, const void *data, size_t datalen, void *ctx)
     if ((datalen != DATA_LEN(d->len))
         || (check_int_array((const int *)(d->data), d->len / sizeof(int), curr)
             != 0)) {
-        fprintf(stderr, "Data (length %zu) for key %d corrupt\n", datalen,
-                *(int *)key);
+        errmsgf("Data (length %zu) for key %d corrupt\n", datalen, *(int *)key);
         return -EIO;
     }
 
@@ -280,15 +279,14 @@ fn3(const void *key, const void *data, size_t datalen, void *ctx)
     if ((datalen != DATA_LEN(d->len))
         || (check_int_array((const int *)(d->data), d->len / sizeof(int), curr)
             != 0)) {
-        fprintf(stderr, "Data (length %zu) for key %d corrupt\n", datalen,
-                *(int *)key);
+        errmsgf("Data (length %zu) for key %d corrupt\n", datalen, *(int *)key);
         return -EIO;
     }
 
     ++(wctx->keys_found);
     if (check_increasing(&wctx->prevkey, curr) == -1) {
         if (wctx->keys_found > 1)
-            fputc('\n', stderr);
+            infochr('\n');
         return -EIO;
     }
 
@@ -296,12 +294,12 @@ fn3(const void *key, const void *data, size_t datalen, void *ctx)
                               wctx->bitmap_pos, (unsigned *)(&wctx->bitmap_pos),
                               1) == 0)
         || (curr != wctx->bitmap_pos)) {
-        fprintf(stderr, "%sBitmap (%6d) and database (%6d) differ\n",
+        errmsgf("%sBitmap (%6d) and database (%6d) differ\n",
                 (wctx->keys_found > 1) ? "\n" : "", wctx->bitmap_pos, curr);
         return -EIO;
     }
 
-    fprintf(stderr, "\rBitmap and cache agree up to %6d", wctx->bitmap_pos);
+    infomsgf("\rBitmap and cache agree up to %6d", wctx->bitmap_pos);
 
     ++(wctx->bitmap_pos);
 
@@ -344,7 +342,7 @@ load_bitmap(const char *file, struct be_stats *stats,
         errmsg = "Couldn't read bitmap file";
         goto err2;
     }
-    fprintf(stderr, "Loaded verification bitmap from %s\n", file);
+    infomsgf("Loaded verification bitmap from %s\n", file);
 
     close(fd);
 
@@ -428,7 +426,7 @@ save_bitmap(const char *file, struct be_stats *stats,
         errmsg = "Couldn't write bitmap file";
         goto err2;
     }
-    fprintf(stderr, "Saved verification bitmap to %s\n", file);
+    infomsgf("Saved verification bitmap to %s\n", file);
 
     close(fd);
 
@@ -859,12 +857,12 @@ verify_rand(struct be_ctx *bectx)
         goto end;
     }
     if (data.keys_found > 0)
-        fputc('\n', stderr);
+        infochr('\n');
 
     if (bitmap_find_next_set(data.bmdata->bitmap, data.bmdata->bitmap_len,
                              data.bitmap_pos, (unsigned *)(&data.bitmap_pos), 1)
         != 0) {
-        fputs("Bitmap and cache differ\n", stderr);
+        errmsg("Bitmap and cache differ\n");
         ret = -EIO;
     }
 
