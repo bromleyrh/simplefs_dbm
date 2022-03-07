@@ -126,9 +126,7 @@ be_perf_test_do_op(void *ctx)
     lower_bound = targs->nelem <= targs->limit_lower;
     upper_bound = targs->nelem >= targs->limit_upper;
 
-    op = (lower_bound ? 1 : 0)
-         + random()
-           % ((lower_bound || upper_bound) ? 2 : 3);
+    op = lower_bound + random() % ((lower_bound || upper_bound) ? 2 : 3);
 
     key = (*gen_key_fn)(bep->max_key, 0);
 
@@ -162,7 +160,7 @@ be_perf_test_do_op(void *ctx)
 
     infomsgf("\rn == %u: %u", targs->n, targs->nops);
 
-    return (++targs->nops == NUM_PERF_TEST_OPS) ? 1 : 0;
+    return (++targs->nops == NUM_PERF_TEST_OPS);
 }
 
 static int
