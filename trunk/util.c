@@ -73,7 +73,7 @@ strlen_cmp(const void *e1, const void *e2, void *ctx)
     if (*maxlen == -1)
         *maxlen = len2;
 
-    return (len1 < len2) ? -1 : 0;
+    return -(len1 < len2);
 }
 
 #endif
