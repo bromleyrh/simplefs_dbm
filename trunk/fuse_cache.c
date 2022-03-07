@@ -216,7 +216,7 @@ _be_create(struct fuse_cache *cache, size_t key_size,
 {
     DO_ERR_INJECT(0, -EIO);
 
-    return (*(cache->ops->create))(&cache->ctx, key_size, key_cmp, args);
+    return (*cache->ops->create)(&cache->ctx, key_size, key_cmp, args);
 }
 
 static int
@@ -225,7 +225,7 @@ _be_open(struct fuse_cache *cache, size_t key_size, back_end_key_cmp_t key_cmp,
 {
     DO_ERR_INJECT(0, -EIO);
 
-    return (*(cache->ops->open))(&cache->ctx, key_size, key_cmp, args);
+    return (*cache->ops->open)(&cache->ctx, key_size, key_cmp, args);
 }
 
 static int
@@ -233,7 +233,7 @@ _be_close(struct fuse_cache *cache, SOURCE_LINE_PARAMS)
 {
     int error;
 
-    error = (*(cache->ops->close))(cache->ctx);
+    error = (*cache->ops->close)(cache->ctx);
     if (error)
         return error;
 
@@ -248,7 +248,7 @@ _be_insert(struct fuse_cache *cache, const void *key, const void *data,
 {
     DO_ERR_INJECT(0, -EIO);
 
-    return (*(cache->ops->insert))(cache->ctx, key, data, datasize);
+    return (*cache->ops->insert)(cache->ctx, key, data, datasize);
 }
 
 static int
@@ -257,7 +257,7 @@ _be_replace(struct fuse_cache *cache, const void *key, const void *data,
 {
     DO_ERR_INJECT(0, -EIO);
 
-    return (*(cache->ops->replace))(cache->ctx, key, data, datasize);
+    return (*cache->ops->replace)(cache->ctx, key, data, datasize);
 }
 
 static int
@@ -267,8 +267,8 @@ _be_look_up(struct fuse_cache *cache, const void *key, void *retkey,
 {
     DO_ERR_INJECT(0, -EIO);
 
-    return (*(cache->ops->look_up))(cache->ctx, key, retkey, retdata,
-                                    retdatasize, look_up_nearest);
+    return (*cache->ops->look_up)(cache->ctx, key, retkey, retdata, retdatasize,
+                                  look_up_nearest);
 }
 
 static int
@@ -276,7 +276,7 @@ _be_delete(struct fuse_cache *cache, const void *key, SOURCE_LINE_PARAMS)
 {
     DO_ERR_INJECT(0, -EIO);
 
-    return (*(cache->ops->delete))(cache->ctx, key);
+    return (*cache->ops->delete)(cache->ctx, key);
 }
 
 static int
@@ -284,7 +284,7 @@ _be_iter_new(struct fuse_cache *cache, void **iter, SOURCE_LINE_PARAMS)
 {
     DO_ERR_INJECT(0, -EIO);
 
-    return (*(cache->ops->iter_new))(iter, cache->ctx);
+    return (*cache->ops->iter_new)(iter, cache->ctx);
 }
 
 static int
@@ -292,7 +292,7 @@ _be_iter_free(struct fuse_cache *cache, void *iter, SOURCE_LINE_PARAMS)
 {
     DO_ERR_INJECT(0, -EIO);
 
-    return (*(cache->ops->iter_free))(iter);
+    return (*cache->ops->iter_free)(iter);
 }
 
 static int
@@ -301,7 +301,7 @@ _be_iter_get(struct fuse_cache *cache, void *iter, void *retkey, void *retdata,
 {
     DO_ERR_INJECT(0, -EIO);
 
-    return (*(cache->ops->iter_get))(iter, retkey, retdata, retdatasize);
+    return (*cache->ops->iter_get)(iter, retkey, retdata, retdatasize);
 }
 
 static int
@@ -309,7 +309,7 @@ _be_iter_next(struct fuse_cache *cache, void *iter, SOURCE_LINE_PARAMS)
 {
     DO_ERR_INJECT(0, -EIO);
 
-    return (*(cache->ops->iter_next))(iter);
+    return (*cache->ops->iter_next)(iter);
 }
 
 static int
@@ -318,7 +318,7 @@ _be_iter_search(struct fuse_cache *cache, void *iter, const void *key,
 {
     DO_ERR_INJECT(0, -EIO);
 
-    return (*(cache->ops->iter_search))(iter, key);
+    return (*cache->ops->iter_search)(iter, key);
 }
 
 static int
@@ -326,7 +326,7 @@ _be_trans_new(struct fuse_cache *cache, SOURCE_LINE_PARAMS)
 {
     DO_ERR_INJECT(0, -EIO);
 
-    return (*(cache->ops->trans_new))(cache->ctx);
+    return (*cache->ops->trans_new)(cache->ctx);
 }
 
 static int
@@ -334,7 +334,7 @@ _be_trans_abort(struct fuse_cache *cache, SOURCE_LINE_PARAMS)
 {
     DO_ERR_INJECT(0, -EIO);
 
-    return (*(cache->ops->trans_abort))(cache->ctx);
+    return (*cache->ops->trans_abort)(cache->ctx);
 }
 
 static int
@@ -342,7 +342,7 @@ _be_trans_commit(struct fuse_cache *cache, SOURCE_LINE_PARAMS)
 {
     DO_ERR_INJECT(0, -EIO);
 
-    return (*(cache->ops->trans_commit))(cache->ctx);
+    return (*cache->ops->trans_commit)(cache->ctx);
 }
 
 static int
@@ -350,7 +350,7 @@ _be_sync(struct fuse_cache *cache, SOURCE_LINE_PARAMS)
 {
     DO_ERR_INJECT(0, -EIO);
 
-    return (*(cache->ops->sync))(cache->ctx);
+    return (*cache->ops->sync)(cache->ctx);
 }
 
 static int
@@ -358,7 +358,7 @@ _be_ctl(struct fuse_cache *cache, int op, void *args, SOURCE_LINE_PARAMS)
 {
     DO_ERR_INJECT(0, -EIO);
 
-    return (*(cache->ops->ctl))(cache->ctx, op, args);
+    return (*cache->ops->ctl)(cache->ctx, op, args);
 }
 
 #define be_create(cache, key_size, key_cmp, args) \
@@ -482,7 +482,7 @@ trans_cb(int trans_type, int act, int status, void *ctx)
         case 0:
             if ((cache->sync_cb != NULL) && (trans_type & DB_HL_TRANS_GROUP)) {
                 /* invoke *sync_cb to allow clearing writeback error */
-                (*(cache->sync_cb))(1, cache->sync_ctx);
+                (*cache->sync_cb)(1, cache->sync_ctx);
             }
         default:
             break;
@@ -512,7 +512,7 @@ cache_obj_cmp(const void *k1, const void *k2, void *ctx)
         cache->key_ctx.last_key_valid = 1;
     }
 
-    return (*(cache->key_cmp))(o1->key, o2->key, NULL);
+    return (*cache->key_cmp)(o1->key, o2->key, NULL);
 }
 
 static int
@@ -584,7 +584,7 @@ chk_process_cache_refs(struct avl_tree *objs, struct avl_tree *cache)
             goto err;
         assert(CACHE_OBJ_VALID(o));
 
-        if (!(o->in_cache)) {
+        if (!o->in_cache) {
             errmsg("Object in cache has in_cache status 0\n");
             goto chk_err;
         }
@@ -647,7 +647,7 @@ chk_process_list_refs(struct avl_tree *objs, int which, struct op_list *list)
             if (res != 1)
                 return res;
             o->chk_lists |= which;
-            ++(o->chk_refcnt);
+            ++o->chk_refcnt;
             continue;
         }
 
@@ -690,7 +690,7 @@ verify_list(struct obj_list *list, struct fuse_cache *cache)
             errmsg = "Object in global list has refcnt 0";
             goto err;
         }
-        if (!(o->in_cache) && (o->lists == 0)) {
+        if (!o->in_cache && (o->lists == 0)) {
             errmsg = "Object in global list has in_cache status 0 and list "
                      "flags 0";
             goto err;
@@ -854,20 +854,20 @@ op_list_add(struct op_list *list, int which, enum op_type type,
     op->op = type;
     op->obj = (struct cache_obj *)obj;
 
-    ++(list->len);
+    ++list->len;
 
     obj->lists |= which;
     switch (which) {
     case TRANS:
-        ++(obj->refcnt_group);
+        ++obj->refcnt_group;
         break;
     case USER_TRANS:
-        ++(obj->refcnt_user);
+        ++obj->refcnt_user;
         break;
     default:
         abort_msg("%s(): invalid transaction type %d\n", __FUNCTION__, which);
     }
-    ++(obj->refcnt);
+    ++obj->refcnt;
 }
 
 static void
@@ -890,7 +890,7 @@ op_list_roll_back(struct op_list *list, int which, struct op_list *list_other,
             if (avl_tree_delete_node(cache->cache, &obj->n, &obj) != 0)
                 abort();
             obj->in_cache = 0;
-            --(obj->refcnt);
+            --obj->refcnt;
             break;
         case DELETE:
             /* reinsert key into cache */
@@ -901,7 +901,7 @@ op_list_roll_back(struct op_list *list, int which, struct op_list *list_other,
                 obj->deleted = 0;
             } else {
                 obj->in_cache = 1;
-                ++(obj->refcnt);
+                ++obj->refcnt;
             }
             break;
         default:
@@ -918,10 +918,10 @@ op_list_roll_back(struct op_list *list, int which, struct op_list *list_other,
 
             switch (which_other) {
             case TRANS:
-                list_refcnt = --(obj_other->refcnt_group);
+                list_refcnt = --obj_other->refcnt_group;
                 break;
             case USER_TRANS:
-                list_refcnt = --(obj_other->refcnt_user);
+                list_refcnt = --obj_other->refcnt_user;
                 break;
             default:
                 abort_msg("%s(): invalid transaction type %d\n", __FUNCTION__,
@@ -929,7 +929,7 @@ op_list_roll_back(struct op_list *list, int which, struct op_list *list_other,
             }
             if (list_refcnt == 0)
                 obj_other->lists &= ~which_other;
-            --(obj_other->refcnt);
+            --obj_other->refcnt;
             --j;
         }
     }
@@ -989,13 +989,13 @@ op_list_clear(struct op_list *list, int which, int rem_from_cache,
         struct cache_obj *obj = list->ops[i].obj;
 
         obj->lists &= ~which;
-        --(obj->refcnt);
+        --obj->refcnt;
 
         if (rem_from_cache && obj->in_cache) {
             if (avl_tree_delete_node(cache->cache, &obj->n, &obj) != 0)
                 abort();
             obj->in_cache = 0;
-            --(obj->refcnt);
+            --obj->refcnt;
         }
 
         if (destroy_cache_obj(obj, 0, 0, cache))
@@ -1030,8 +1030,8 @@ op_list_dump(FILE *f, struct op_list *list, struct fuse_cache *cache)
         fprintf(f, "\t%s%s:\n", op2str[op->op],
                 obj->replace ? " (replace)" : "");
 
-        (*(cache->dump_cb))(f, obj->key, obj->data, obj->datasize, "\t\t",
-                            cache->dump_ctx);
+        (*cache->dump_cb)(f, obj->key, obj->data, obj->datasize, "\t\t",
+                          cache->dump_ctx);
     }
 #else
     (void)f;
@@ -1105,7 +1105,7 @@ get_next_iter_elem(struct cache_obj *o, void *key, void **data, size_t *datalen,
 {
     int res;
 
-    res = (*(cache->key_cmp))(o->key, key, NULL);
+    res = (*cache->key_cmp)(o->key, key, NULL);
     if (res > 0) {
         *iter = *biter;
         *minkey = key;
@@ -1127,7 +1127,7 @@ get_next_iter_elem(struct cache_obj *o, void *key, void **data, size_t *datalen,
     }
 
     *iter = citer;
-    *minkey = (void *)(o->key);
+    *minkey = (void *)o->key;
     return 0;
 }
 
@@ -1164,7 +1164,7 @@ do_iter_next_non_deleted(void *iter, int next, struct fuse_cache *cache)
         if (res != 1)
             goto end;
 
-        if (!(o->deleted)) {
+        if (!o->deleted) {
             res = !first;
             break;
         }
@@ -1243,7 +1243,7 @@ do_iter_search_cache(avl_tree_iter_t iter, const void *key,
         if (res != 0)
             return res;
 
-        if (!(o->deleted))
+        if (!o->deleted)
             break;
 
         res = avl_tree_iter_next(iter);
@@ -1328,10 +1328,10 @@ update_cache_obj(struct cache_obj *o, const void *key, const void *data,
     if (d == NULL)
         return MINUS_ERRNO;
 
-    memcpy((void *)(o->key), key, cache->key_size);
+    memcpy((void *)o->key, key, cache->key_size);
 
     memcpy(d, data, datasize);
-    free((void *)(o->data));
+    free((void *)o->data);
     o->data = d;
     o->datasize = datasize;
 
@@ -1343,13 +1343,13 @@ destroy_cache_obj(struct cache_obj *o, int force, int keep_node,
                   struct fuse_cache *cache)
 {
     if (force || (o->refcnt == 0)) {
-        assert(!(o->in_cache));
+        assert(!o->in_cache);
         assert(o->lists == 0);
         LIST_REMOVE(o, e);
         if (!keep_node)
             avl_tree_free_node(o->n, cache->cache);
-        free((void *)(o->key));
-        free((void *)(o->data));
+        free((void *)o->key);
+        free((void *)o->data);
         o->magic = 0;
         return 1;
     }
@@ -1404,13 +1404,13 @@ fuse_cache_create(void **ctx, size_t key_size, back_end_key_cmp_t key_cmp,
     if (err)
         goto err3;
 
-    (*(cache_args->set_trans_cb))(cache_args->args, &trans_cb, ret);
+    (*cache_args->set_trans_cb)(cache_args->args, &trans_cb, ret);
 
     err = be_create(ret, key_size, key_cmp, cache_args->args);
     if (err)
         goto err4;
 
-    (*(cache_args->disable_iter_commit))(ret->ctx);
+    (*cache_args->disable_iter_commit)(ret->ctx);
 
     ret->sync_cb = cache_args->sync_cb;
     ret->sync_ctx = cache_args->sync_ctx;
@@ -1469,13 +1469,13 @@ fuse_cache_open(void **ctx, size_t key_size, back_end_key_cmp_t key_cmp,
     if (err)
         goto err3;
 
-    (*(cache_args->set_trans_cb))(cache_args->args, &trans_cb, ret);
+    (*cache_args->set_trans_cb)(cache_args->args, &trans_cb, ret);
 
     err = be_open(ret, key_size, key_cmp, cache_args->args);
     if (err)
         goto err4;
 
-    (*(cache_args->disable_iter_commit))(ret->ctx);
+    (*cache_args->disable_iter_commit)(ret->ctx);
 
     ret->sync_cb = cache_args->sync_cb;
     ret->sync_ctx = cache_args->sync_ctx;
@@ -1588,7 +1588,7 @@ fuse_cache_insert(void *ctx, const void *key, const void *data, size_t datasize)
         goto end;
     }
     o->in_cache = 1;
-    ++(o->refcnt);
+    ++o->refcnt;
 
     /* insert into back end */
     res = be_insert(cache, key, data, datasize);
@@ -1663,7 +1663,7 @@ fuse_cache_replace(void *ctx, const void *key, const void *data,
         if (res != 0)
             goto err2;
         o_old->in_cache = 0;
-        if (--(o_old->refcnt) == 0)
+        if (--o_old->refcnt == 0)
             o_old->destroyed = o_old_destroyed = 1;
         res = init_cache_obj(o, n, key, data, datasize, cache);
         if (res != 0)
@@ -1687,7 +1687,7 @@ fuse_cache_replace(void *ctx, const void *key, const void *data,
 
     o->replace = 1;
     o->in_cache = 1;
-    ++(o->refcnt);
+    ++o->refcnt;
 
     /* replace in back end */
     res = be_replace(cache, key, data, datasize);
@@ -1741,7 +1741,7 @@ fuse_cache_replace(void *ctx, const void *key, const void *data,
 err3:
     avl_tree_insert_node(cache->cache, o_old->n, &o_old);
     o_old->in_cache = 1;
-    ++(o_old->refcnt);
+    ++o_old->refcnt;
 err2:
     if (n != NULL)
         avl_tree_free_node(n, cache->cache);
@@ -1789,7 +1789,7 @@ fuse_cache_look_up(void *ctx, const void *key, void *retkey, void *retdata,
 
     assert(res == 0);
     if (cache->key_ctx.last_key_valid) {
-        cmp = (*(cache->key_cmp))(cache->key_ctx.last_key->key, key, NULL);
+        cmp = (*cache->key_cmp)(cache->key_ctx.last_key->key, key, NULL);
         assert(cmp != 0);
         if ((cmp < 0) || cache->key_ctx.last_key->deleted) {
             res = get_next_elem(&o, cache->key_ctx.last_key->key, cache);
@@ -1825,7 +1825,7 @@ fuse_cache_look_up(void *ctx, const void *key, void *retkey, void *retdata,
         res = avl_tree_search(cache->cache, &tmp, &tmp);
         if (res < 0)
             return res;
-        if ((res == 0) || !(tmp->deleted)) {
+        if ((res == 0) || !tmp->deleted) {
             if (biter != NULL)
                 be_iter_free(cache, biter);
             break;
@@ -1860,7 +1860,7 @@ fuse_cache_look_up(void *ctx, const void *key, void *retkey, void *retdata,
 
     if (o != NULL) {
         /* determine minimum of keys referenced by o->key and retkey */
-        cmp = (*(cache->key_cmp))(o->key, retkey, NULL);
+        cmp = (*cache->key_cmp)(o->key, retkey, NULL);
         if (cmp < 0)
             goto out_cache;
     }
@@ -2007,7 +2007,7 @@ fuse_cache_walk(void *ctx, back_end_walk_cb_t fn, void *wctx)
             goto err4;
         if (biter == NULL) {
             iter = citer;
-            minkey = (void *)(o->key);
+            minkey = (void *)o->key;
         }
     }
     if (biter != NULL) {
@@ -2083,7 +2083,7 @@ fuse_cache_walk(void *ctx, back_end_walk_cb_t fn, void *wctx)
             if (res != 0)
                 goto err4;
             if (biter == NULL)
-                minkey = (void *)(o->key);
+                minkey = (void *)o->key;
         } else {
             res = be_iter_get(cache, biter, key, NULL, NULL);
             if (res != 0)
@@ -2244,7 +2244,7 @@ fuse_cache_iter_get(void *iter, void *retkey, void *retdata,
             if (err)
                 return err;
             if (iterator->biter == NULL)
-                iterator->minkey = (void *)(iterator->o->key);
+                iterator->minkey = (void *)iterator->o->key;
         } else {
             err = be_iter_get(iterator->cache, iterator->biter, iterator->key,
                               NULL, NULL);

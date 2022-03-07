@@ -479,13 +479,13 @@ fs_blkdev_openat(void *ctx, int dfd, const char *pathname, int flags,
 
     init = (bfd == &FD(bctx)) ? &bctx->init : &bctx->jinit;
     if (create) {
-        if (!(*init))
+        if (!*init)
             *init = 1;
         else if (flags & O_EXCL) {
             res = -EEXIST;
             goto err;
         }
-    } else if (!(*init)) {
+    } else if (!*init) {
         res = -ENOENT;
         goto err;
     }
@@ -603,10 +603,10 @@ fs_blkdev_mmap_validate_range(void *ctx, void *addr, size_t length)
 {
     struct blkdev_ctx *bctx = (struct blkdev_ctx *)ctx;
 
-    if ((bctx->mmap_addr == NULL) || ((char *)addr < (char *)(bctx->mmap_addr)))
+    if ((bctx->mmap_addr == NULL) || ((char *)addr < (char *)bctx->mmap_addr))
         return err_to_errno(EFAULT);
 
-    if ((char *)addr + length > (char *)(bctx->mmap_addr) + DATA_SIZE(bctx))
+    if ((char *)addr + length > (char *)bctx->mmap_addr + DATA_SIZE(bctx))
         return err_to_errno(ENOSPC);
 
     return 0;

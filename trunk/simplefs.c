@@ -225,12 +225,12 @@ err:
 static void
 destroy_mount_data(struct mount_data *md)
 {
-    free((void *)(md->mountpoint));
+    free((void *)md->mountpoint);
 
     if (md->wd != -1)
         close(md->wd);
     if (md->db_pathname != NULL)
-        free((void *)(md->db_pathname));
+        free((void *)md->db_pathname);
 }
 
 #define FLAG_MAP_ENTRY(fl, keep) {#fl, offsetof(struct mount_data, fl), keep}
@@ -273,7 +273,7 @@ opt_proc(void *data, const char *arg, int key, struct fuse_args *outargs)
         const struct ent *fl = &flag_map[i];
 
         if (strcmp(fl->opt, arg) == 0) {
-            *(unsigned *)(((char *)md) + fl->optoff) = 1;
+            *(unsigned *)((char *)md + fl->optoff) = 1;
             return fl->keep;
         }
     }
@@ -348,7 +348,7 @@ parse_cmdline(struct fuse_args *args, struct fuse_data *fusedata)
         }
     }
 
-    if (!(fusedata->md.unmount)) {
+    if (!fusedata->md.unmount) {
         if (do_fuse_parse_cmdline(args, NULL, NULL, &fusedata->foreground)
             == -1)
             goto err2;
@@ -364,7 +364,7 @@ parse_cmdline(struct fuse_args *args, struct fuse_data *fusedata)
 
 err2:
     if (fusedata->md.db_pathname != NULL)
-        free((void *)(fusedata->md.db_pathname));
+        free((void *)fusedata->md.db_pathname);
 err1:
     fuse_opt_free_args(args);
     return err;
@@ -456,7 +456,7 @@ write_errpipe(int pipefd, int err, const char *buf)
             msg.msglen += len;
         } else {
             msg.err = -EIO;
-            ++(msg.msglen);
+            ++msg.msglen;
             msg.buf[0] = '\0';
         }
     }
@@ -680,7 +680,7 @@ init_fuse(struct fuse_args *args, struct fuse_data *fusedata)
     if (res != 0)
         goto err2;
 
-    background = !(fusedata->foreground);
+    background = !fusedata->foreground;
 
     if (background) {
         if (pipe(errpipe) == -1)
@@ -738,7 +738,7 @@ parent_end:
     if (fusedata->md.wd != -1)
         close(fusedata->md.wd);
     if (fusedata->mountpoint != fusedata->md.mountpoint)
-        free((void *)(fusedata->mountpoint));
+        free((void *)fusedata->mountpoint);
     return 1;
 
 err6:
@@ -756,7 +756,7 @@ err2:
         close(fusedata->md.wd);
 err1:
     if (fusedata->mountpoint != fusedata->md.mountpoint)
-        free((void *)(fusedata->mountpoint));
+        free((void *)fusedata->mountpoint);
     if (res == 0) {
         res = -ENOMEM;
         errmsg = "Out of memory";
@@ -857,7 +857,7 @@ main(int argc, char **argv)
         syslog(LOG_ERR, "Returned failure status");
     }
 
-    free((void *)(fusedata.mountpoint));
+    free((void *)fusedata.mountpoint);
 
     closelog();
 

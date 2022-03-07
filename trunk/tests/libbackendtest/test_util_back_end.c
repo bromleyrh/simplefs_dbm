@@ -250,18 +250,18 @@ int_key_to_str(const void *k, void *ctx)
 void
 be_bitmap_set(struct be_ctx *bectx, int key, int val, int record_stats)
 {
-    struct bitmap_data *bmdata = (struct bitmap_data *)(bectx->bmdata);
+    struct bitmap_data *bmdata = (struct bitmap_data *)bectx->bmdata;
 
     bitmap_set(bmdata->bitmap, key, val);
 
     if (record_stats)
-        ++(bectx->stats.num_ops);
+        ++bectx->stats.num_ops;
 }
 
 void
 be_bitmap_trans_new(struct be_ctx *bectx)
 {
-    struct be_bitmap_data *bmdata = (struct be_bitmap_data *)(bectx->bmdata);
+    struct be_bitmap_data *bmdata = (struct be_bitmap_data *)bectx->bmdata;
 
     /* save bmdata to bmdata_saved */
     memcpy(bmdata->bmdata_saved.bitmap, bmdata->bmdata.bitmap,
@@ -271,7 +271,7 @@ be_bitmap_trans_new(struct be_ctx *bectx)
 void
 be_bitmap_trans_abort(struct be_ctx *bectx)
 {
-    struct be_bitmap_data *bmdata = (struct be_bitmap_data *)(bectx->bmdata);
+    struct be_bitmap_data *bmdata = (struct be_bitmap_data *)bectx->bmdata;
 
     /* restore bmdata from bmdata_saved */
     memcpy(bmdata->bmdata.bitmap, bmdata->bmdata_saved.bitmap,
@@ -298,18 +298,18 @@ be_insert(struct be_ctx *bectx, int key, int *result, int repeat_allowed,
 
     full_key = get_full_key(key, bectx->key_size, buf);
 
-    ret = (*(bectx->ops.insert))(bectx->be, (void *)full_key);
+    ret = (*bectx->ops.insert)(bectx->be, (void *)full_key);
     if (ret == 0) {
         if (verbose > 1)
             infomsgf("Inserted %d\n", key);
         if (record_stats)
-            ++(bectx->stats.num_keys);
+            ++bectx->stats.num_keys;
     } else {
         if ((ret == -EADDRINUSE) && repeat_allowed) {
             if (verbose > 0)
                 error(0, -ret, "Error inserting in back end");
             if (record_stats)
-                ++(bectx->stats.repeat_inserts);
+                ++bectx->stats.repeat_inserts;
         } else {
             error(0, -ret, "Error inserting in back end");
             return ret;
@@ -317,10 +317,10 @@ be_insert(struct be_ctx *bectx, int key, int *result, int repeat_allowed,
     }
 
     if (record_stats) {
-        ++(bectx->stats.num_gen);
-        ++(bectx->stats.num_ops);
+        ++bectx->stats.num_gen;
+        ++bectx->stats.num_ops;
         if ((bectx->max_key != -1) && (key > bectx->max_key))
-            ++(bectx->stats.num_ops_out_of_range);
+            ++bectx->stats.num_ops_out_of_range;
     }
 
     return 0;
@@ -338,7 +338,7 @@ be_replace(struct be_ctx *bectx, int key, int *result, int nonexistent_allowed,
 
     full_key = get_full_key(key, bectx->key_size, buf);
 
-    ret = (*(bectx->ops.replace))(bectx->be, (void *)full_key);
+    ret = (*bectx->ops.replace)(bectx->be, (void *)full_key);
     if (ret == 0) {
         if (verbose > 1)
             infomsgf("Replaced %d\n", key);
@@ -347,7 +347,7 @@ be_replace(struct be_ctx *bectx, int key, int *result, int nonexistent_allowed,
             if (verbose > 0)
                 error(0, -ret, "Error replacing data in back end");
             if (record_stats)
-                ++(bectx->stats.invalid_replacements);
+                ++bectx->stats.invalid_replacements;
         } else {
             error(0, -ret, "Error replacing data in back end");
             return ret;
@@ -355,10 +355,10 @@ be_replace(struct be_ctx *bectx, int key, int *result, int nonexistent_allowed,
     }
 
     if (record_stats) {
-        ++(bectx->stats.num_gen);
-        ++(bectx->stats.num_ops);
+        ++bectx->stats.num_gen;
+        ++bectx->stats.num_ops;
         if ((bectx->max_key != -1) && (key > bectx->max_key))
-            ++(bectx->stats.num_ops_out_of_range);
+            ++bectx->stats.num_ops_out_of_range;
     }
 
     return 0;
@@ -376,18 +376,18 @@ be_delete(struct be_ctx *bectx, int key, int *result, int repeat_allowed,
 
     full_key = get_full_key(key, bectx->key_size, buf);
 
-    ret = (*(bectx->ops.delete))(bectx->be, (void *)full_key);
+    ret = (*bectx->ops.delete)(bectx->be, (void *)full_key);
     if (ret == 0) {
         if (verbose > 1)
             infomsgf("Deleted %d\n", key);
         if (record_stats)
-            --(bectx->stats.num_keys);
+            --bectx->stats.num_keys;
     } else {
         if ((ret == -EADDRNOTAVAIL) && repeat_allowed) {
             if (verbose > 0)
                 error(0, -ret, "Error deleting from back end");
             if (record_stats)
-                ++(bectx->stats.repeat_deletes);
+                ++bectx->stats.repeat_deletes;
         } else {
             error(0, -ret, "Error deleting from back end");
             return ret;
@@ -395,9 +395,9 @@ be_delete(struct be_ctx *bectx, int key, int *result, int repeat_allowed,
     }
 
     if (record_stats) {
-        ++(bectx->stats.num_ops);
+        ++bectx->stats.num_ops;
         if ((bectx->max_key != -1) && (key > bectx->max_key))
-            ++(bectx->stats.num_ops_out_of_range);
+            ++bectx->stats.num_ops_out_of_range;
     }
 
     return 0;
@@ -409,18 +409,18 @@ be_delete_from(struct be_ctx *bectx, int node, int *result, int repeat_allowed,
 {
     int ret;
 
-    ret = (*(bectx->ops.delete_from))(bectx->be, node, result);
+    ret = (*bectx->ops.delete_from)(bectx->be, node, result);
     if (ret == 0) {
         if (verbose > 1)
             infomsgf("Deleted %d from node\n", *result);
         if (record_stats)
-            --(bectx->stats.num_keys);
+            --bectx->stats.num_keys;
     } else {
         if ((ret == -EADDRNOTAVAIL) && repeat_allowed) {
             if (verbose > 0)
                 error(0, -ret, "Error deleting from back end");
             if (record_stats)
-                ++(bectx->stats.repeat_deletes);
+                ++bectx->stats.repeat_deletes;
             *result = -1;
         } else {
             error(0, -ret, "Error deleting from back end");
@@ -429,7 +429,7 @@ be_delete_from(struct be_ctx *bectx, int node, int *result, int repeat_allowed,
     }
 
     if (record_stats)
-        ++(bectx->stats.num_ops);
+        ++bectx->stats.num_ops;
 
     return 0;
 }
@@ -447,7 +447,7 @@ be_find(struct be_ctx *bectx, int key, int *result, int verbose,
 
     full_key = get_full_key(key, bectx->key_size, buf);
 
-    ret = (*(bectx->ops.search))(bectx->be, (void *)full_key, res);
+    ret = (*bectx->ops.search)(bectx->be, (void *)full_key, res);
     if (ret == 1) {
         if (verbose)
             infomsgf("Key %d found\n", key);
@@ -460,9 +460,9 @@ be_find(struct be_ctx *bectx, int key, int *result, int verbose,
     }
 
     if (record_stats) {
-        ++(bectx->stats.num_ops);
+        ++bectx->stats.num_ops;
         if ((bectx->max_key != -1) && (key > bectx->max_key))
-            ++(bectx->stats.num_ops_out_of_range);
+            ++bectx->stats.num_ops_out_of_range;
     }
 
     return ret;
@@ -482,16 +482,16 @@ be_range_find(struct be_ctx *bectx, int key, int *result, int verbose,
 
     full_key = get_full_key(key, bectx->key_size, buf);
 
-    ret = (*(bectx->ops.range_search))(bectx->be, (void *)full_key, res);
+    ret = (*bectx->ops.range_search)(bectx->be, (void *)full_key, res);
     if ((ret != 0) && (ret != 1)) {
         error(0, -ret, "Error looking up in back end");
         return ret;
     }
 
     if (record_stats) {
-        ++(bectx->stats.num_ops);
+        ++bectx->stats.num_ops;
         if ((bectx->max_key != -1) && (key > bectx->max_key))
-            ++(bectx->stats.num_ops_out_of_range);
+            ++bectx->stats.num_ops_out_of_range;
     }
 
     return ret;
@@ -504,7 +504,7 @@ be_select(struct be_ctx *bectx, int idx, int *result, int verbose,
     int res[MAX_KEY_SIZE / sizeof(int)];
     int ret, short_res;
 
-    ret = (*(bectx->ops.select))(bectx->be, idx, res);
+    ret = (*bectx->ops.select)(bectx->be, idx, res);
     if (ret == 1) {
         short_res = get_short_key(res, bectx->key_size);
         if (result != NULL)
@@ -521,9 +521,9 @@ be_select(struct be_ctx *bectx, int idx, int *result, int verbose,
     }
 
     if (record_stats) {
-        ++(bectx->stats.num_ops);
+        ++bectx->stats.num_ops;
         if ((bectx->max_key != -1) && (idx > bectx->max_key))
-            ++(bectx->stats.num_ops_out_of_range);
+            ++bectx->stats.num_ops_out_of_range;
     }
 
     return ret;
@@ -539,7 +539,7 @@ be_get_index(struct be_ctx *bectx, int key, int *result, int verbose,
 
     full_key = get_full_key(key, bectx->key_size, buf);
 
-    ret = (*(bectx->ops.get_index))(bectx->be, (void *)full_key, &res);
+    ret = (*bectx->ops.get_index)(bectx->be, (void *)full_key, &res);
     if (ret == 1) {
         if (result != NULL)
             *result = res;
@@ -555,9 +555,9 @@ be_get_index(struct be_ctx *bectx, int key, int *result, int verbose,
     }
 
     if (record_stats) {
-        ++(bectx->stats.num_ops);
+        ++bectx->stats.num_ops;
         if ((bectx->max_key != -1) && (key > bectx->max_key))
-            ++(bectx->stats.num_ops_out_of_range);
+            ++bectx->stats.num_ops_out_of_range;
     }
 
     return ret;
@@ -577,7 +577,7 @@ be_walk(struct be_ctx *bectx, int startkey,
 
     full_key = get_full_key(startkey, bectx->key_size, buf);
 
-    while ((ret = (*(bectx->ops.walk))(bectx->be, (void *)full_key, fn, ctx))
+    while ((ret = (*bectx->ops.walk)(bectx->be, (void *)full_key, fn, ctx))
            == 1)
         ;
     if (ret != 0)
@@ -595,7 +595,7 @@ be_iter_new(struct be_ctx *bectx, void **result, int verbose, int record_stats)
     (void)verbose;
     (void)record_stats;
 
-    ret = (*(bectx->ops.iter_new))(&res, bectx->be);
+    ret = (*bectx->ops.iter_new)(&res, bectx->be);
     if (ret == 0) {
         if (result != NULL)
             *result = res;
@@ -613,7 +613,7 @@ be_iter_free(struct be_ctx *bectx, void *iter, int verbose, int record_stats)
     (void)verbose;
     (void)record_stats;
 
-    ret = (*(bectx->ops.iter_free))(iter);
+    ret = (*bectx->ops.iter_free)(iter);
     if (ret != 0)
         error(0, -ret, "Error freeing iterator");
 
@@ -629,7 +629,7 @@ be_iter_get(struct be_ctx *bectx, void *iter, int *result, int verbose,
 
     (void)record_stats;
 
-    ret = (*(bectx->ops.iter_get))(iter, res);
+    ret = (*bectx->ops.iter_get)(iter, res);
     if (ret == 0) {
         short_res = get_short_key(res, bectx->key_size);
         if (result != NULL)
@@ -650,7 +650,7 @@ be_iter_prev(struct be_ctx *bectx, void *iter, int verbose, int record_stats)
     (void)verbose;
     (void)record_stats;
 
-    ret = (*(bectx->ops.iter_prev))(iter);
+    ret = (*bectx->ops.iter_prev)(iter);
     if ((ret != 0) && (ret != -EADDRNOTAVAIL))
         error(0, -ret, "Error decrementing iterator");
 
@@ -665,7 +665,7 @@ be_iter_next(struct be_ctx *bectx, void *iter, int verbose, int record_stats)
     (void)verbose;
     (void)record_stats;
 
-    ret = (*(bectx->ops.iter_next))(iter);
+    ret = (*bectx->ops.iter_next)(iter);
     if ((ret != 0) && (ret != -EADDRNOTAVAIL))
         error(0, -ret, "Error incrementing iterator");
 
@@ -684,7 +684,7 @@ be_iter_search(struct be_ctx *bectx, void *iter, int key, int verbose,
 
     full_key = get_full_key(key, bectx->key_size, buf);
 
-    ret = (*(bectx->ops.iter_search))(iter, full_key);
+    ret = (*bectx->ops.iter_search)(iter, full_key);
     if (ret == 1) {
         if (verbose)
             infomsgf("Key %d found\n", key);
@@ -707,7 +707,7 @@ be_iter_select(struct be_ctx *bectx, void *iter, int idx, int verbose,
 
     (void)record_stats;
 
-    ret = (*(bectx->ops.iter_select))(iter, idx);
+    ret = (*bectx->ops.iter_select)(iter, idx);
     if (ret == 1) {
         if (verbose)
             infomsgf("Key at index %d found\n", idx);
@@ -727,7 +727,7 @@ be_trans_new(struct be_ctx *bectx)
 {
     int ret;
 
-    ret = (*(bectx->ops.trans_new))(bectx->be);
+    ret = (*bectx->ops.trans_new)(bectx->be);
     if (ret != 0)
         error(0, -ret, "Error initiating transaction");
 
@@ -739,7 +739,7 @@ be_trans_abort(struct be_ctx *bectx)
 {
     int ret;
 
-    ret = (*(bectx->ops.trans_abort))(bectx->be);
+    ret = (*bectx->ops.trans_abort)(bectx->be);
     if (ret != 0)
         error(0, -ret, "Error aborting transaction");
 
@@ -751,7 +751,7 @@ be_trans_commit(struct be_ctx *bectx)
 {
     int ret;
 
-    ret = (*(bectx->ops.trans_commit))(bectx->be);
+    ret = (*bectx->ops.trans_commit)(bectx->be);
     if (ret != 0)
         error(0, -ret, "Error committing transaction");
 
@@ -794,7 +794,7 @@ do_iter_seek_single(struct be_ctx *bectx, void *iter, unsigned *curkey, int dir,
     if (use_bitmap) {
         int tmp;
 
-        bmdata = (struct bitmap_data *)(bectx->bmdata);
+        bmdata = (struct bitmap_data *)bectx->bmdata;
 
         oldkey = *curkey;
         if ((dir == 0) && (*curkey == 0))
@@ -863,7 +863,7 @@ do_test_iter(struct be_ctx *bectx, void *iter, unsigned startkey, int max_key,
                                       use_bitmap, beseekfn, bmseekfn);
             if (ERROR_FATAL(ret))
                 return ret;
-            if (++(*n) == num_ops)
+            if (++*n == num_ops)
                 goto end;
             if (ret == 0) {
                 ++i;
@@ -915,7 +915,7 @@ test_iter_funcs(struct be_ctx *bectx, int test_iter_only, uint64_t num_ops,
             return 0;
         }
     }
-    bmdata = (struct bitmap_data *)(bectx->bmdata);
+    bmdata = (struct bitmap_data *)bectx->bmdata;
 
     n = 0;
     while (n < num_ops) {
@@ -943,7 +943,7 @@ test_iter_funcs(struct be_ctx *bectx, int test_iter_only, uint64_t num_ops,
             ret = 0;
 
         if (use_bitmap) {
-            tmp = (key < (int)(bmdata->size))
+            tmp = (key < (int)bmdata->size)
                   ? bitmap_get(bmdata->bitmap, key) : 0;
 
             if ((tmp != ret) && use_be) {
@@ -1014,7 +1014,7 @@ empty_back_end(struct be_ctx *bectx)
     int err_test_old;
     int *keys;
     size_t i, n;
-    struct bitmap_data *bmdata = (struct bitmap_data *)(bectx->bmdata);
+    struct bitmap_data *bmdata = (struct bitmap_data *)bectx->bmdata;
     struct dynamic_array *key_list;
     struct empty_be_ctx wctx;
 
@@ -1029,7 +1029,7 @@ empty_back_end(struct be_ctx *bectx)
     wctx.key_list = key_list;
     wctx.key_size = bectx->key_size;
     DISABLE_ERR_TEST(err_test_old);
-    err = (*(bectx->ops.walk))(bectx->be, NULL, &empty_be_cb, &wctx);
+    err = (*bectx->ops.walk)(bectx->be, NULL, &empty_be_cb, &wctx);
     ENABLE_ERR_TEST(err_test_old);
     if (err) {
         error(0, -err, "Error walking back end");
@@ -1045,9 +1045,9 @@ empty_back_end(struct be_ctx *bectx)
         int buf[MAX_KEY_SIZE / sizeof(int)];
 
         for (;;) {
-            err = (*(bectx->ops.delete))(bectx->be,
-                                         get_full_key(keys[i], bectx->key_size,
-                                                      buf));
+            err = (*bectx->ops.delete)(bectx->be,
+                                       get_full_key(keys[i], bectx->key_size,
+                                                    buf));
             RESET_ERR_TEST();
             if (!err)
                 break;
@@ -1058,7 +1058,7 @@ empty_back_end(struct be_ctx *bectx)
             }
         }
         bitmap_set(bmdata->bitmap, keys[i], 0);
-        --(bectx->stats.num_keys);
+        --bectx->stats.num_keys;
         infomsgf("\rRemoved %6d (%6zu/%6zu)", keys[i], i + 1, n);
     }
     if (i > 0)
@@ -1094,7 +1094,7 @@ be_test_quick(struct be_ctx *bectx, const struct be_params *bep)
         if (ERROR_FATAL(ret))
             return ret;
         if (bep->dump) {
-            ret = (*(bectx->ops.dump))(stdout, bectx->be);
+            ret = (*bectx->ops.dump)(stdout, bectx->be);
             if (ret != 0) {
                 error(0, -ret, "Error dumping back end");
                 return ret;
@@ -1109,7 +1109,7 @@ be_test_quick(struct be_ctx *bectx, const struct be_params *bep)
         if (ERROR_FATAL(ret))
             return ret;
         if (bep->dump) {
-            ret = (*(bectx->ops.dump))(stdout, bectx->be);
+            ret = (*bectx->ops.dump)(stdout, bectx->be);
             if (ret != 0) {
                 error(0, -ret, "Error dumping back end");
                 return ret;
@@ -1144,14 +1144,14 @@ be_test_insertion(struct be_ctx *bectx, const struct be_params *bep, FILE *log)
         if (ERROR_FATAL(ret))
             break;
         if (bep->dump) {
-            ret = (*(bectx->ops.dump))(stdout, bectx->be);
+            ret = (*bectx->ops.dump)(stdout, bectx->be);
             if (ret != 0) {
                 error(0, -ret, "Error dumping back end");
                 break;
             }
         }
         if (bep->verify && !(random() % bep->verification_period)) {
-            ret = (*(bectx->cb.verify_insertion))(bectx);
+            ret = (*bectx->cb.verify_insertion)(bectx);
             if (ret != 0)
                 break;
         }
@@ -1159,7 +1159,7 @@ be_test_insertion(struct be_ctx *bectx, const struct be_params *bep, FILE *log)
     }
 
     if (bectx->cb.end_test != NULL) {
-        tmp = (*(bectx->cb.end_test))(bectx);
+        tmp = (*bectx->cb.end_test)(bectx);
         if (tmp != 0)
             ret = tmp;
     }
@@ -1214,7 +1214,7 @@ be_test_rand_repeat(struct be_ctx *bectx, const struct be_params *bep,
         if (ret != 0)
             break;
 
-        if (!(bectx->trans))
+        if (!bectx->trans)
             trans = !(random() % 128);
         else if (!(random() % 16))
             trans = 2 + random() % 2;
@@ -1222,7 +1222,7 @@ be_test_rand_repeat(struct be_ctx *bectx, const struct be_params *bep,
             trans = 0;
 
         if (trans) {
-            ret = (*(trans_ops[trans].fn))(bectx, bep->use_be, bep->use_bitmap);
+            ret = (*trans_ops[trans].fn)(bectx, bep->use_be, bep->use_bitmap);
             if (ERROR_FATAL(ret))
                 break;
             VERBOSE_LOG(stderr, "%s transaction\n"
@@ -1277,7 +1277,7 @@ be_test_rand_repeat(struct be_ctx *bectx, const struct be_params *bep,
             }
             if (ERROR_FATAL(ret))
                 break;
-            if (!(bep->verify_after_search))
+            if (!bep->verify_after_search)
                 verify = 0;
         } else if (test_iter_only
                    || (bep->test_iter
@@ -1292,7 +1292,7 @@ be_test_rand_repeat(struct be_ctx *bectx, const struct be_params *bep,
                 break;
             if (test_iter_only)
                 quit = 1;
-            if (!(bep->verify_after_search))
+            if (!bep->verify_after_search)
                 verify = 0;
         } else {
             if (!purge) {
@@ -1358,7 +1358,7 @@ be_test_rand_repeat(struct be_ctx *bectx, const struct be_params *bep,
             && ((verify == 1)
                 || ((verify != 0)
                     && !(random() % bep->verification_period)))) {
-            ret = (*(bectx->cb.verify_rand))(bectx);
+            ret = (*bectx->cb.verify_rand)(bectx);
             if (ret != 0)
                 break;
         } else
@@ -1374,7 +1374,7 @@ end:
         perf_cmp_finish(perf_cmp_hdl);
 
     if (bectx->cb.end_test != NULL) {
-        tmp = (*(bectx->cb.end_test))(bectx);
+        tmp = (*bectx->cb.end_test)(bectx);
         if (tmp != 0)
             ret = tmp;
     }
@@ -1424,7 +1424,7 @@ be_test_sorted(struct be_ctx *bectx, const struct be_params *bep, FILE *log)
         if (ret != 0)
             break;
 
-        if (!(bectx->trans))
+        if (!bectx->trans)
             trans = !(random() % 16384);
         else if (!(random() % 16))
             trans = 2 + random() % 2;
@@ -1432,7 +1432,7 @@ be_test_sorted(struct be_ctx *bectx, const struct be_params *bep, FILE *log)
             trans = 0;
 
         if (trans) {
-            ret = (*(trans_ops[trans].fn))(bectx, bep->use_be, bep->use_bitmap);
+            ret = (*trans_ops[trans].fn)(bectx, bep->use_be, bep->use_bitmap);
             if (ERROR_FATAL(ret))
                 break;
             VERBOSE_LOG(stderr, "%s transaction\n"
@@ -1443,7 +1443,7 @@ be_test_sorted(struct be_ctx *bectx, const struct be_params *bep, FILE *log)
             if (direction) {
                 if ((key < bep->max_key) || delete)
                     ++key;
-            } else if (key > !(bep->zero_keys))
+            } else if (key > !bep->zero_keys)
                 --key;
 
             if ((search = !(random() % bep->search_period))) {
@@ -1479,7 +1479,7 @@ be_test_sorted(struct be_ctx *bectx, const struct be_params *bep, FILE *log)
                 }
                 if (ERROR_FATAL(ret))
                     break;
-                if (!(bep->verify_after_search))
+                if (!bep->verify_after_search)
                     verify = 0;
             } else {
                 if (!(random() % params.sorted_test_period)) {
@@ -1527,7 +1527,7 @@ be_test_sorted(struct be_ctx *bectx, const struct be_params *bep, FILE *log)
             && ((verify == 1)
                 || ((verify != 0)
                     && !(random() % bep->verification_period)))) {
-            ret = (*(bectx->cb.verify_rand))(bectx);
+            ret = (*bectx->cb.verify_rand)(bectx);
             if (ret != 0)
                 break;
         } else
@@ -1543,7 +1543,7 @@ end:
         perf_cmp_finish(perf_cmp_hdl);
 
     if (bectx->cb.end_test != NULL) {
-        tmp = (*(bectx->cb.end_test))(bectx);
+        tmp = (*bectx->cb.end_test)(bectx);
         if (tmp != 0)
             ret = tmp;
     }
@@ -1581,7 +1581,7 @@ be_test_rand_norepeat(struct be_ctx *bectx, const struct be_params *bep,
         return ret;
     }
 
-    bmdata = (struct bitmap_data *)(bectx->bmdata);
+    bmdata = (struct bitmap_data *)bectx->bmdata;
     gen_key_fn = bep->zero_keys ? &gen_key : &gen_key_no_zero;
 
     perf_cmp_wait(&perf_cmp_hdl);
@@ -1595,7 +1595,7 @@ be_test_rand_norepeat(struct be_ctx *bectx, const struct be_params *bep,
         if (ret != 0)
             break;
 
-        if (!(bectx->trans))
+        if (!bectx->trans)
             trans = !(random() % 16384);
         else if (!(random() % 16))
             trans = 2 + random() % 2;
@@ -1603,7 +1603,7 @@ be_test_rand_norepeat(struct be_ctx *bectx, const struct be_params *bep,
             trans = 0;
 
         if (trans) {
-            ret = (*(trans_ops[trans].fn))(bectx, bep->use_be, bep->use_bitmap);
+            ret = (*trans_ops[trans].fn)(bectx, bep->use_be, bep->use_bitmap);
             if (ERROR_FATAL(ret))
                 break;
             VERBOSE_LOG(stderr, "%s transaction\n"
@@ -1654,7 +1654,7 @@ be_test_rand_norepeat(struct be_ctx *bectx, const struct be_params *bep,
                 }
                 if (ERROR_FATAL(ret))
                     break;
-                if (!(bep->verify_after_search))
+                if (!bep->verify_after_search)
                     verify = 0;
             } else {
                 delete = bitmap_get(bmdata->bitmap, key);
@@ -1705,7 +1705,7 @@ be_test_rand_norepeat(struct be_ctx *bectx, const struct be_params *bep,
 
         if (bep->verify
             && ((verify == 1) || !(random() % bep->verification_period))) {
-            ret = (*(bectx->cb.verify_rand))(bectx);
+            ret = (*bectx->cb.verify_rand)(bectx);
             if (ret != 0)
                 break;
         } else
@@ -1721,7 +1721,7 @@ end:
         perf_cmp_finish(perf_cmp_hdl);
 
     if (bectx->cb.end_test != NULL) {
-        tmp = (*(bectx->cb.end_test))(bectx);
+        tmp = (*bectx->cb.end_test)(bectx);
         if (tmp != 0)
             ret = tmp;
     }
@@ -1831,7 +1831,7 @@ be_test_fill_drain(struct be_ctx *bectx, const struct be_params *bep, FILE *log)
         }
 
         if (bep->dump) {
-            ret = (*(bectx->ops.dump))(stdout, bectx->be);
+            ret = (*bectx->ops.dump)(stdout, bectx->be);
             if (ret != 0) {
                 error(0, -ret, "Error dumping back end");
                 goto end2;
@@ -1840,7 +1840,7 @@ be_test_fill_drain(struct be_ctx *bectx, const struct be_params *bep, FILE *log)
 
         if (bep->verify
             && ((verify == 1) || !(random() % bep->verification_period))) {
-            ret = (*(bectx->cb.verify_rand))(bectx);
+            ret = (*bectx->cb.verify_rand)(bectx);
             if (ret != 0)
                 break;
         } else
@@ -1854,7 +1854,7 @@ be_test_fill_drain(struct be_ctx *bectx, const struct be_params *bep, FILE *log)
 
 end2:
     if (bectx->cb.end_test != NULL) {
-        tmp = (*(bectx->cb.end_test))(bectx);
+        tmp = (*bectx->cb.end_test)(bectx);
         if (tmp != 0)
             ret = tmp;
     }
@@ -1931,7 +1931,7 @@ be_test_fill_drain_sorted(struct be_ctx *bectx, const struct be_params *bep,
         }
 
         if (bep->dump) {
-            ret = (*(bectx->ops.dump))(stdout, bectx->be);
+            ret = (*bectx->ops.dump)(stdout, bectx->be);
             if (ret != 0) {
                 error(0, -ret, "Error dumping back end");
                 goto end;
@@ -1940,7 +1940,7 @@ be_test_fill_drain_sorted(struct be_ctx *bectx, const struct be_params *bep,
 
         if (bep->verify
             && ((verify == 1) || !(random() % bep->verification_period))) {
-            ret = (*(bectx->cb.verify_rand))(bectx);
+            ret = (*bectx->cb.verify_rand)(bectx);
             if (ret != 0)
                 break;
         } else
@@ -1952,7 +1952,7 @@ be_test_fill_drain_sorted(struct be_ctx *bectx, const struct be_params *bep,
 
 end:
     if (bectx->cb.end_test != NULL) {
-        tmp = (*(bectx->cb.end_test))(bectx);
+        tmp = (*bectx->cb.end_test)(bectx);
         if (tmp != 0)
             ret = tmp;
     }

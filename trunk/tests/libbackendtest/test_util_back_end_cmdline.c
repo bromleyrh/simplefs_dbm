@@ -139,7 +139,7 @@ parse_be_test_opt(int opt, void *test_opts)
         bep->key_size = 4 * atoi(optarg);
         break;
     default:
-        return (*(testopts->parse_test_opt))(opt, testopts->test_opts);
+        return (*testopts->parse_test_opt)(opt, testopts->test_opts);
     }
 
     return 0;

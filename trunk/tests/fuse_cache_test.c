@@ -161,13 +161,13 @@ parse_test_opt(int opt, void *test_opts)
 
     switch (opt) {
     case 'B':
-        *(testopts->test_type) = 5;
+        *testopts->test_type = 5;
         break;
     case 'K':
-        *(testopts->max_data_len) = strtoul(optarg, NULL, 10);
+        *testopts->max_data_len = strtoul(optarg, NULL, 10);
         break;
     case 'z':
-        *(testopts->test_type) = 4;
+        *testopts->test_type = 4;
         break;
     default:
         return -1;
@@ -252,13 +252,13 @@ fn2(const void *key, const void *data, size_t datalen, void *ctx)
     curr = get_short_key((const int *)key, wctx->key_size);
 
     if ((datalen != DATA_LEN(d->len))
-        || (check_int_array((const int *)(d->data), d->len / sizeof(int), curr)
+        || (check_int_array((const int *)d->data, d->len / sizeof(int), curr)
             != 0)) {
         errmsgf("Data (length %zu) for key %d corrupt\n", datalen, *(int *)key);
         return -EIO;
     }
 
-    ++(wctx->keys_found);
+    ++wctx->keys_found;
     if (check_increasing(&wctx->prevkey, curr) == -1)
         return -1;
 
@@ -277,13 +277,13 @@ fn3(const void *key, const void *data, size_t datalen, void *ctx)
     curr = get_short_key((const int *)key, wctx->key_size);
 
     if ((datalen != DATA_LEN(d->len))
-        || (check_int_array((const int *)(d->data), d->len / sizeof(int), curr)
+        || (check_int_array((const int *)d->data, d->len / sizeof(int), curr)
             != 0)) {
         errmsgf("Data (length %zu) for key %d corrupt\n", datalen, *(int *)key);
         return -EIO;
     }
 
-    ++(wctx->keys_found);
+    ++wctx->keys_found;
     if (check_increasing(&wctx->prevkey, curr) == -1) {
         if (wctx->keys_found > 1)
             infochr('\n');
@@ -291,7 +291,7 @@ fn3(const void *key, const void *data, size_t datalen, void *ctx)
     }
 
     if ((bitmap_find_next_set(wctx->bmdata->bitmap, wctx->bmdata->bitmap_len,
-                              wctx->bitmap_pos, (unsigned *)(&wctx->bitmap_pos),
+                              wctx->bitmap_pos, (unsigned *)&wctx->bitmap_pos,
                               1) == 0)
         || (curr != wctx->bitmap_pos)) {
         errmsgf("%sBitmap (%6d) and database (%6d) differ\n",
@@ -301,7 +301,7 @@ fn3(const void *key, const void *data, size_t datalen, void *ctx)
 
     infomsgf("\rBitmap and cache agree up to %6d", wctx->bitmap_pos);
 
-    ++(wctx->bitmap_pos);
+    ++wctx->bitmap_pos;
 
     return 0;
 }
@@ -316,7 +316,7 @@ load_bitmap(const char *file, struct be_stats *stats,
     size_t bmsize;
     struct stat s;
 
-    bmsize = bmdata->bitmap_len * sizeof(*(bmdata->bitmap));
+    bmsize = bmdata->bitmap_len * sizeof(*bmdata->bitmap);
 
     fd = open(file, O_RDONLY);
     if (fd == -1) {
@@ -374,7 +374,7 @@ alloc_bitmap(const char *file, struct bitmap_data *bmdata)
     }
 
     totsize = sizeof(struct be_stats)
-              + bmdata->bitmap_len * sizeof(*(bmdata->bitmap));
+              + bmdata->bitmap_len * sizeof(*bmdata->bitmap);
 
     err = falloc(fd, 0, totsize);
     if (err) {
@@ -410,7 +410,7 @@ save_bitmap(const char *file, struct be_stats *stats,
     int fd;
     size_t bmsize;
 
-    bmsize = bmdata->bitmap_len * sizeof(*(bmdata->bitmap));
+    bmsize = bmdata->bitmap_len * sizeof(*bmdata->bitmap);
 
     fd = open(file, O_WRONLY);
     if (fd == -1) {
@@ -538,7 +538,7 @@ init_fuse_cache_ctx(struct fuse_cache_ctx *cachectx, const char *file,
         if (ret != 0)
             goto err;
     } else {
-        if (!(bmdata->loaded)) {
+        if (!bmdata->loaded) {
             ret = -ENOENT;
             error(0, 0, "Database file present but bitmap file missing");
             return ret;
@@ -606,7 +606,7 @@ walk_cb(const void *key, const void *data, size_t datasize, void *ctx)
     (void)data;
     (void)datasize;
 
-    return (*(walkctx->fn))(key, walkctx->ctx);
+    return (*walkctx->fn)(key, walkctx->ctx);
 }
 
 static int
@@ -627,7 +627,7 @@ test_insert(void *be, void *key)
         return MINUS_ERRNO;
     data->len = totlen;
     totlen = DATA_LEN(totlen);
-    set_int_array((int *)(data->data), len, k);
+    set_int_array((int *)data->data, len, k);
 
     err = back_end_insert(cachectx->be, key, data, totlen);
     free(data);
@@ -653,7 +653,7 @@ test_replace(void *be, void *key)
         return MINUS_ERRNO;
     data->len = totlen;
     totlen = DATA_LEN(totlen);
-    set_int_array((int *)(data->data), len, k);
+    set_int_array((int *)data->data, len, k);
 
     ret = back_end_replace(cachectx->be, key, data, totlen);
     free(data);
@@ -679,7 +679,7 @@ test_search(void *be, void *key, void *res)
 
     ret = back_end_look_up(cachectx->be, key, res, data, &datalen, 0);
     if (((ret == 1)
-         && (check_int_array((const int *)(data->data), data->len / sizeof(int),
+         && (check_int_array((const int *)data->data, data->len / sizeof(int),
                              *(int *)res)
              != 0))
         || (ret == 0))
@@ -744,7 +744,7 @@ test_iter_get(void *iter, void *ret)
 
     err = back_end_iter_get(iter, ret, data, &datalen);
     if (!err
-        && (check_int_array((const int *)(data->data), data->len / sizeof(int),
+        && (check_int_array((const int *)data->data, data->len / sizeof(int),
                             *(int *)ret)
             != 0))
         err = -EIO;
@@ -831,11 +831,11 @@ static int
 verify_rand(struct be_ctx *bectx)
 {
     int ret;
-    struct bitmap_data *bmdata = (struct bitmap_data *)(bectx->bmdata);
+    struct bitmap_data *bmdata = (struct bitmap_data *)bectx->bmdata;
     struct fuse_cache_ctx *cachectx;
     struct fn3_ctx data;
 
-    cachectx = (struct fuse_cache_ctx *)(bectx->be);
+    cachectx = (struct fuse_cache_ctx *)bectx->be;
 
     if (mprotect(bmdata->bitmap, bmdata->bitmap_len * sizeof(unsigned),
                  PROT_READ) == -1) {
@@ -860,7 +860,7 @@ verify_rand(struct be_ctx *bectx)
         infochr('\n');
 
     if (bitmap_find_next_set(data.bmdata->bitmap, data.bmdata->bitmap_len,
-                             data.bitmap_pos, (unsigned *)(&data.bitmap_pos), 1)
+                             data.bitmap_pos, (unsigned *)&data.bitmap_pos, 1)
         != 0) {
         errmsg("Bitmap and cache differ\n");
         ret = -EIO;
@@ -903,11 +903,11 @@ print_stats(FILE *f, struct be_ctx *bectx, int times)
 static int
 do_end_test(struct be_ctx *bectx)
 {
-    struct fuse_cache_ctx *cachectx = (struct fuse_cache_ctx *)(bectx->be);
+    struct fuse_cache_ctx *cachectx = (struct fuse_cache_ctx *)bectx->be;
 
     if (cachectx->bectx.bmdata) {
         return save_bitmap(cachectx->bitmap, &cachectx->bectx.stats,
-                           (struct bitmap_data *)(cachectx->bectx.bmdata));
+                           (struct bitmap_data *)cachectx->bectx.bmdata);
     }
 
     return 0;
@@ -967,7 +967,7 @@ run_automated_test(int test_type, const struct params *p)
                   ? verify_rand((struct be_ctx *)&cachectx)
                   : walk_cache(&cachectx);
         } else if (bep->use_bitmap)
-            print_bitmap(stdout, (struct bitmap_data *)(cachectx.bectx.bmdata));
+            print_bitmap(stdout, (struct bitmap_data *)cachectx.bectx.bmdata);
         break;
     case 5:
         ret = verify_rand((struct be_ctx *)&cachectx);

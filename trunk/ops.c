@@ -179,7 +179,7 @@ struct space_alloc_ctx {
 
 #define OP_RET_NONE INT_MAX
 
-#define DB_OBJ_MAX_SIZE (sizeof(struct db_obj_stat))
+#define DB_OBJ_MAX_SIZE sizeof(struct db_obj_stat)
 
 #define NAME_CUR_DIR "."
 #define NAME_PARENT_DIR ".."
@@ -193,7 +193,7 @@ struct space_alloc_ctx {
 
 #define UNREF_MAX INT32_MAX
 
-#define ROOT_DIR_INIT_PERMS (S_IRWXU)
+#define ROOT_DIR_INIT_PERMS S_IRWXU
 
 #if 0 && !defined(NDEBUG)
 #define DEBUG_DUMP
@@ -375,7 +375,7 @@ db_key_cmp(const void *k1, const void *k2, void *key_ctx)
     switch (key1->type) {
     case TYPE_DIRENT:
     case TYPE_XATTR:
-        cmp = strcmp((const char *)(key1->name), (const char *)(key2->name));
+        cmp = strcmp((const char *)key1->name, (const char *)key2->name);
         break;
     case TYPE_PAGE:
         cmp = uint64_cmp(key1->pgno, key2->pgno);
@@ -414,7 +414,7 @@ worker_td(void *args)
         if (op->op == NULL)
             break;
 
-        ret = (*(op->op))(op->args);
+        ret = (*op->op)(op->args);
 
         pthread_mutex_lock(&op->mtx);
         op->ret = ret;
@@ -519,33 +519,33 @@ dump_db_obj(FILE *f, const void *key, const void *data, size_t datasize,
     case TYPE_FREE_INO:
         fprintf(f, "Free I-node number information: number %" PRIu64 " to %"
                    PRIu64 "\n",
-                (uint64_t)(k->ino), (uint64_t)(k->ino) + FREE_INO_RANGE_SZ - 1);
+                (uint64_t)k->ino, (uint64_t)k->ino + FREE_INO_RANGE_SZ - 1);
         break;
     case TYPE_DIRENT:
         assert(datasize == sizeof(d->de));
 
         fprintf(f, "Directory entry: directory %" PRIu64 ", name %s -> node %"
                    PRIu64 "\n",
-                (uint64_t)(k->ino), k->name, (uint64_t)(d->de.ino));
+                (uint64_t)k->ino, k->name, (uint64_t)d->de.ino);
         break;
     case TYPE_STAT:
         assert(datasize == sizeof(d->s));
 
         fprintf(f, "I-node entry: node %" PRIu64 " -> st_ino %" PRIu64 "\n",
-                (uint64_t)(k->ino), (uint64_t)(d->s.st_ino));
+                (uint64_t)k->ino, (uint64_t)d->s.st_ino);
         break;
     case TYPE_PAGE:
         fprintf(f, "Page: node %" PRIu64 ", page %" PRIu64 ", size %zu\n",
-                (uint64_t)(k->ino), (uint64_t)(k->pgno), datasize);
+                (uint64_t)k->ino, (uint64_t)k->pgno, datasize);
         break;
     case TYPE_XATTR:
         fprintf(f, "Extended attribute entry: node %" PRIu64 ", name %s, "
                    "size %zu\n",
-                (uint64_t)(k->ino), k->name, datasize);
+                (uint64_t)k->ino, k->name, datasize);
         break;
     case TYPE_ULINKED_INODE:
         fprintf(f, "Unlinked I-node entry: node %" PRIu64 "\n",
-                (uint64_t)(k->ino));
+                (uint64_t)k->ino);
         break;
     default:
         errmsgf("Unrecognized object type %d in %s()\n", k->type, __FUNCTION__);
@@ -622,7 +622,7 @@ free_ino_find(uint64_t *used_ino, inum_t base)
             return 0;
     }
     ino = base + idx * NBWD;
-    word = ~(used_ino[idx]);
+    word = ~used_ino[idx];
 
     idx = 0;
     if (!(word & 0xffffffff)) {
@@ -723,7 +723,7 @@ get_ino(struct back_end *be, inum_t *ino)
     if (res != 1)
         return (res == 0) ? -EILSEQ : res;
 
-    ++(hdr.numinodes);
+    ++hdr.numinodes;
     res = back_end_replace(be, &k, &hdr, sizeof(hdr));
     if (res != 0)
         return res;
@@ -766,7 +766,7 @@ release_ino(struct back_end *be, inum_t root_id, inum_t ino)
     if (res != 1)
         return (res == 0) ? -EILSEQ : res;
 
-    --(hdr.numinodes);
+    --hdr.numinodes;
     return back_end_replace(be, &k, &hdr, sizeof(hdr));
 }
 
@@ -951,7 +951,7 @@ dec_refcnt(struct ref_inodes *ref_inodes, int32_t nlink, int32_t nref,
     adj_refcnt(&inop->refcnt, -nref);
     adj_refcnt(&inop->nlookup, -nlookup);
 
-    if (!(inop->nodelete) && (inop->nlink == 0) && (inop->refcnt == 0)
+    if (!inop->nodelete && (inop->nlink == 0) && (inop->refcnt == 0)
         && (inop->nlookup == 0)) {
         err = avl_tree_delete(ref_inodes->ref_inodes, &inop);
         if (!err)
@@ -1046,7 +1046,7 @@ remove_ulinked_nodes(struct back_end *be, inum_t root_id)
             goto err1;
 
         infomsgf("Warning: Removing I-node %" PRIu64 " with no links\n",
-                 (uint64_t)(k.ino));
+                 (uint64_t)k.ino);
 
         ret = delete_file(be, root_id, k.ino);
         if (ret != 0)
@@ -1368,7 +1368,7 @@ new_node(struct back_end *be, struct ref_inodes *ref_inodes, inum_t parent,
         goto err3;
     }
 
-    ++(ps.num_ents);
+    ++ps.num_ents;
 
     assert(ps.st_ino == k.ino);
     ret = back_end_replace(be, &k, &ps, sizeof(ps));
@@ -1420,7 +1420,7 @@ new_node_link(struct back_end *be, struct ref_inodes *ref_inodes, inum_t ino,
 
     k.type = TYPE_DIRENT;
     k.ino = newparent;
-    strlcpy((char *)(k.name), newname, sizeof(k.name));
+    strlcpy((char *)k.name, newname, sizeof(k.name));
 
     de.ino = ino;
 
@@ -1435,7 +1435,7 @@ new_node_link(struct back_end *be, struct ref_inodes *ref_inodes, inum_t ino,
     if (ret != 1)
         return (ret == 0) ? -ENOENT : ret;
 
-    ++(s.st_nlink);
+    ++s.st_nlink;
 
     assert(s.st_ino == k.ino);
     ret = back_end_replace(be, &k, &s, sizeof(s));
@@ -1532,7 +1532,7 @@ new_dir(struct back_end *be, inum_t root_id, struct ref_inodes *ref_inodes,
             goto err5;
         }
 
-        ++(ps.num_ents);
+        ++ps.num_ents;
 
         assert(ps.st_ino == k.ino);
         ret = back_end_replace(be, &k, &ps, sizeof(ps));
@@ -1623,7 +1623,7 @@ rem_dir(struct back_end *be, inum_t root_id, struct ref_inodes *ref_inodes,
     if (ret != 0)
         goto err4;
 
-    --(s.num_ents);
+    --s.num_ents;
     ret = back_end_replace(be, &k, &s, sizeof(s));
     if (ret != 0)
         goto err5;
@@ -1675,7 +1675,7 @@ new_dir_link(struct back_end *be, struct ref_inodes *ref_inodes, inum_t ino,
 
     k.type = TYPE_DIRENT;
     k.ino = newparent;
-    strlcpy((char *)(k.name), newname, sizeof(k.name));
+    strlcpy((char *)k.name, newname, sizeof(k.name));
 
     de.ino = ino;
 
@@ -1690,7 +1690,7 @@ new_dir_link(struct back_end *be, struct ref_inodes *ref_inodes, inum_t ino,
     if (ret != 1)
         return (ret == 0) ? -ENOENT : ret;
 
-    ++(s.st_nlink);
+    ++s.st_nlink;
 
     assert(s.st_ino == k.ino);
     ret = back_end_replace(be, &k, &s, sizeof(s));
@@ -1725,7 +1725,7 @@ rem_node_link(struct back_end *be, inum_t root_id,
 
     k.type = TYPE_DIRENT;
     k.ino = parent;
-    strlcpy((char *)(k.name), name, sizeof(k.name));
+    strlcpy((char *)k.name, name, sizeof(k.name));
 
     ret = back_end_delete(be, &k);
     if (ret != 0)
@@ -1767,7 +1767,7 @@ rem_dir_link(struct back_end *be, inum_t root_id, struct ref_inodes *ref_inodes,
 
     k.type = TYPE_DIRENT;
     k.ino = parent;
-    strlcpy((char *)(k.name), name, sizeof(k.name));
+    strlcpy((char *)k.name, name, sizeof(k.name));
 
     ret = back_end_delete(be, &k);
     if (ret != 0)
@@ -2069,7 +2069,7 @@ do_forget(void *args)
     struct space_alloc_ctx sctx;
     uint64_t to_unref, unref;
 
-    if (!(opargs->ro)) {
+    if (!opargs->ro) {
         ret = back_end_trans_new(opargs->be);
         if (ret != 0)
             return ret;
@@ -2100,7 +2100,7 @@ do_forget(void *args)
             goto err2;
     }
 
-    if (!(opargs->ro)) {
+    if (!opargs->ro) {
         ret = space_alloc_finish_op(&sctx, opargs->be);
         if (ret != 0)
             goto err1;
@@ -2111,7 +2111,7 @@ do_forget(void *args)
     }
 
     pthread_mutex_lock(&opargs->ref_inodes->ref_inodes_mtx);
-    if (!(refinop->nodelete) && (refinop->nlink == 0) && (refinop->refcnt == 0)
+    if (!refinop->nodelete && (refinop->nlink == 0) && (refinop->refcnt == 0)
         && (refinop->nlookup == 0)) {
         if (avl_tree_delete(opargs->ref_inodes->ref_inodes, &refinop) == 0)
             free(refinop);
@@ -2166,7 +2166,7 @@ do_create_node(void *args)
      * the file. */
     ret = new_node(opargs->be, opargs->ref_inodes, opargs->ino,
                    opargs->op_data.mknod_data.name, ctx->uid, ctx->gid,
-                   mode & ~(ctx->umask), opargs->op_data.mknod_data.rdev, 0,
+                   mode & ~ctx->umask, opargs->op_data.mknod_data.rdev, 0,
                    &opargs->attr, opargs->refinop, 1);
     if (ret != 0)
         goto err2;
@@ -2245,8 +2245,8 @@ do_create_dir(void *args)
      * the directory. */
     ret = new_dir(opargs->be, opargs->root_id, opargs->ref_inodes, opargs->ino,
                   opargs->op_data.mknod_data.name, ctx->uid, ctx->gid,
-                  opargs->op_data.mknod_data.mode & ~(ctx->umask),
-                  &opargs->attr, opargs->refinop, 1);
+                  opargs->op_data.mknod_data.mode & ~ctx->umask, &opargs->attr,
+                  opargs->refinop, 1);
     if (ret != 0)
         goto err2;
 
@@ -2346,7 +2346,7 @@ do_remove_node_link(void *args)
      * modification and last file status change timestamps of the parent
      * directory. */
     set_ts(NULL, &s.st_mtim, &s.st_ctim);
-    --(s.num_ents);
+    --s.num_ents;
 
     ret = back_end_replace(opargs->be, &k, &s, sizeof(s));
     if (ret != 0)
@@ -2627,7 +2627,7 @@ do_rename(void *args)
 
     k.type = TYPE_DIRENT;
     k.ino = parent;
-    strlcpy((char *)(k.name), name, sizeof(k.name));
+    strlcpy((char *)k.name, name, sizeof(k.name));
 
     ret = back_end_look_up(opargs->be, &k, NULL, &sde, NULL, 0);
     if (ret != 1)
@@ -2655,7 +2655,7 @@ do_rename(void *args)
 
     k.type = TYPE_DIRENT;
     k.ino = newparent;
-    strlcpy((char *)(k.name), newname, sizeof(k.name));
+    strlcpy((char *)k.name, newname, sizeof(k.name));
 
     ret = back_end_look_up(opargs->be, &k, NULL, &dde, NULL, 0);
     if (ret != 0) {
@@ -2767,7 +2767,7 @@ do_rename(void *args)
      * directory of each file. */
     set_ts(NULL, &ps.st_mtim, &ps.st_ctim);
     if (!existing)
-        ++(ps.num_ents);
+        ++ps.num_ents;
 
     assert(ps.st_ino == k.ino);
     ret = back_end_replace(opargs->be, &k, &ps, sizeof(ps));
@@ -2786,7 +2786,7 @@ do_rename(void *args)
     /* ", rename, para. 10:
      * " */
     set_ts(NULL, &ps.st_mtim, &ps.st_ctim);
-    --(ps.num_ents);
+    --ps.num_ents;
 
     assert(ps.st_ino == k.ino);
     ret = back_end_replace(opargs->be, &k, &ps, sizeof(ps));
@@ -2899,7 +2899,7 @@ do_create_node_link(void *args)
      * of the directory that contains the new entry shall be marked for
      * update. */
     set_ts(NULL, &ps.st_mtim, &ps.st_ctim);
-    ++(ps.num_ents);
+    ++ps.num_ents;
 
     assert(ps.st_ino == k.ino);
     ret = back_end_replace(opargs->be, &k, &ps, sizeof(ps));
@@ -2955,7 +2955,7 @@ do_read_entries(void *args)
 
     k.type = TYPE_DIRENT;
     k.ino = odir->ino;
-    strlcpy((char *)(k.name), odir->cur_name, sizeof(k.name));
+    strlcpy((char *)k.name, odir->cur_name, sizeof(k.name));
 
     off = odir->off;
     buflen = 0;
@@ -2988,14 +2988,14 @@ do_read_entries(void *args)
         if ((k.ino != odir->ino) || (k.type != TYPE_DIRENT))
             break;
 
-        strlcpy(odir->cur_name, (const char *)(k.name), sizeof(odir->cur_name));
+        strlcpy(odir->cur_name, (const char *)k.name, sizeof(odir->cur_name));
 
         omemset(&s, 0);
         s.st_ino = buf.de.ino;
 
         remsize = bufsize - buflen;
         entsize = add_direntry(opargs->req, readdir_buf + buflen, remsize,
-                               (const char *)(k.name), &s, off + 1);
+                               (const char *)k.name, &s, off + 1);
         if (entsize > remsize)
             goto end1;
 
@@ -3095,7 +3095,7 @@ do_read_data(void *args)
 
         k.pgno = off / PG_SIZE;
 
-        pgoff = off - (k.pgno * PG_SIZE);
+        pgoff = off - k.pgno * PG_SIZE;
 
         sz = MIN((off_t)((k.pgno + 1) * PG_SIZE), s.st_size) - off;
         if (sz > size)
@@ -3260,7 +3260,7 @@ do_close(void *args)
     struct ref_ino refino, *refinop;
     struct space_alloc_ctx sctx;
 
-    if (!(opargs->ro)) {
+    if (!opargs->ro) {
         ret = back_end_trans_new(opargs->be);
         if (ret != 0)
             return ret;
@@ -3287,7 +3287,7 @@ do_close(void *args)
     if (ret != 0)
         goto err2;
 
-    if (!(opargs->ro)) {
+    if (!opargs->ro) {
         ret = space_alloc_finish_op(&sctx, opargs->be);
         if (ret != 0)
             goto err1;
@@ -3298,7 +3298,7 @@ do_close(void *args)
     }
 
     pthread_mutex_lock(&opargs->ref_inodes->ref_inodes_mtx);
-    if (!(refinop->nodelete) && (refinop->nlink == 0) && (refinop->refcnt == 0)
+    if (!refinop->nodelete && (refinop->nlink == 0) && (refinop->refcnt == 0)
         && (refinop->nlookup == 0)) {
         if (avl_tree_delete(opargs->ref_inodes->ref_inodes, &refinop) == 0)
             free(refinop);
@@ -3362,7 +3362,7 @@ do_setxattr(void *args)
 
     k.type = TYPE_XATTR;
     k.ino = opargs->ino;
-    strlcpy((char *)(k.name), opargs->op_data.xattr_data.name, sizeof(k.name));
+    strlcpy((char *)k.name, opargs->op_data.xattr_data.name, sizeof(k.name));
 
     value = opargs->op_data.xattr_data.value;
     size = opargs->op_data.xattr_data.size;
@@ -3414,7 +3414,7 @@ do_getxattr(void *args)
 
     k.type = TYPE_XATTR;
     k.ino = opargs->ino;
-    strlcpy((char *)(k.name), opargs->op_data.xattr_data.name, sizeof(k.name));
+    strlcpy((char *)k.name, opargs->op_data.xattr_data.name, sizeof(k.name));
 
     ret = back_end_look_up(opargs->be, &k, NULL, NULL, &valsize, 0);
     if (ret != 1)
@@ -3483,7 +3483,7 @@ do_listxattr(void *args)
         if ((k.ino != opargs->ino) || (k.type != TYPE_XATTR))
             break;
 
-        ret = add_xattr_name(&value, &len, &size, (const char *)(k.name));
+        ret = add_xattr_name(&value, &len, &size, (const char *)k.name);
         if (ret != 0)
             goto err2;
 
@@ -3532,7 +3532,7 @@ do_removexattr(void *args)
 
     k.type = TYPE_XATTR;
     k.ino = opargs->ino;
-    strlcpy((char *)(k.name), opargs->op_data.xattr_data.name, sizeof(k.name));
+    strlcpy((char *)k.name, opargs->op_data.xattr_data.name, sizeof(k.name));
 
     ret = back_end_look_up(opargs->be, &k, NULL, NULL, NULL, 0);
     if (ret != 1)
@@ -3617,7 +3617,7 @@ do_create(void *args)
      * completion, open() shall mark for update the last data access, last data
      * modification, and last file status change timestamps of the file... */
     ret = new_node(opargs->be, opargs->ref_inodes, parent, name, ctx->uid,
-                   ctx->gid, opargs->op_data.mknod_data.mode & ~(ctx->umask), 0,
+                   ctx->gid, opargs->op_data.mknod_data.mode & ~ctx->umask, 0,
                    0, &opargs->attr, opargs->refinop, 1);
     if (ret != 0)
         goto err2;
@@ -3818,7 +3818,7 @@ simplefs_init_prepare(void *rctx, struct session *sess, inum_t root_id)
 
         /* FIXME: validate root I-node number */
 
-        if (!(dbargs.ro)) {
+        if (!dbargs.ro) {
             ret = remove_ulinked_nodes(priv->be, root_id);
             if (ret != 0)
                 goto err6;
@@ -3828,8 +3828,7 @@ simplefs_init_prepare(void *rctx, struct session *sess, inum_t root_id)
     priv->blkdev = dbargs.blkdev;
     priv->blkdevsz = dbargs.blkdevsz;
 
-    fuse_cache_set_dump_cb(*(struct fuse_cache **)(priv->be), &dump_db_obj,
-                           NULL);
+    fuse_cache_set_dump_cb(*(struct fuse_cache **)priv->be, &dump_db_obj, NULL);
 
     md->priv = priv;
 
@@ -3939,7 +3938,7 @@ simplefs_lookup(void *req, inum_t parent, const char *name)
 
     opargs.k.type = TYPE_DIRENT;
     opargs.k.ino = parent;
-    strlcpy((char *)(opargs.k.name), name, sizeof(opargs.k.name));
+    strlcpy((char *)opargs.k.name, name, sizeof(opargs.k.name));
 
     opargs.op_data.inc_lookup_cnt = 1;
 
@@ -4094,7 +4093,7 @@ simplefs_readlink(void *req, inum_t ino)
     if (ret != 0)
         goto err;
 
-    link = (const char *)(opargs.op_data.rdwr_data.buf);
+    link = (const char *)opargs.op_data.rdwr_data.buf;
 
     ret = reply_readlink(req, link);
     free((void *)link);
@@ -4212,7 +4211,7 @@ simplefs_unlink(void *req, inum_t parent, const char *name)
 
     opargs.k.type = TYPE_DIRENT;
     opargs.k.ino = parent;
-    strlcpy((char *)(opargs.k.name), name, sizeof(opargs.k.name));
+    strlcpy((char *)opargs.k.name, name, sizeof(opargs.k.name));
 
     opargs.op_data.inc_lookup_cnt = 0;
 
@@ -4263,7 +4262,7 @@ simplefs_rmdir(void *req, inum_t parent, const char *name)
 
     opargs.k.type = TYPE_DIRENT;
     opargs.k.ino = parent;
-    strlcpy((char *)(opargs.k.name), name, sizeof(opargs.k.name));
+    strlcpy((char *)opargs.k.name, name, sizeof(opargs.k.name));
 
     opargs.op_data.inc_lookup_cnt = 0;
 
@@ -4650,7 +4649,7 @@ simplefs_readdir(void *req, inum_t ino, size_t size, off_t off,
     struct fspriv *priv;
     struct mount_data *md = req_userdata(req);
     struct op_args opargs;
-    struct open_dir *odir = (struct open_dir *)(uintptr_t)(fi->fh);
+    struct open_dir *odir = (struct open_dir *)(uintptr_t)fi->fh;
 
     (void)ino;
 
@@ -4713,7 +4712,7 @@ simplefs_release(void *req, inum_t ino, struct file_info *fi)
 
     priv = md->priv;
 
-    ofile = (struct open_file *)(uintptr_t)(fi->fh);
+    ofile = (struct open_file *)(uintptr_t)fi->fh;
 
     opargs.be = priv->be;
     opargs.ro = md->ro;
@@ -4769,7 +4768,7 @@ simplefs_releasedir(void *req, inum_t ino, struct file_info *fi)
 
     priv = md->priv;
 
-    odir = (struct open_dir *)(uintptr_t)(fi->fh);
+    odir = (struct open_dir *)(uintptr_t)fi->fh;
 
     opargs.be = priv->be;
     opargs.ro = md->ro;
@@ -4843,9 +4842,9 @@ simplefs_statfs(void *req, inum_t ino)
             goto err;
         }
 
-        stbuf.f_blocks = (stbuf.f_blocks * stbuf.f_frsize) / PG_SIZE;
-        stbuf.f_bfree = (stbuf.f_bfree * stbuf.f_bsize) / PG_SIZE;
-        stbuf.f_bavail = (stbuf.f_bavail * stbuf.f_bsize) / PG_SIZE;
+        stbuf.f_blocks = stbuf.f_blocks * stbuf.f_frsize / PG_SIZE;
+        stbuf.f_bfree = stbuf.f_bfree * stbuf.f_bsize / PG_SIZE;
+        stbuf.f_bavail = stbuf.f_bavail * stbuf.f_bsize / PG_SIZE;
     }
 
     stbuf.f_bsize = PG_SIZE;

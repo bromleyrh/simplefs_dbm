@@ -66,7 +66,7 @@ search_task(void *args)
 {
     struct search_task_args *a = (struct search_task_args *)args;
 
-    a->ret = (*(a->fn))(a->bectx, a->key, a->use_be, a->use_bitmap);
+    a->ret = (*a->fn)(a->bectx, a->key, a->use_be, a->use_bitmap);
 }
 
 static void
@@ -74,9 +74,8 @@ update_task(void *args)
 {
     struct update_task_args *a = (struct update_task_args *)args;
 
-    a->ret = (*(a->fn))(a->bectx, a->key, a->replace, a->use_be,
-                        a->use_bitmap, a->nonexistent_allowed,
-                        a->repeat_allowed, a->confirm);
+    a->ret = (*a->fn)(a->bectx, a->key, a->replace, a->use_be, a->use_bitmap,
+                      a->nonexistent_allowed, a->repeat_allowed, a->confirm);
 }
 
 static int
@@ -250,7 +249,7 @@ be_test_cross_check(struct be_ctx *bectx1, struct be_ctx *bectx2,
     if (ret != 0)
         goto end1;
 
-    bmdata = (struct bitmap_data *)(bectx1->bmdata);
+    bmdata = (struct bitmap_data *)bectx1->bmdata;
     gen_key_fn = bep->zero_keys ? &gen_key : &gen_key_no_zero;
 
     while (!quit && (NUM_OPS(bectx1) < bep->num_ops)) {
@@ -293,7 +292,7 @@ be_test_cross_check(struct be_ctx *bectx1, struct be_ctx *bectx2,
                                                1);
             if (ret < 0)
                 goto end2;
-            if (!(bep->verify_after_search))
+            if (!bep->verify_after_search)
                 continue;
         } else {
             delete = bitmap_get(bmdata->bitmap, key);
@@ -329,11 +328,11 @@ be_test_cross_check(struct be_ctx *bectx1, struct be_ctx *bectx2,
 
         if (bep->verify) {
             if (force_verify == 1)
-                ret = (*(bectx1->cb.verify_rand))(bectx1);
+                ret = (*bectx1->cb.verify_rand)(bectx1);
             else if (force_verify == 2)
-                ret = (*(bectx2->cb.verify_rand))(bectx2);
+                ret = (*bectx2->cb.verify_rand)(bectx2);
             else if (!(random() % bep->verification_period))
-                ret = (*(bectx1->cb.verify_cmp))(bectx1, bectx2, ctx);
+                ret = (*bectx1->cb.verify_cmp)(bectx1, bectx2, ctx);
             if (ret != 0)
                 break;
         }

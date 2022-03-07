@@ -18,7 +18,7 @@
 extern struct params params;
 
 #define ERROR_FATAL(err) \
-    (((err) < 0) && ((err) != -ENOSPC) && (((err) != -ENOMEM) || !(*mem_test)))
+    (((err) < 0) && ((err) != -ENOSPC) && (((err) != -ENOMEM) || !*mem_test))
 
 #define NUM_OPS(bectx) ((bectx)->stats.num_ops - (bectx)->stats.num_ops_start)
 
@@ -38,7 +38,7 @@ refresh_stat_output(struct be_ctx *bectx)
         && ((curr.tv_sec - last_print_time.tv_sec
              + 0.000001 * (curr.tv_usec-last_print_time.tv_usec)) >= 1.0)) {
         clrscr(stderr);
-        (*(bectx->cb.print_stats))(stderr, bectx, 0);
+        (*bectx->cb.print_stats)(stderr, bectx, 0);
         last_print_time = curr;
     }
 }

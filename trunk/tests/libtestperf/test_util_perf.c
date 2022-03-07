@@ -39,7 +39,7 @@ init_perf_test(struct perf_test_ctx **ctx, const struct perf_test_ops *ops,
     if (oemalloc(&ret) == NULL)
         return MINUS_ERRNO;
 
-    err = (*(ops->init_ctx))(&ret->ctx, args);
+    err = (*ops->init_ctx)(&ret->ctx, args);
     if (err) {
         free(ret);
         return err;
@@ -56,7 +56,7 @@ end_perf_test(struct perf_test_ctx *ctx)
 {
     int err;
 
-    err = (*(ctx->ops->destroy_ctx))(ctx->ctx);
+    err = (*ctx->ops->destroy_ctx)(ctx->ctx);
     if (err)
         return err;
 
@@ -71,7 +71,7 @@ do_perf_test(struct perf_test_ctx *ctx, void *args, struct perf_test_info *info)
     int ret;
     struct perf_test_info retinfo;
 
-    ret = (*(ctx->ops->prepare_test))(ctx->ctx, args);
+    ret = (*ctx->ops->prepare_test)(ctx->ctx, args);
     if (ret != 0)
         return ret;
 
@@ -79,7 +79,7 @@ do_perf_test(struct perf_test_ctx *ctx, void *args, struct perf_test_info *info)
     if (ret != 0)
         goto err;
     for (;;) {
-        ret = (*(ctx->ops->do_op))(ctx->ctx);
+        ret = (*ctx->ops->do_op)(ctx->ctx);
         if (ret != 0) {
             if (ret == 1)
                 break;
@@ -90,7 +90,7 @@ do_perf_test(struct perf_test_ctx *ctx, void *args, struct perf_test_info *info)
     if (ret != 0)
         goto err;
 
-    ret = (*(ctx->ops->end_test))(ctx->ctx);
+    ret = (*ctx->ops->end_test)(ctx->ctx);
     if (ret != 0)
         return ret;
 
@@ -100,7 +100,7 @@ do_perf_test(struct perf_test_ctx *ctx, void *args, struct perf_test_info *info)
     return 0;
 
 err:
-    (*(ctx->ops->end_test))(ctx->ctx);
+    (*ctx->ops->end_test)(ctx->ctx);
     return ret;
 }
 

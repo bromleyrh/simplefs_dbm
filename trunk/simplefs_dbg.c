@@ -196,7 +196,7 @@ db_key_cmp(const void *k1, const void *k2, void *key_ctx)
     switch (key1->type) {
     case TYPE_DIRENT:
     case TYPE_XATTR:
-        cmp = strcmp((const char *)(key1->name), (const char *)(key2->name));
+        cmp = strcmp((const char *)key1->name, (const char *)key2->name);
         break;
     case TYPE_PAGE:
         cmp = uint64_cmp(key1->pgno, key2->pgno);
@@ -261,7 +261,7 @@ get_key_ino_name(struct db_key *k)
     if (arg == NULL)
         return 2;
 
-    strlcpy((char *)(k->name), arg, sizeof(k->name));
+    strlcpy((char *)k->name, arg, sizeof(k->name));
 
     free(arg);
 
@@ -402,9 +402,9 @@ set_header(const struct db_key *key, void **data, size_t *datasize)
             continue;
         }
 
-        ret = (*(scandescp->scan_field))(arg, hdr, scandescp->hdroff,
-                                         scandescp->is_signed,
-                                         scandescp->width, scandescp->base);
+        ret = (*scandescp->scan_field)(arg, hdr, scandescp->hdroff,
+                                       scandescp->is_signed, scandescp->width,
+                                       scandescp->base);
 
         free(arg);
 
@@ -488,9 +488,9 @@ set_stat(const struct db_key *key, void **data, size_t *datasize)
             continue;
         }
 
-        ret = (*(scandescp->scan_field))(arg, s, scandescp->statoff,
-                                         scandescp->is_signed,
-                                         scandescp->width, scandescp->base);
+        ret = (*scandescp->scan_field)(arg, s, scandescp->statoff,
+                                       scandescp->is_signed, scandescp->width,
+                                       scandescp->base);
 
         free(arg);
 
@@ -655,9 +655,9 @@ disp_stat_full(FILE *f, const struct db_key *key, const void *data,
             s->st_size,
             s->st_blksize,
             s->st_blocks,
-            ctime_r((const time_t *)&(s->st_atim), atim),
-            ctime_r((const time_t *)&(s->st_mtim), mtim),
-            ctime_r((const time_t *)&(s->st_ctim), ctim),
+            ctime_r((const time_t *)&s->st_atim, atim),
+            ctime_r((const time_t *)&s->st_mtim, mtim),
+            ctime_r((const time_t *)&s->st_ctim, ctim),
             s->num_ents);
 }
 
@@ -747,7 +747,7 @@ dump_db_obj(FILE *f, const void *key, const void *data, size_t datasize,
     }
 
     fprintf(f, "%s%s: ", prefix, objinfop->dispstr);
-    (*(objinfop->disp_data))(f, k, data, datasize);
+    (*objinfop->disp_data)(f, k, data, datasize);
     fputc('\n', f);
 
     return 0;
@@ -913,7 +913,7 @@ cmd_find(struct dbh *dbh)
         goto type_err;
 
     if (typep->get_args != NULL) {
-        res = (*(typep->get_args))(&k);
+        res = (*typep->get_args)(&k);
         if (res != 0)
             return res;
     }
@@ -942,7 +942,7 @@ cmd_find(struct dbh *dbh)
         return -EILSEQ;
     }
 
-    (*(typep->disp_data))(stdout, &k, d, datasize);
+    (*typep->disp_data)(stdout, &k, d, datasize);
     putchar('\n');
 
     if (typep->datasize == 0)
@@ -1051,7 +1051,7 @@ cmd_insert(struct dbh *dbh)
         goto type_err;
 
     if (typep->get_args != NULL) {
-        res = (*(typep->get_args))(&k);
+        res = (*typep->get_args)(&k);
         if (res != 0)
             return res;
     }
@@ -1066,7 +1066,7 @@ cmd_insert(struct dbh *dbh)
         datasize = typep->datasize;
     }
 
-    res = (*(typep->set_data))(&k, &d, &datasize);
+    res = (*typep->set_data)(&k, &d, &datasize);
     if (res != 0)
         goto end;
 
@@ -1155,7 +1155,7 @@ cmd_remove(struct dbh *dbh)
         goto type_err;
 
     if (typep->get_args != NULL) {
-        ret = (*(typep->get_args))(&k);
+        ret = (*typep->get_args)(&k);
         if (ret != 0)
             return ret;
     }
@@ -1258,7 +1258,7 @@ cmd_update(struct dbh *dbh)
         goto type_err;
 
     if (typep->get_args != NULL) {
-        res = (*(typep->get_args))(&k);
+        res = (*typep->get_args)(&k);
         if (res != 0)
             return res;
     }
@@ -1287,7 +1287,7 @@ cmd_update(struct dbh *dbh)
         return -EILSEQ;
     }
 
-    res = (*(typep->set_data))(&k, &d, &datasize);
+    res = (*typep->set_data)(&k, &d, &datasize);
     if (res != 0)
         goto end;
 
@@ -1357,7 +1357,7 @@ process_cmd(struct dbh *dbh)
         return 1;
     }
 
-    i = (unsigned char)(cmd[0]);
+    i = (unsigned char)cmd[0];
     if (i >= ARRAY_SIZE(cmds))
         goto input_err;
 
@@ -1367,7 +1367,7 @@ process_cmd(struct dbh *dbh)
 
     free(cmd);
 
-    return (*(cmdp->fn))(dbh);
+    return (*cmdp->fn)(dbh);
 
 input_err:
     error(0, 0, "Unrecognized command \"%s\"", cmd);

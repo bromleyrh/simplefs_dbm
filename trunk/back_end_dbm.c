@@ -371,7 +371,7 @@ trans_cb(struct dbh *dbh, int trans_type, int act, int status, void *ctx)
 
     (void)dbh;
 
-    (*(dbctx->trans_cb))(trans_type, act, status, dbctx->trans_ctx);
+    (*dbctx->trans_cb)(trans_type, act, status, dbctx->trans_ctx);
 }
 
 static void
@@ -381,7 +381,7 @@ sync_cb(struct dbh *dbh, int status, void *ctx)
 
     (void)dbh;
 
-    (*(dbctx->sync_cb))(status, dbctx->sync_ctx);
+    (*dbctx->sync_cb)(status, dbctx->sync_ctx);
 }
 
 static int
@@ -776,7 +776,7 @@ back_end_dbm_look_up(void *ctx, const void *key, void *retkey, void *retdata,
     if (look_up_nearest && (res == 0) && dbctx->key_ctx->last_key_valid) {
         int cmp;
 
-        cmp = (*(dbctx->key_cmp))(dbctx->key_ctx->last_key, key, NULL);
+        cmp = (*dbctx->key_cmp)(dbctx->key_ctx->last_key, key, NULL);
         if (cmp > 0) {
             res = db_hl_search(dbctx->dbh, dbctx->key_ctx->last_key, retkey,
                                retdata, retdatasize);
@@ -879,8 +879,8 @@ back_end_dbm_iter_get(void *iter, void *retkey, void *retdata,
         if (res < 0)
             return res;
 
-        if ((*(dbctx->key_cmp))(dbctx->key_ctx->last_key, iterator->srch_key,
-                                NULL)
+        if ((*dbctx->key_cmp)(dbctx->key_ctx->last_key, iterator->srch_key,
+                              NULL)
             < 0) {
             res = db_hl_iter_next(dbiter);
             if (res != 0)

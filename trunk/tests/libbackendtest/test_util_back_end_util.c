@@ -32,18 +32,18 @@ handle_usr_signals(struct be_ctx *bectx1, struct be_ctx *bectx2, void *ctx)
 
     if (stats_requested) {
         stats_requested = 0;
-        ret = (*(bectx1->cb.print_stats))(stderr, bectx1, 0);
+        ret = (*bectx1->cb.print_stats)(stderr, bectx1, 0);
         if (ret != 0)
             return ret;
     }
 
     if (verification_requested) {
         verification_requested = 0;
-        ret = (*(bectx1->cb.verify_rand))(bectx1);
+        ret = (*bectx1->cb.verify_rand)(bectx1);
         if (ret != 0)
             return ret;
         if (bectx2 != NULL) {
-            ret = (*(bectx1->cb.verify_cmp))(bectx1, bectx2, ctx);
+            ret = (*bectx1->cb.verify_cmp)(bectx1, bectx2, ctx);
             if (ret != 0)
                 return ret;
         }
@@ -190,7 +190,7 @@ auto_test_insert(struct be_ctx *bectx, int key, int replace, int use_be,
     }
 
     if (use_bitmap && !replace) {
-        struct bitmap_data *bmdata = (struct bitmap_data *)(bectx->bmdata);
+        struct bitmap_data *bmdata = (struct bitmap_data *)bectx->bmdata;
 
         if (fault && (bitmap_get(bmdata->bitmap, key) == 0)) {
             error(0, 0, "Detectable %s fault generated",
@@ -211,7 +211,7 @@ auto_test_delete(struct be_ctx *bectx, int key, int use_be, int use_bitmap,
 {
     int fault = 0;
     int ret;
-    struct bitmap_data *bmdata = (struct bitmap_data *)(bectx->bmdata);
+    struct bitmap_data *bmdata = (struct bitmap_data *)bectx->bmdata;
 
     if (use_be) {
         ret = be_delete(bectx, key, NULL, repeat_allowed, 0, 1);
@@ -231,7 +231,7 @@ auto_test_delete(struct be_ctx *bectx, int key, int use_be, int use_bitmap,
         }
     }
 
-    if (use_bitmap && (key < (int)(bmdata->size))) {
+    if (use_bitmap && (key < (int)bmdata->size)) {
         if (fault && (bitmap_get(bmdata->bitmap, key) == 1)) {
             error(0, 0, "Detectable deletion fault generated");
             error(0, 0, "Verification before further operations should fail");
@@ -250,7 +250,7 @@ auto_test_delete_from(struct be_ctx *bectx, int node, int *key, int use_be,
 {
     int fault = 0;
     int ret;
-    struct bitmap_data *bmdata = (struct bitmap_data *)(bectx->bmdata);
+    struct bitmap_data *bmdata = (struct bitmap_data *)bectx->bmdata;
 
     if (use_be) {
         ret = be_delete_from(bectx, node, key, repeat_allowed, 0, 1);
@@ -270,7 +270,7 @@ auto_test_delete_from(struct be_ctx *bectx, int node, int *key, int use_be,
         }
     }
 
-    if (use_bitmap && (*key < (int)(bmdata->size))) {
+    if (use_bitmap && (*key < (int)bmdata->size)) {
         if (fault && (bitmap_get(bmdata->bitmap, *key) == 1)) {
             error(0, 0, "Detectable deletion fault generated");
             error(0, 0, "Verification before further operations should fail");
@@ -297,9 +297,9 @@ auto_test_search(struct be_ctx *bectx, int key, int use_be, int use_bitmap)
     }
 
     if (use_bitmap) {
-        struct bitmap_data *bmdata = (struct bitmap_data *)(bectx->bmdata);
+        struct bitmap_data *bmdata = (struct bitmap_data *)bectx->bmdata;
 
-        int tmp = (key < (int)(bmdata->size))
+        int tmp = (key < (int)bmdata->size)
                   ? bitmap_get(bmdata->bitmap, key) : 0;
 
         if (fault && (tmp == 1)) {
@@ -313,7 +313,7 @@ auto_test_search(struct be_ctx *bectx, int key, int use_be, int use_bitmap)
             return -EIO;
         }
         if (!use_be)
-            ++(bectx->stats.num_ops);
+            ++bectx->stats.num_ops;
     }
 
     return 0;
@@ -334,9 +334,9 @@ auto_test_range_search(struct be_ctx *bectx, int key, int use_be,
     }
 
     if (use_bitmap) {
-        struct bitmap_data *bmdata = (struct bitmap_data *)(bectx->bmdata);
+        struct bitmap_data *bmdata = (struct bitmap_data *)bectx->bmdata;
 
-        int tmp = (key < (int)(bmdata->size))
+        int tmp = (key < (int)bmdata->size)
                   ? bitmap_get(bmdata->bitmap, key) : 0;
 
         if (fault && (tmp == 1)) {
@@ -350,7 +350,7 @@ auto_test_range_search(struct be_ctx *bectx, int key, int use_be,
             return -EIO;
         }
         if (!use_be)
-            ++(bectx->stats.num_ops);
+            ++bectx->stats.num_ops;
     }
 
     return 0;
@@ -373,9 +373,9 @@ auto_test_select(struct be_ctx *bectx, int idx, int use_be, int use_bitmap)
     }
 
     if (use_bitmap) {
-        struct bitmap_data *bmdata = (struct bitmap_data *)(bectx->bmdata);
+        struct bitmap_data *bmdata = (struct bitmap_data *)bectx->bmdata;
 
-        int tmp = (idx < (int)(bmdata->size)) ? bitmap_select(bmdata, idx) : -1;
+        int tmp = (idx < (int)bmdata->size) ? bitmap_select(bmdata, idx) : -1;
 
         if (fault && (tmp != -1)) {
             error(0, 0, "Detectable select fault generated");
@@ -388,7 +388,7 @@ auto_test_select(struct be_ctx *bectx, int idx, int use_be, int use_bitmap)
             return -EIO;
         }
         if (!use_be)
-            ++(bectx->stats.num_ops);
+            ++bectx->stats.num_ops;
     }
 
     return 0;
@@ -411,9 +411,9 @@ auto_test_get_index(struct be_ctx *bectx, int key, int use_be, int use_bitmap)
     }
 
     if (use_bitmap) {
-        struct bitmap_data *bmdata = (struct bitmap_data *)(bectx->bmdata);
+        struct bitmap_data *bmdata = (struct bitmap_data *)bectx->bmdata;
 
-        int tmp = (key < (int)(bmdata->size))
+        int tmp = (key < (int)bmdata->size)
                   ? bitmap_get_index(bmdata, key) : -1;
 
         if (fault && (tmp != -1)) {
@@ -427,7 +427,7 @@ auto_test_get_index(struct be_ctx *bectx, int key, int use_be, int use_bitmap)
             return -EIO;
         }
         if (!use_be)
-            ++(bectx->stats.num_ops);
+            ++bectx->stats.num_ops;
     }
 
     return 0;
@@ -443,13 +443,13 @@ auto_test_walk(struct be_ctx *bectx, int key, int use_be, int use_bitmap)
     if (use_be) {
         int tmp;
 
-        ret = (*(bectx->cb.init_walk_data))(bectx, bectx->wctx);
+        ret = (*bectx->cb.init_walk_data)(bectx, bectx->wctx);
         if (ret != 0)
             return ret;
 
         ret = be_walk(bectx, key, bectx->wfn, bectx->wctx, 0, 1);
 
-        tmp = (*(bectx->cb.free_walk_data))(bectx, bectx->wctx, ret != 0);
+        tmp = (*bectx->cb.free_walk_data)(bectx, bectx->wctx, ret != 0);
         if (ret == 0)
             ret = tmp;
     }

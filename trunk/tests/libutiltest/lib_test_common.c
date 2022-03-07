@@ -53,7 +53,7 @@ do_io(io_fn_t fn, int fd, void *buf, size_t len, off_t offset, size_t maxlen)
     ssize_t ret;
 
     if (maxlen == 0)
-        maxlen = ~((size_t)0);
+        maxlen = ~(size_t)0;
 
     for (num_processed = 0; num_processed < len; num_processed += ret) {
         size_t length = MIN(len - num_processed, maxlen);

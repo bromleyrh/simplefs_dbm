@@ -55,7 +55,7 @@ walk_fn1(const void *kv, void *ctx)
 
     curr = get_short_key((const int *)kv, data->key_size);
 
-    ++(data->keys_found);
+    ++data->keys_found;
     return (check_increasing(&data->prevkey, curr) == 0) ? 0 : -EIO;
 }
 
@@ -63,18 +63,18 @@ static int
 walk_fn2(const void *kv, void *ctx)
 {
     int curr;
-    struct fn2_ctx *data = (struct fn2_ctx *)ctx;
+    struct fn2_ctx *data = ctx;
 
-    curr = get_short_key((const int *)kv, data->key_size);
+    curr = get_short_key(kv, data->key_size);
 
-    ++(data->keys_found);
+    ++data->keys_found;
     if (check_increasing(&data->prevkey, curr) == -1)
         return -EIO;
 
     printf("%d\n", curr);
 
     /* test walk resume */
-    return (data->walk_resume_test && ((data->keys_found % 10) == 0))
+    return (data->walk_resume_test && (data->keys_found % 10 == 0))
            ? data->walk_resume_retval : 0;
 }
 
@@ -87,7 +87,7 @@ walk_fn3(const void *kv, void *ctx)
 
     curr = get_short_key((const int *)kv, data->key_size);
 
-    ++(data->keys_found);
+    ++data->keys_found;
     if (check_increasing(&data->prevkey, curr) == -1) {
         if (data->keys_found > 1)
             infochr('\n');
@@ -95,7 +95,7 @@ walk_fn3(const void *kv, void *ctx)
     }
 
     if ((bitmap_find_next_set(data->bmdata->bitmap, data->bmdata->bitmap_len,
-                              data->bitmap_pos, (unsigned *)(&data->bitmap_pos),
+                              data->bitmap_pos, (unsigned *)&data->bitmap_pos,
                               1) == 0)
         || (curr != data->bitmap_pos)) {
         fillbuf(output, "Bitmap (%6d) and back end (%6d) differ\n",
@@ -116,10 +116,10 @@ walk_fn3(const void *kv, void *ctx)
         fputc('\n', data->checklog);
     }
 
-    ++(data->bitmap_pos);
+    ++data->bitmap_pos;
 
     /* test walk resume */
-    return (data->walk_resume_test && ((data->keys_found % 10) == 0))
+    return (data->walk_resume_test && (data->keys_found % 10 == 0))
            ? data->walk_resume_retval : 0;
 }
 
@@ -127,9 +127,9 @@ int
 verify_insertion_ordered(struct be_ctx *bectx)
 {
     int ret;
-    struct be_ctx_ordered *ctx = (struct be_ctx_ordered *)(bectx->ctx);
+    struct be_ctx_ordered *ctx = (struct be_ctx_ordered *)bectx->ctx;
     struct be_stats *cstats = &bectx->stats;
-    void *be = (struct avl_tree *)(bectx->be);
+    void *be = (struct avl_tree *)bectx->be;
     void *wctx = NULL;
 
     struct fn1_ctx data = {
@@ -138,7 +138,7 @@ verify_insertion_ordered(struct be_ctx *bectx)
         .keys_found = 0
     };
 
-    ret = (*(ctx->test_walk))(be, NULL, fn1, &data, &wctx);
+    ret = (*ctx->test_walk)(be, NULL, fn1, &data, &wctx);
     if (ret != 0) {
         error(0, -ret, "Error walking back end");
         return ret;
@@ -147,7 +147,7 @@ verify_insertion_ordered(struct be_ctx *bectx)
     if (ctx->test_stats != NULL) {
         struct be_stats_ordered stats;
 
-        ret = (*(ctx->test_stats))(be, &stats);
+        ret = (*ctx->test_stats)(be, &stats);
         if (ret != 0) {
             error(0, -ret, "Error getting back end stats");
             return ret;
@@ -183,12 +183,12 @@ int
 verify_rand_ordered(struct be_ctx *bectx)
 {
     int ret;
-    struct be_ctx_ordered *ctx = (struct be_ctx_ordered *)(bectx->ctx);
+    struct be_ctx_ordered *ctx = (struct be_ctx_ordered *)bectx->ctx;
     struct bitmap_data *bmdata;
     struct fn3_ctx data;
     void *wctx = NULL;
 
-    bmdata = (struct bitmap_data *)(bectx->bmdata);
+    bmdata = (struct bitmap_data *)bectx->bmdata;
 
     data.checklog = open_log_file(1);
     if (data.checklog == NULL)
@@ -209,8 +209,7 @@ verify_rand_ordered(struct be_ctx *bectx)
     data.walk_resume_test = 1;
     data.walk_resume_retval = ctx->walk_resume_retval;
 
-    while ((ret = (*(ctx->test_walk))(bectx->be, NULL, fn3, &data, &wctx))
-           == 1)
+    while ((ret = (*ctx->test_walk)(bectx->be, NULL, fn3, &data, &wctx)) == 1)
         ;
     if (ret != 0) {
         error(0, -ret, "Error walking back end");
@@ -220,7 +219,7 @@ verify_rand_ordered(struct be_ctx *bectx)
         infochr('\n');
 
     if (bitmap_find_next_set(data.bmdata->bitmap, data.bmdata->bitmap_len,
-                             data.bitmap_pos, (unsigned *)(&data.bitmap_pos), 1)
+                             data.bitmap_pos, (unsigned *)&data.bitmap_pos, 1)
         != 0) {
         infomsg("Bitmap and back end differ\n");
         fputs("Bitmap and back end differ\n", data.checklog);

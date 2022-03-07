@@ -139,7 +139,7 @@ init_ver_2_to_3(struct back_end *be, size_t hdrlen, size_t jlen, int ro,
 
             assert(numinodes <= FREE_INO_RANGE_SZ);
 
-            infomsgf("Found I-node %" PRIu64 "\n", (uint64_t)(sk.ino));
+            infomsgf("Found I-node %" PRIu64 "\n", (uint64_t)sk.ino);
 
             used_ino_set(freeino.used_ino, base, sk.ino, 1);
 
@@ -394,7 +394,7 @@ init_ver_5_to_6(struct back_end *be, size_t hdrlen, size_t jlen, int ro,
         s.st_blocks = n * BLOCKS_PER_PG;
 
         infomsgf("Updating st_blocks for I-node %" PRIu64 " to %" PRIi64 "\n",
-                 k.ino, (int64_t)(s.st_blocks));
+                 k.ino, (int64_t)s.st_blocks);
 
         res = back_end_replace(be, &k, &s, sizeof(s));
         if (res != 0)
@@ -454,7 +454,7 @@ compat_init(struct back_end *be, uint64_t user_ver, uint64_t fs_ver,
             if ((conv->user_ver != user_ver) || (conv->fs_ver != fs_ver))
                 continue;
 
-            ret = (*(conv->check_init))(be, ro, fmtconv);
+            ret = (*conv->check_init)(be, ro, fmtconv);
             if (ret != 1)
                 return ret;
 
@@ -463,7 +463,7 @@ compat_init(struct back_end *be, uint64_t user_ver, uint64_t fs_ver,
                    PRIu64 "\n",
                    conv->user_ver, conv->fs_ver);
 
-            return (*(conv->init))(be, hdrlen, jlen, ro, fmtconv);
+            return (*conv->init)(be, hdrlen, jlen, ro, fmtconv);
         }
 
         return -EPROTONOSUPPORT;

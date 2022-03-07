@@ -139,7 +139,7 @@ be_perf_test_do_op(void *ctx)
             if (ret != -EADDRNOTAVAIL)
                 return ret;
         } else
-            --(targs->nelem);
+            --targs->nelem;
         break;
     case SEARCH:
         ret = (bep->test_range_search && (random() % 2 == 0))
@@ -154,7 +154,7 @@ be_perf_test_do_op(void *ctx)
             if (ret != -EADDRINUSE)
                 return ret;
         } else
-            ++(targs->nelem);
+            ++targs->nelem;
         break;
     default:
         return -EIO;
@@ -162,7 +162,7 @@ be_perf_test_do_op(void *ctx)
 
     infomsgf("\rn == %u: %u", targs->n, targs->nops);
 
-    return (++(targs->nops) == NUM_PERF_TEST_OPS) ? 1 : 0;
+    return (++targs->nops == NUM_PERF_TEST_OPS) ? 1 : 0;
 }
 
 static int
@@ -173,7 +173,7 @@ be_perf_test_end_test(void *ctx)
 
     bectx = targs->bectx;
 
-    return (*(targs->reset_be))(bectx);
+    return (*targs->reset_be)(bectx);
 }
 
 int
@@ -201,7 +201,7 @@ be_test_perf(struct be_ctx *bectx, const struct be_params *bep,
     if (ret != 0)
         goto err1;
 
-    for (n = (64 * 1024); !quit && (n < 1024 * 1024); n *= 2) {
+    for (n = 64 * 1024; !quit && (n < 1024 * 1024); n *= 2) {
         struct perf_test_info info;
 
         ret = do_perf_test(tctx, (void *)(uintptr_t)n, &info);
@@ -210,8 +210,8 @@ be_test_perf(struct be_ctx *bectx, const struct be_params *bep,
 
         infomsgf("\nTest for n == %u: %.6f s\n",
                  n,
-                 (double)(info.tot_tm.tv_sec)
-                 + (double)(info.tot_tm.tv_nsec) / 1000000000.0);
+                 (double)info.tot_tm.tv_sec
+                 + (double)info.tot_tm.tv_nsec / 1000000000.0);
     }
 
     end_perf_test(tctx);

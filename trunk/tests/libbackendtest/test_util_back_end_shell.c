@@ -53,7 +53,7 @@ ins_cmd(void *cmdctx, void *cmdargs)
 {
     CMD_ARGS(cmdctx, cmdargs);
 
-    return be_insert((struct be_ctx *)(cmddata->ctx), args->key, NULL, 1,
+    return be_insert((struct be_ctx *)cmddata->ctx, args->key, NULL, 1,
                      cmddata->verbose, 1);
 }
 
@@ -62,7 +62,7 @@ del_cmd(void *cmdctx, void *cmdargs)
 {
     CMD_ARGS(cmdctx, cmdargs);
 
-    return be_delete((struct be_ctx *)(cmddata->ctx), args->key, NULL, 1,
+    return be_delete((struct be_ctx *)cmddata->ctx, args->key, NULL, 1,
                      cmddata->verbose, 1);
 }
 
@@ -71,7 +71,7 @@ find_cmd(void *cmdctx, void *cmdargs)
 {
     CMD_ARGS(cmdctx, cmdargs);
 
-    return be_find((struct be_ctx *)(cmddata->ctx), args->key, NULL,
+    return be_find((struct be_ctx *)cmddata->ctx, args->key, NULL,
                    cmddata->verbose, 1);
 }
 
@@ -80,7 +80,7 @@ select_cmd(void *cmdctx, void *cmdargs)
 {
     CMD_ARGS(cmdctx, cmdargs);
 
-    return be_select((struct be_ctx *)(cmddata->ctx), args->key, NULL,
+    return be_select((struct be_ctx *)cmddata->ctx, args->key, NULL,
                      cmddata->verbose, 1);
 }
 
@@ -89,7 +89,7 @@ rank_cmd(void *cmdctx, void *cmdargs)
 {
     CMD_ARGS(cmdctx, cmdargs);
 
-    return be_get_index((struct be_ctx *)(cmddata->ctx), args->key, NULL,
+    return be_get_index((struct be_ctx *)cmddata->ctx, args->key, NULL,
                         cmddata->verbose, 1);
 }
 
@@ -118,7 +118,7 @@ dump_cmd(void *cmdctx, void *cmdargs)
         return ret;
     }
 
-    ret = (*(cmddata->dump_back_end))(f, cmddata->ctx);
+    ret = (*cmddata->dump_back_end)(f, cmddata->ctx);
     if (ret != 0)
         error(0, -ret, "Error dumping back end");
     fclose(f);
@@ -133,7 +133,7 @@ stat_cmd(void *cmdctx, void *cmdargs)
 
     (void)args;
 
-    (*(cmddata->print_stats))(stderr, cmddata->ctx, 0);
+    (*cmddata->print_stats)(stderr, cmddata->ctx, 0);
     return 0;
 }
 
@@ -144,7 +144,7 @@ walk_cmd(void *cmdctx, void *cmdargs)
 
     (void)args;
 
-    return (*(cmddata->walk_back_end))(cmddata->ctx);
+    return (*cmddata->walk_back_end)(cmddata->ctx);
 }
 
 int
@@ -156,15 +156,15 @@ next_cmd(void *cmdctx, void *cmdargs)
     (void)args;
 
     if (cmddata->iter == NULL)
-        err = (*(cmddata->alloc_iter))(&cmddata->iter, cmddata->ctx);
+        err = (*cmddata->alloc_iter)(&cmddata->iter, cmddata->ctx);
     else
-        err = (*(cmddata->increment_iter))(cmddata->iter);
+        err = (*cmddata->increment_iter)(cmddata->iter);
     if (err)
         error(0, -err, "Error");
     else {
         int res;
 
-        err = (*(cmddata->access_iter))(cmddata->iter, &res);
+        err = (*cmddata->access_iter)(cmddata->iter, &res);
         if (err)
             error(0, -err, "Error");
         else
@@ -183,15 +183,15 @@ prev_cmd(void *cmdctx, void *cmdargs)
     (void)args;
 
     if (cmddata->iter == NULL)
-        err = (*(cmddata->alloc_iter))(&cmddata->iter, cmddata->ctx);
+        err = (*cmddata->alloc_iter)(&cmddata->iter, cmddata->ctx);
     else
-        err = (*(cmddata->decrement_iter))(cmddata->iter);
+        err = (*cmddata->decrement_iter)(cmddata->iter);
     if (err)
         error(0, -err, "Error");
     else {
         int res;
 
-        err = (*(cmddata->access_iter))(cmddata->iter, &res);
+        err = (*cmddata->access_iter)(cmddata->iter, &res);
         if (err)
             error(0, -err, "Error");
         else
@@ -208,14 +208,14 @@ search_cmd(void *cmdctx, void *cmdargs)
     int res;
 
     if (cmddata->iter == NULL) {
-        res = (*(cmddata->alloc_iter))(&cmddata->iter, cmddata->ctx);
+        res = (*cmddata->alloc_iter)(&cmddata->iter, cmddata->ctx);
         if (res != 0) {
             error(0, -res, "Error");
             return 0;
         }
     }
 
-    res = (*(cmddata->seek_iter))(cmddata->iter, args->key);
+    res = (*cmddata->seek_iter)(cmddata->iter, args->key);
     if (res != 1) {
         if (res == 0)
             error(0, 0, "Not found");
@@ -233,14 +233,14 @@ isearch_cmd(void *cmdctx, void *cmdargs)
     int res;
 
     if (cmddata->iter == NULL) {
-        res = (*(cmddata->alloc_iter))(&cmddata->iter, cmddata->ctx);
+        res = (*cmddata->alloc_iter)(&cmddata->iter, cmddata->ctx);
         if (res != 0) {
             error(0, -res, "Error");
             return 0;
         }
     }
 
-    res = (*(cmddata->seek_iter_idx))(cmddata->iter, args->key);
+    res = (*cmddata->seek_iter_idx)(cmddata->iter, args->key);
     if (res != 1) {
         if (res == 0)
             error(0, 0, "Not found");
@@ -260,7 +260,7 @@ reset_cmd(void *cmdctx, void *cmdargs)
     (void)args;
 
     if (cmddata->iter != NULL) {
-        err = (*(cmddata->free_iter))(cmddata->iter);
+        err = (*cmddata->free_iter)(cmddata->iter);
         if (err) {
             error(0, -err, "Error freeing iterator");
             return 0;
