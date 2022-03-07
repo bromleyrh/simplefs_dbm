@@ -430,7 +430,7 @@ _be_ctl(struct fuse_cache *cache, int op, void *args, SOURCE_LINE_PARAMS)
 static void
 trans_cb(int trans_type, int act, int status, void *ctx)
 {
-    struct fuse_cache *cache = (struct fuse_cache *)ctx;
+    struct fuse_cache *cache = ctx;
 
     static const char *const type2str[] = {
         [DB_HL_TRANS_GROUP]                     = "group",
@@ -505,7 +505,7 @@ cache_obj_cmp(const void *k1, const void *k2, void *ctx)
 {
     struct cache_obj *o1 = *(struct cache_obj **)k1;
     struct cache_obj *o2 = *(struct cache_obj **)k2;
-    struct fuse_cache *cache = (struct fuse_cache *)ctx;
+    struct fuse_cache *cache = ctx;
 
     if (cache->key_ctx.last_key_valid != -1) {
         cache->key_ctx.last_key = o2;
@@ -530,7 +530,7 @@ static int
 obj_free_cb(const void *k, void *ctx)
 {
     struct cache_obj *o = *(struct cache_obj **)k;
-    struct fuse_cache *cache = (struct fuse_cache *)ctx;
+    struct fuse_cache *cache = ctx;
 
     o->in_cache = 0;
 
@@ -852,7 +852,7 @@ op_list_add(struct op_list *list, int which, enum op_type type,
 
     op = &list->ops[list->len];
     op->op = type;
-    op->obj = (struct cache_obj *)obj;
+    op->obj = obj;
 
     ++list->len;
 
@@ -1377,7 +1377,7 @@ fuse_cache_create(void **ctx, size_t key_size, back_end_key_cmp_t key_cmp,
 {
     int err;
     struct fuse_cache *ret;
-    struct fuse_cache_args *cache_args = (struct fuse_cache_args *)args;
+    struct fuse_cache_args *cache_args = args;
 
     if (oemalloc(&ret) == NULL)
         return MINUS_ERRNO;
@@ -1442,7 +1442,7 @@ fuse_cache_open(void **ctx, size_t key_size, back_end_key_cmp_t key_cmp,
 {
     int err;
     struct fuse_cache *ret;
-    struct fuse_cache_args *cache_args = (struct fuse_cache_args *)args;
+    struct fuse_cache_args *cache_args = args;
 
     if (oemalloc(&ret) == NULL)
         return MINUS_ERRNO;
@@ -1506,7 +1506,7 @@ fuse_cache_close(void *ctx)
 {
     avl_tree_walk_ctx_t wctx = NULL;
     int err, tmp;
-    struct fuse_cache *cache = (struct fuse_cache *)ctx;
+    struct fuse_cache *cache = ctx;
 
     err = be_close(cache);
 
@@ -1533,7 +1533,7 @@ fuse_cache_insert(void *ctx, const void *key, const void *data, size_t datasize)
     int res;
     int trans_state;
     struct cache_obj *o, *o_old;
-    struct fuse_cache *cache = (struct fuse_cache *)ctx;
+    struct fuse_cache *cache = ctx;
 
     op_list_dump(stderr, &cache->ops_group, cache);
     op_list_dump(stderr, &cache->ops_user, cache);
@@ -1627,7 +1627,7 @@ fuse_cache_replace(void *ctx, const void *key, const void *data,
     int trans_state;
     struct avl_tree_node *n;
     struct cache_obj *o, *o_old;
-    struct fuse_cache *cache = (struct fuse_cache *)ctx;
+    struct fuse_cache *cache = ctx;
 
     op_list_dump(stderr, &cache->ops_group, cache);
     op_list_dump(stderr, &cache->ops_user, cache);
@@ -1757,7 +1757,7 @@ fuse_cache_look_up(void *ctx, const void *key, void *retkey, void *retdata,
     int cmp, res;
     struct cache_obj *o, *tmp;
     struct cache_obj obj;
-    struct fuse_cache *cache = (struct fuse_cache *)ctx;
+    struct fuse_cache *cache = ctx;
     void *biter;
 
     op_list_dump(stderr, &cache->ops_group, cache);
@@ -1881,7 +1881,7 @@ fuse_cache_delete(void *ctx, const void *key)
     int trans_state;
     struct cache_obj *o;
     struct cache_obj obj;
-    struct fuse_cache *cache = (struct fuse_cache *)ctx;
+    struct fuse_cache *cache = ctx;
 
     op_list_dump(stderr, &cache->ops_group, cache);
     op_list_dump(stderr, &cache->ops_user, cache);
@@ -1948,7 +1948,7 @@ fuse_cache_walk(void *ctx, back_end_walk_cb_t fn, void *wctx)
     int res;
     size_t datalen, datasize;
     struct cache_obj *o;
-    struct fuse_cache *cache = (struct fuse_cache *)ctx;
+    struct fuse_cache *cache = ctx;
     void *biter;
     void *iter;
     void *data;
@@ -2122,7 +2122,7 @@ static int
 fuse_cache_iter_new(void **iter, void *ctx)
 {
     int res;
-    struct fuse_cache *cache = (struct fuse_cache *)ctx;
+    struct fuse_cache *cache = ctx;
     struct fuse_cache_iter *ret;
 
     if (oemalloc(&ret) == NULL)
@@ -2209,7 +2209,7 @@ static int
 fuse_cache_iter_free(void *iter)
 {
     int err = 0, tmp;
-    struct fuse_cache_iter *iterator = (struct fuse_cache_iter *)iter;
+    struct fuse_cache_iter *iterator = iter;
 
     if (iterator->citer != NULL)
         err = avl_tree_iter_free(iterator->citer);
@@ -2232,7 +2232,7 @@ fuse_cache_iter_get(void *iter, void *retkey, void *retdata,
                     size_t *retdatasize)
 {
     int err;
-    struct fuse_cache_iter *iterator = (struct fuse_cache_iter *)iter;
+    struct fuse_cache_iter *iterator = iter;
 
     if (iterator->srch_status == 2)
         return -EADDRNOTAVAIL;
@@ -2292,7 +2292,7 @@ static int
 fuse_cache_iter_next(void *iter)
 {
     int res;
-    struct fuse_cache_iter *iterator = (struct fuse_cache_iter *)iter;
+    struct fuse_cache_iter *iterator = iter;
 
     /* advance iterator associated with current element */
     if (iterator->iter == iterator->citer) {
@@ -2346,7 +2346,7 @@ fuse_cache_iter_search(void *iter, const void *key)
     avl_tree_iter_t citer;
     int found_be = 0, found_cache = 0;
     int res;
-    struct fuse_cache_iter *iterator = (struct fuse_cache_iter *)iter;
+    struct fuse_cache_iter *iterator = iter;
     void *biter;
 
     res = avl_tree_iter_new(&citer, iterator->cache->cache);
@@ -2447,7 +2447,7 @@ static int
 fuse_cache_trans_new(void *ctx)
 {
     int err;
-    struct fuse_cache *cache = (struct fuse_cache *)ctx;
+    struct fuse_cache *cache = ctx;
 
     op_list_dump(stderr, &cache->ops_group, cache);
     op_list_dump(stderr, &cache->ops_user, cache);
@@ -2469,7 +2469,7 @@ static int
 fuse_cache_trans_abort(void *ctx)
 {
     int err;
-    struct fuse_cache *cache = (struct fuse_cache *)ctx;
+    struct fuse_cache *cache = ctx;
 
     op_list_dump(stderr, &cache->ops_group, cache);
     op_list_dump(stderr, &cache->ops_user, cache);
@@ -2491,7 +2491,7 @@ static int
 fuse_cache_trans_commit(void *ctx)
 {
     int err;
-    struct fuse_cache *cache = (struct fuse_cache *)ctx;
+    struct fuse_cache *cache = ctx;
 
     op_list_dump(stderr, &cache->ops_group, cache);
     op_list_dump(stderr, &cache->ops_user, cache);
@@ -2513,7 +2513,7 @@ static int
 fuse_cache_sync(void *ctx)
 {
     int err;
-    struct fuse_cache *cache = (struct fuse_cache *)ctx;
+    struct fuse_cache *cache = ctx;
 
     op_list_dump(stderr, &cache->ops_group, cache);
     op_list_dump(stderr, &cache->ops_user, cache);
@@ -2534,7 +2534,7 @@ fuse_cache_sync(void *ctx)
 static int
 fuse_cache_ctl(void *ctx, int op, void *args)
 {
-    struct fuse_cache *cache = (struct fuse_cache *)ctx;
+    struct fuse_cache *cache = ctx;
 
     return be_ctl(cache, op, args);
 }

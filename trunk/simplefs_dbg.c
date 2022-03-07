@@ -179,9 +179,9 @@ uint64_cmp(uint64_t n1, uint64_t n2)
 static int
 db_key_cmp(const void *k1, const void *k2, void *key_ctx)
 {
+    const struct db_key *key1 = k1;
+    const struct db_key *key2 = k2;
     int cmp;
-    struct db_key *key1 = (struct db_key *)k1;
-    struct db_key *key2 = (struct db_key *)k2;
 
     (void)key_ctx;
 
@@ -537,7 +537,7 @@ static void
 disp_header(FILE *f, const struct db_key *key, const void *data,
             size_t datasize)
 {
-    struct db_obj_header *hdr = (struct db_obj_header *)data;
+    const struct db_obj_header *hdr = data;
 
     (void)key;
     (void)datasize;
@@ -549,7 +549,7 @@ static void
 disp_header_full(FILE *f, const struct db_key *key, const void *data,
                  size_t datasize)
 {
-    struct db_obj_header *hdr = (struct db_obj_header *)data;
+    const struct db_obj_header *hdr = data;
 
     fprintf(f, "     Version %" PRIu64 "\n", hdr->version);
     disp_header(f, key, data, datasize);
@@ -601,7 +601,7 @@ static void
 disp_dirent(FILE *f, const struct db_key *key, const void *data,
             size_t datasize)
 {
-    struct db_obj_dirent *de = (struct db_obj_dirent *)data;
+    const struct db_obj_dirent *de = data;
 
     (void)datasize;
 
@@ -612,7 +612,7 @@ disp_dirent(FILE *f, const struct db_key *key, const void *data,
 static void
 disp_stat(FILE *f, const struct db_key *key, const void *data, size_t datasize)
 {
-    struct db_obj_stat *s = (struct db_obj_stat *)data;
+    const struct db_obj_stat *s = data;
 
     (void)datasize;
 
@@ -624,7 +624,7 @@ disp_stat_full(FILE *f, const struct db_key *key, const void *data,
                size_t datasize)
 {
     char atim[26], ctim[26], mtim[26];
-    struct db_obj_stat *s = (struct db_obj_stat *)data;
+    const struct db_obj_stat *s = data;
 
     (void)datasize;
 
@@ -706,7 +706,7 @@ static int
 dump_db_obj(FILE *f, const void *key, const void *data, size_t datasize,
             const char *prefix, void *ctx)
 {
-    struct db_key *k = (struct db_key *)key;
+    const struct db_key *k = key;
 
     static const struct ent {
         const char  *dispstr;
@@ -763,7 +763,7 @@ dump_cb(const void *key, const void *data, size_t datasize, void *ctx)
     if (quit)
         return 1;
 
-    return dump_db_obj((FILE *)ctx, key, data, datasize, "", NULL);
+    return dump_db_obj(ctx, key, data, datasize, "", NULL);
 }
 
 static int

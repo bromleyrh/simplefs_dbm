@@ -110,7 +110,7 @@ parse_be_test_cmdline(int argc, char **argv, const char *progusage,
                       void *test_opts, int *seed, int *enable_mtrace,
                       int *run_gdb, int *shell, int order_stats)
 {
-    struct be_test_opts *testopts = (struct be_test_opts *)test_opts;
+    struct be_test_opts *testopts = test_opts;
 
     testopts->bep = bep;
     testopts->order_stats = order_stats;
@@ -250,7 +250,7 @@ int_key_to_str(const void *k, void *ctx)
 void
 be_bitmap_set(struct be_ctx *bectx, int key, int val, int record_stats)
 {
-    struct bitmap_data *bmdata = (struct bitmap_data *)bectx->bmdata;
+    struct bitmap_data *bmdata = bectx->bmdata;
 
     bitmap_set(bmdata->bitmap, key, val);
 
@@ -261,7 +261,7 @@ be_bitmap_set(struct be_ctx *bectx, int key, int val, int record_stats)
 void
 be_bitmap_trans_new(struct be_ctx *bectx)
 {
-    struct be_bitmap_data *bmdata = (struct be_bitmap_data *)bectx->bmdata;
+    struct be_bitmap_data *bmdata = bectx->bmdata;
 
     /* save bmdata to bmdata_saved */
     memcpy(bmdata->bmdata_saved.bitmap, bmdata->bmdata.bitmap,
@@ -271,7 +271,7 @@ be_bitmap_trans_new(struct be_ctx *bectx)
 void
 be_bitmap_trans_abort(struct be_ctx *bectx)
 {
-    struct be_bitmap_data *bmdata = (struct be_bitmap_data *)bectx->bmdata;
+    struct be_bitmap_data *bmdata = bectx->bmdata;
 
     /* restore bmdata from bmdata_saved */
     memcpy(bmdata->bmdata.bitmap, bmdata->bmdata_saved.bitmap,
@@ -298,7 +298,7 @@ be_insert(struct be_ctx *bectx, int key, int *result, int repeat_allowed,
 
     full_key = get_full_key(key, bectx->key_size, buf);
 
-    ret = (*bectx->ops.insert)(bectx->be, (void *)full_key);
+    ret = (*bectx->ops.insert)(bectx->be, full_key);
     if (ret == 0) {
         if (verbose > 1)
             infomsgf("Inserted %d\n", key);
@@ -338,7 +338,7 @@ be_replace(struct be_ctx *bectx, int key, int *result, int nonexistent_allowed,
 
     full_key = get_full_key(key, bectx->key_size, buf);
 
-    ret = (*bectx->ops.replace)(bectx->be, (void *)full_key);
+    ret = (*bectx->ops.replace)(bectx->be, full_key);
     if (ret == 0) {
         if (verbose > 1)
             infomsgf("Replaced %d\n", key);
@@ -376,7 +376,7 @@ be_delete(struct be_ctx *bectx, int key, int *result, int repeat_allowed,
 
     full_key = get_full_key(key, bectx->key_size, buf);
 
-    ret = (*bectx->ops.delete)(bectx->be, (void *)full_key);
+    ret = (*bectx->ops.delete)(bectx->be, full_key);
     if (ret == 0) {
         if (verbose > 1)
             infomsgf("Deleted %d\n", key);
@@ -447,7 +447,7 @@ be_find(struct be_ctx *bectx, int key, int *result, int verbose,
 
     full_key = get_full_key(key, bectx->key_size, buf);
 
-    ret = (*bectx->ops.search)(bectx->be, (void *)full_key, res);
+    ret = (*bectx->ops.search)(bectx->be, full_key, res);
     if (ret == 1) {
         if (verbose)
             infomsgf("Key %d found\n", key);
@@ -482,7 +482,7 @@ be_range_find(struct be_ctx *bectx, int key, int *result, int verbose,
 
     full_key = get_full_key(key, bectx->key_size, buf);
 
-    ret = (*bectx->ops.range_search)(bectx->be, (void *)full_key, res);
+    ret = (*bectx->ops.range_search)(bectx->be, full_key, res);
     if ((ret != 0) && (ret != 1)) {
         error(0, -ret, "Error looking up in back end");
         return ret;
@@ -539,7 +539,7 @@ be_get_index(struct be_ctx *bectx, int key, int *result, int verbose,
 
     full_key = get_full_key(key, bectx->key_size, buf);
 
-    ret = (*bectx->ops.get_index)(bectx->be, (void *)full_key, &res);
+    ret = (*bectx->ops.get_index)(bectx->be, full_key, &res);
     if (ret == 1) {
         if (result != NULL)
             *result = res;
@@ -577,8 +577,7 @@ be_walk(struct be_ctx *bectx, int startkey,
 
     full_key = get_full_key(startkey, bectx->key_size, buf);
 
-    while ((ret = (*bectx->ops.walk)(bectx->be, (void *)full_key, fn, ctx))
-           == 1)
+    while ((ret = (*bectx->ops.walk)(bectx->be, full_key, fn, ctx)) == 1)
         ;
     if (ret != 0)
         error(0, -ret, "Error walking back end");
@@ -794,7 +793,7 @@ do_iter_seek_single(struct be_ctx *bectx, void *iter, unsigned *curkey, int dir,
     if (use_bitmap) {
         int tmp;
 
-        bmdata = (struct bitmap_data *)bectx->bmdata;
+        bmdata = bectx->bmdata;
 
         oldkey = *curkey;
         if ((dir == 0) && (*curkey == 0))
@@ -915,7 +914,7 @@ test_iter_funcs(struct be_ctx *bectx, int test_iter_only, uint64_t num_ops,
             return 0;
         }
     }
-    bmdata = (struct bitmap_data *)bectx->bmdata;
+    bmdata = bectx->bmdata;
 
     n = 0;
     while (n < num_ops) {
@@ -988,7 +987,7 @@ static int
 empty_be_cb(const void *k, void *ctx)
 {
     int key;
-    struct empty_be_ctx *wctx = (struct empty_be_ctx *)ctx;
+    struct empty_be_ctx *wctx = ctx;
 
     key = get_short_key((int *)k, wctx->key_size);
 
@@ -1014,7 +1013,7 @@ empty_back_end(struct be_ctx *bectx)
     int err_test_old;
     int *keys;
     size_t i, n;
-    struct bitmap_data *bmdata = (struct bitmap_data *)bectx->bmdata;
+    struct bitmap_data *bmdata = bectx->bmdata;
     struct dynamic_array *key_list;
     struct empty_be_ctx wctx;
 
@@ -1581,7 +1580,7 @@ be_test_rand_norepeat(struct be_ctx *bectx, const struct be_params *bep,
         return ret;
     }
 
-    bmdata = (struct bitmap_data *)bectx->bmdata;
+    bmdata = bectx->bmdata;
     gen_key_fn = bep->zero_keys ? &gen_key : &gen_key_no_zero;
 
     perf_cmp_wait(&perf_cmp_hdl);

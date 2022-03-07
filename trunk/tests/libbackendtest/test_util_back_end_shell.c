@@ -18,9 +18,9 @@
 #include <unistd.h>
 
 #define CMD_ARGS(cmdctx, cmdargs) \
-    struct be_cmd_args *args = (struct be_cmd_args *)cmdargs; \
-    struct cmd_ctx *ctx = (struct cmd_ctx *)cmdctx; \
-    struct be_cmd_data *cmddata = (struct be_cmd_data *)(ctx->cmddata)
+    struct be_cmd_args *args = cmdargs; \
+    struct cmd_ctx *ctx = cmdctx; \
+    struct be_cmd_data *cmddata = ctx->cmddata
 
 static int shell_check_assertion(void *, int (*)(struct be_ctx *, int, int *),
                                  int);

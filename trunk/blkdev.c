@@ -361,7 +361,7 @@ fs_blkdev_openfs(void **ctx, void *args)
     if (oemalloc(&ret) == NULL)
         return MINUS_ERRNO;
 
-    ret->args = (struct blkdev_args *)args;
+    ret->args = args;
 
     ret->hdr.blkdevsz = 0;
 
@@ -424,7 +424,7 @@ fs_blkdev_openat(void *ctx, int dfd, const char *pathname, int flags,
     int dir;
     int *init, initialized;
     int res, ret;
-    struct blkdev_ctx *bctx = (struct blkdev_ctx *)ctx;
+    struct blkdev_ctx *bctx = ctx;
     struct stat s;
 
     (void)ap;
@@ -506,7 +506,7 @@ fs_blkdev_close(void *ctx, int fd)
 {
     int ret;
     size_t i;
-    struct blkdev_ctx *bctx = (struct blkdev_ctx *)ctx;
+    struct blkdev_ctx *bctx = ctx;
 
     if (fd < 0)
         goto err;
@@ -562,7 +562,7 @@ static void *
 fs_blkdev_mmap(void *ctx, void *addr, size_t length, int prot, int flags,
                int fd, off_t offset)
 {
-    struct blkdev_ctx *bctx = (struct blkdev_ctx *)ctx;
+    struct blkdev_ctx *bctx = ctx;
     void *ret;
 
     if ((fd != FD(bctx)) || (offset != 0))
@@ -583,7 +583,7 @@ static int
 fs_blkdev_munmap(void *ctx, void *addr, size_t length)
 {
     int ret;
-    struct blkdev_ctx *bctx = (struct blkdev_ctx *)ctx;
+    struct blkdev_ctx *bctx = ctx;
 
     ret = munmap(addr, length);
     if ((addr == bctx->mmap_addr) && (ret != 0))
@@ -601,7 +601,7 @@ fs_blkdev_munmap(void *ctx, void *addr, size_t length)
 static int
 fs_blkdev_mmap_validate_range(void *ctx, void *addr, size_t length)
 {
-    struct blkdev_ctx *bctx = (struct blkdev_ctx *)ctx;
+    struct blkdev_ctx *bctx = ctx;
 
     if ((bctx->mmap_addr == NULL) || ((char *)addr < (char *)bctx->mmap_addr))
         return err_to_errno(EFAULT);
@@ -639,7 +639,7 @@ static int
 fs_blkdev_fstat(void *ctx, int fd, struct stat *s)
 {
     int ret;
-    struct blkdev_ctx *bctx = (struct blkdev_ctx *)ctx;
+    struct blkdev_ctx *bctx = ctx;
 
     ret = check_fd_regular(fd, bctx);
     if (ret != 0)
@@ -657,7 +657,7 @@ static size_t
 fs_blkdev_pread(void *ctx, int fd, void *buf, size_t count, off_t offset,
                 size_t maxread, const struct interrupt_data *intdata)
 {
-    struct blkdev_ctx *bctx = (struct blkdev_ctx *)ctx;
+    struct blkdev_ctx *bctx = ctx;
 
     return do_blkdev_io(bctx, fd, buf, count, offset, maxread, intdata, 0);
 }
@@ -666,7 +666,7 @@ static size_t
 fs_blkdev_pwrite(void *ctx, int fd, const void *buf, size_t count, off_t offset,
                  size_t maxwrite, const struct interrupt_data *intdata)
 {
-    struct blkdev_ctx *bctx = (struct blkdev_ctx *)ctx;
+    struct blkdev_ctx *bctx = ctx;
 
     return do_blkdev_io(bctx, fd, (void *)buf, count, offset, maxwrite, intdata,
                         1);
@@ -727,7 +727,7 @@ fs_blkdev_flock(void *ctx, int fd, int operation)
 {
     int i;
     int op;
-    struct blkdev_ctx *bctx = (struct blkdev_ctx *)ctx;
+    struct blkdev_ctx *bctx = ctx;
 
     if ((fd != FD(bctx)) && (fd != JFD(bctx)))
         return flock(fd, operation);

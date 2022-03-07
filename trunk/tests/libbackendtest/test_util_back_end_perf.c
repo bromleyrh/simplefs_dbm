@@ -72,7 +72,7 @@ be_perf_test_prepare_test(void *ctx, void *args)
     int (*gen_key_fn)(int, int);
     int ret;
     struct be_ctx *bectx;
-    struct be_perf_test_args *targs = (struct be_perf_test_args *)ctx;
+    struct be_perf_test_args *targs = ctx;
     unsigned n;
 
     bectx = targs->bectx;
@@ -116,7 +116,7 @@ be_perf_test_do_op(void *ctx)
     int lower_bound, upper_bound;
     int ret;
     struct be_ctx *bectx;
-    struct be_perf_test_args *targs = (struct be_perf_test_args *)ctx;
+    struct be_perf_test_args *targs = ctx;
 
     bectx = targs->bectx;
     bep = targs->bep;
@@ -169,7 +169,7 @@ static int
 be_perf_test_end_test(void *ctx)
 {
     struct be_ctx *bectx;
-    struct be_perf_test_args *targs = (struct be_perf_test_args *)ctx;
+    struct be_perf_test_args *targs = ctx;
 
     bectx = targs->bectx;
 

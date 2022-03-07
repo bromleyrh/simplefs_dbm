@@ -157,7 +157,7 @@ static int run_automated_test(int, const struct params *);
 static int
 parse_test_opt(int opt, void *test_opts)
 {
-    struct test_opts *testopts = (struct test_opts *)test_opts;
+    struct test_opts *testopts = test_opts;
 
     switch (opt) {
     case 'B':
@@ -204,7 +204,7 @@ static int
 int_cmp(const void *k1, const void *k2, void *key_ctx)
 {
     if (key_ctx != NULL) {
-        struct db_key_ctx *ctx = (struct db_key_ctx *)key_ctx;
+        struct db_key_ctx *ctx = key_ctx;
 
         memcpy(ctx->last_key, k2, sizeof(int));
         ctx->last_key_valid = 1;
@@ -225,7 +225,7 @@ sync_cb(int status, void *ctx)
 static void
 set_trans_cb(void *args, void (*cb)(int, int, int, void *), void *ctx)
 {
-    struct db_args *dbargs = (struct db_args *)args;
+    struct db_args *dbargs = args;
 
     dbargs->trans_cb = cb;
     dbargs->trans_ctx = ctx;
@@ -245,11 +245,11 @@ check_increasing(int *prev, int curr)
 static int
 fn2(const void *key, const void *data, size_t datalen, void *ctx)
 {
+    const struct cache_data *d = data;
     int curr;
-    struct cache_data *d = (struct cache_data *)data;
-    struct fn2_ctx *wctx = (struct fn2_ctx *)ctx;
+    struct fn2_ctx *wctx = ctx;
 
-    curr = get_short_key((const int *)key, wctx->key_size);
+    curr = get_short_key(key, wctx->key_size);
 
     if ((datalen != DATA_LEN(d->len))
         || (check_int_array((const int *)d->data, d->len / sizeof(int), curr)
@@ -270,11 +270,11 @@ fn2(const void *key, const void *data, size_t datalen, void *ctx)
 static int
 fn3(const void *key, const void *data, size_t datalen, void *ctx)
 {
+    const struct cache_data *d = data;
     int curr;
-    struct cache_data *d = (struct cache_data *)data;
-    struct fn3_ctx *wctx = (struct fn3_ctx *)ctx;
+    struct fn3_ctx *wctx = ctx;
 
-    curr = get_short_key((const int *)key, wctx->key_size);
+    curr = get_short_key(key, wctx->key_size);
 
     if ((datalen != DATA_LEN(d->len))
         || (check_int_array((const int *)d->data, d->len / sizeof(int), curr)
@@ -601,7 +601,7 @@ check_int_array(const int *arr, size_t len, int val)
 static int
 walk_cb(const void *key, const void *data, size_t datasize, void *ctx)
 {
-    struct walk_ctx *walkctx = (struct walk_ctx *)ctx;
+    struct walk_ctx *walkctx = ctx;
 
     (void)data;
     (void)datasize;
@@ -616,7 +616,7 @@ test_insert(void *be, void *key)
     int k;
     size_t len, totlen;
     struct cache_data *data;
-    struct fuse_cache_ctx *cachectx = (struct fuse_cache_ctx *)be;
+    struct fuse_cache_ctx *cachectx = be;
 
     k = *(int *)key;
 
@@ -642,7 +642,7 @@ test_replace(void *be, void *key)
     int ret;
     size_t len, totlen;
     struct cache_data *data;
-    struct fuse_cache_ctx *cachectx = (struct fuse_cache_ctx *)be;
+    struct fuse_cache_ctx *cachectx = be;
 
     k = *(int *)key;
 
@@ -667,7 +667,7 @@ test_search(void *be, void *key, void *res)
     int ret;
     size_t datalen;
     struct cache_data *data;
-    struct fuse_cache_ctx *cachectx = (struct fuse_cache_ctx *)be;
+    struct fuse_cache_ctx *cachectx = be;
 
     ret = back_end_look_up(cachectx->be, key, NULL, NULL, &datalen, 0);
     if (ret != 1)
@@ -693,7 +693,7 @@ test_search(void *be, void *key, void *res)
 static int
 test_delete(void *be, void *key)
 {
-    struct fuse_cache_ctx *cachectx = (struct fuse_cache_ctx *)be;
+    struct fuse_cache_ctx *cachectx = be;
 
     return back_end_delete(cachectx->be, key);
 }
@@ -701,7 +701,7 @@ test_delete(void *be, void *key)
 static int
 test_walk(void *be, void *startkey, int (*fn)(const void *, void *), void *ctx)
 {
-    struct fuse_cache_ctx *cachectx = (struct fuse_cache_ctx *)be;
+    struct fuse_cache_ctx *cachectx = be;
     struct walk_ctx walkctx;
 
     (void)startkey;
@@ -716,7 +716,7 @@ test_walk(void *be, void *startkey, int (*fn)(const void *, void *), void *ctx)
 static int
 test_iter_new(void **iter, void *be)
 {
-    struct fuse_cache_ctx *cachectx = (struct fuse_cache_ctx *)be;
+    struct fuse_cache_ctx *cachectx = be;
 
     return back_end_iter_new((struct back_end_iter **)iter, cachectx->be);
 }
@@ -769,7 +769,7 @@ test_iter_search(void *iter, const void *key)
 static int
 test_trans_new(void *be)
 {
-    struct fuse_cache_ctx *cachectx = (struct fuse_cache_ctx *)be;
+    struct fuse_cache_ctx *cachectx = be;
 
     return back_end_trans_new(cachectx->be);
 }
@@ -777,7 +777,7 @@ test_trans_new(void *be)
 static int
 test_trans_abort(void *be)
 {
-    struct fuse_cache_ctx *cachectx = (struct fuse_cache_ctx *)be;
+    struct fuse_cache_ctx *cachectx = be;
 
     return back_end_trans_abort(cachectx->be);
 }
@@ -785,7 +785,7 @@ test_trans_abort(void *be)
 static int
 test_trans_commit(void *be)
 {
-    struct fuse_cache_ctx *cachectx = (struct fuse_cache_ctx *)be;
+    struct fuse_cache_ctx *cachectx = be;
 
     return back_end_trans_commit(cachectx->be);
 }
@@ -803,7 +803,7 @@ static int
 do_walk(void *be, int (*fn)(const void *, const void *, size_t, void *),
         void *ctx)
 {
-    struct fuse_cache_ctx *cachectx = (struct fuse_cache_ctx *)be;
+    struct fuse_cache_ctx *cachectx = be;
 
     return back_end_walk(cachectx->be, fn, ctx);
 }
@@ -831,11 +831,11 @@ static int
 verify_rand(struct be_ctx *bectx)
 {
     int ret;
-    struct bitmap_data *bmdata = (struct bitmap_data *)bectx->bmdata;
+    struct bitmap_data *bmdata = bectx->bmdata;
     struct fuse_cache_ctx *cachectx;
     struct fn3_ctx data;
 
-    cachectx = (struct fuse_cache_ctx *)bectx->be;
+    cachectx = bectx->be;
 
     if (mprotect(bmdata->bitmap, bmdata->bitmap_len * sizeof(unsigned),
                  PROT_READ) == -1) {
@@ -903,11 +903,11 @@ print_stats(FILE *f, struct be_ctx *bectx, int times)
 static int
 do_end_test(struct be_ctx *bectx)
 {
-    struct fuse_cache_ctx *cachectx = (struct fuse_cache_ctx *)bectx->be;
+    struct fuse_cache_ctx *cachectx = bectx->be;
 
     if (cachectx->bectx.bmdata) {
         return save_bitmap(cachectx->bitmap, &cachectx->bectx.stats,
-                           (struct bitmap_data *)cachectx->bectx.bmdata);
+                           cachectx->bectx.bmdata);
     }
 
     return 0;
@@ -967,7 +967,7 @@ run_automated_test(int test_type, const struct params *p)
                   ? verify_rand((struct be_ctx *)&cachectx)
                   : walk_cache(&cachectx);
         } else if (bep->use_bitmap)
-            print_bitmap(stdout, (struct bitmap_data *)cachectx.bectx.bmdata);
+            print_bitmap(stdout, cachectx.bectx.bmdata);
         break;
     case 5:
         ret = verify_rand((struct be_ctx *)&cachectx);

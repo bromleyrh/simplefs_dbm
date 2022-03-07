@@ -190,7 +190,7 @@ auto_test_insert(struct be_ctx *bectx, int key, int replace, int use_be,
     }
 
     if (use_bitmap && !replace) {
-        struct bitmap_data *bmdata = (struct bitmap_data *)bectx->bmdata;
+        struct bitmap_data *bmdata = bectx->bmdata;
 
         if (fault && (bitmap_get(bmdata->bitmap, key) == 0)) {
             error(0, 0, "Detectable %s fault generated",
@@ -211,7 +211,7 @@ auto_test_delete(struct be_ctx *bectx, int key, int use_be, int use_bitmap,
 {
     int fault = 0;
     int ret;
-    struct bitmap_data *bmdata = (struct bitmap_data *)bectx->bmdata;
+    struct bitmap_data *bmdata = bectx->bmdata;
 
     if (use_be) {
         ret = be_delete(bectx, key, NULL, repeat_allowed, 0, 1);
@@ -250,7 +250,7 @@ auto_test_delete_from(struct be_ctx *bectx, int node, int *key, int use_be,
 {
     int fault = 0;
     int ret;
-    struct bitmap_data *bmdata = (struct bitmap_data *)bectx->bmdata;
+    struct bitmap_data *bmdata = bectx->bmdata;
 
     if (use_be) {
         ret = be_delete_from(bectx, node, key, repeat_allowed, 0, 1);
@@ -297,7 +297,7 @@ auto_test_search(struct be_ctx *bectx, int key, int use_be, int use_bitmap)
     }
 
     if (use_bitmap) {
-        struct bitmap_data *bmdata = (struct bitmap_data *)bectx->bmdata;
+        struct bitmap_data *bmdata = bectx->bmdata;
 
         int tmp = (key < (int)bmdata->size)
                   ? bitmap_get(bmdata->bitmap, key) : 0;
@@ -334,7 +334,7 @@ auto_test_range_search(struct be_ctx *bectx, int key, int use_be,
     }
 
     if (use_bitmap) {
-        struct bitmap_data *bmdata = (struct bitmap_data *)bectx->bmdata;
+        struct bitmap_data *bmdata = bectx->bmdata;
 
         int tmp = (key < (int)bmdata->size)
                   ? bitmap_get(bmdata->bitmap, key) : 0;
@@ -373,7 +373,7 @@ auto_test_select(struct be_ctx *bectx, int idx, int use_be, int use_bitmap)
     }
 
     if (use_bitmap) {
-        struct bitmap_data *bmdata = (struct bitmap_data *)bectx->bmdata;
+        struct bitmap_data *bmdata = bectx->bmdata;
 
         int tmp = (idx < (int)bmdata->size) ? bitmap_select(bmdata, idx) : -1;
 
@@ -411,7 +411,7 @@ auto_test_get_index(struct be_ctx *bectx, int key, int use_be, int use_bitmap)
     }
 
     if (use_bitmap) {
-        struct bitmap_data *bmdata = (struct bitmap_data *)bectx->bmdata;
+        struct bitmap_data *bmdata = bectx->bmdata;
 
         int tmp = (key < (int)bmdata->size)
                   ? bitmap_get_index(bmdata, key) : -1;

@@ -31,7 +31,7 @@ static int u64_to_int_filter(void *, void *, void *);
 static size_t
 read_cb(char *buf, size_t off, size_t len, void *ctx)
 {
-    FILE *f = (FILE *)ctx;
+    FILE *f = ctx;
     size_t ret;
 
     (void)off;

@@ -86,7 +86,7 @@ int
 parse_be_test_opt(int opt, void *test_opts)
 {
     struct be_params *bep;
-    struct be_test_opts *testopts = (struct be_test_opts *)test_opts;
+    struct be_test_opts *testopts = test_opts;
 
     bep = testopts->bep;
 

@@ -418,7 +418,7 @@ request_fallocate(struct request_ctx *ctx, void *req, inum_t ino, int mode,
 int
 reply_err(void *req, int err)
 {
-    struct request *r = (struct request *)req;
+    struct request *r = req;
 
     if (err < 0) {
         errmsgf("Error code in file system reply is negative: %d\n", err);
@@ -432,7 +432,7 @@ reply_err(void *req, int err)
 void
 reply_none(void *req)
 {
-    struct request *r = (struct request *)req;
+    struct request *r = req;
 
     (*r->ctx->reply_ops->reply_none)(r->req);
 }
@@ -440,7 +440,7 @@ reply_none(void *req)
 int
 reply_entry(void *req, const struct entry_param *e)
 {
-    struct request *r = (struct request *)req;
+    struct request *r = req;
 
     return (*r->ctx->reply_ops->reply_entry)(r->req, e);
 }
@@ -448,7 +448,7 @@ reply_entry(void *req, const struct entry_param *e)
 int
 reply_create(void *req, const struct entry_param *e, struct file_info *fi)
 {
-    struct request *r = (struct request *)req;
+    struct request *r = req;
 
     return (*r->ctx->reply_ops->reply_create)(r->req, e, fi);
 }
@@ -456,7 +456,7 @@ reply_create(void *req, const struct entry_param *e, struct file_info *fi)
 int
 reply_attr(void *req, const struct stat *attr, double attr_timeout)
 {
-    struct request *r = (struct request *)req;
+    struct request *r = req;
 
     return (*r->ctx->reply_ops->reply_attr)(r->req, attr, attr_timeout);
 }
@@ -464,7 +464,7 @@ reply_attr(void *req, const struct stat *attr, double attr_timeout)
 int
 reply_readlink(void *req, const char *link)
 {
-    struct request *r = (struct request *)req;
+    struct request *r = req;
 
     return (*r->ctx->reply_ops->reply_readlink)(r->req, link);
 }
@@ -472,7 +472,7 @@ reply_readlink(void *req, const char *link)
 int
 reply_open(void *req, const struct file_info *fi)
 {
-    struct request *r = (struct request *)req;
+    struct request *r = req;
 
     return (*r->ctx->reply_ops->reply_open)(r->req, fi);
 }
@@ -480,7 +480,7 @@ reply_open(void *req, const struct file_info *fi)
 int
 reply_write(void *req, size_t count)
 {
-    struct request *r = (struct request *)req;
+    struct request *r = req;
 
     return (*r->ctx->reply_ops->reply_write)(r->req, count);
 }
@@ -488,7 +488,7 @@ reply_write(void *req, size_t count)
 int
 reply_buf(void *req, const char *buf, size_t size)
 {
-    struct request *r = (struct request *)req;
+    struct request *r = req;
 
     return (*r->ctx->reply_ops->reply_buf)(r->req, buf, size);
 }
@@ -496,7 +496,7 @@ reply_buf(void *req, const char *buf, size_t size)
 int
 reply_iov(void *req, const struct iovec *iov, int count)
 {
-    struct request *r = (struct request *)req;
+    struct request *r = req;
 
     return (*r->ctx->reply_ops->reply_iov)(r->req, iov, count);
 }
@@ -504,7 +504,7 @@ reply_iov(void *req, const struct iovec *iov, int count)
 int
 reply_statfs(void *req, const struct statvfs *stbuf)
 {
-    struct request *r = (struct request *)req;
+    struct request *r = req;
 
     return (*r->ctx->reply_ops->reply_statfs)(r->req, stbuf);
 }
@@ -512,7 +512,7 @@ reply_statfs(void *req, const struct statvfs *stbuf)
 int
 reply_xattr(void *req, size_t count)
 {
-    struct request *r = (struct request *)req;
+    struct request *r = req;
 
     return (*r->ctx->reply_ops->reply_xattr)(r->req, count);
 }
@@ -521,7 +521,7 @@ size_t
 add_direntry(void *req, char *buf, size_t bufsize, const char *name,
              const struct stat *stbuf, off_t off)
 {
-    struct request *r = (struct request *)req;
+    struct request *r = req;
 
     return (*r->ctx->reply_ops->add_direntry)(r->req, buf, bufsize, name, stbuf,
                                               off);
@@ -530,7 +530,7 @@ add_direntry(void *req, char *buf, size_t bufsize, const char *name,
 const struct ctx *
 req_ctx(void *req)
 {
-    struct request *r = (struct request *)req;
+    struct request *r = req;
 
     return (*r->ctx->reply_ops->req_ctx)(r->req);
 }
@@ -538,7 +538,7 @@ req_ctx(void *req)
 void *
 req_userdata(void *req)
 {
-    struct request *r = (struct request *)req;
+    struct request *r = req;
 
     return r->ctx->rctx;
 }
@@ -591,7 +591,7 @@ request_fuse_init_prepare(struct request_ctx *ctx)
 static void
 request_fuse_init(void *userdata, struct fuse_conn_info *conn)
 {
-    struct request_ctx *ctx = (struct request_ctx *)userdata;
+    struct request_ctx *ctx = userdata;
 
 #if FUSE_USE_VERSION == 32
     conn->want = FUSE_CAP_ASYNC_READ | FUSE_CAP_EXPORT_SUPPORT
@@ -607,7 +607,7 @@ request_fuse_init(void *userdata, struct fuse_conn_info *conn)
 static void
 request_fuse_destroy(void *userdata)
 {
-    struct request_ctx *ctx = (struct request_ctx *)userdata;
+    struct request_ctx *ctx = userdata;
 
     request_destroy(ctx);
 }
@@ -1027,7 +1027,7 @@ request_fuse_fallocate(fuse_req_t req, fuse_ino_t ino, int mode, off_t offset,
 static int
 reply_fuse_err(void *req, int err)
 {
-    struct request_fuse *r = (struct request_fuse *)req;
+    struct request_fuse *r = req;
 
     return fuse_reply_err(r->req, err);
 }
@@ -1035,7 +1035,7 @@ reply_fuse_err(void *req, int err)
 static void
 reply_fuse_none(void *req)
 {
-    struct request_fuse *r = (struct request_fuse *)req;
+    struct request_fuse *r = req;
 
     fuse_reply_none(r->req);
 }
@@ -1044,7 +1044,7 @@ static int
 reply_fuse_entry(void *req, const struct entry_param *e)
 {
     struct fuse_entry_param ent;
-    struct request_fuse *r = (struct request_fuse *)req;
+    struct request_fuse *r = req;
 
     init_fuse_entry_param(&ent, e);
 
@@ -1056,7 +1056,7 @@ reply_fuse_create(void *req, const struct entry_param *e,
                   const struct file_info *fi)
 {
     struct fuse_entry_param ent;
-    struct request_fuse *r = (struct request_fuse *)req;
+    struct request_fuse *r = req;
 
     init_fuse_entry_param(&ent, e);
     set_fuse_file_info(r->fi, fi);
@@ -1067,7 +1067,7 @@ reply_fuse_create(void *req, const struct entry_param *e,
 static int
 reply_fuse_attr(void *req, const struct stat *attr, double attr_timeout)
 {
-    struct request_fuse *r = (struct request_fuse *)req;
+    struct request_fuse *r = req;
 
     return fuse_reply_attr(r->req, attr, attr_timeout);
 }
@@ -1075,7 +1075,7 @@ reply_fuse_attr(void *req, const struct stat *attr, double attr_timeout)
 static int
 reply_fuse_readlink(void *req, const char *link)
 {
-    struct request_fuse *r = (struct request_fuse *)req;
+    struct request_fuse *r = req;
 
     return fuse_reply_readlink(r->req, link);
 }
@@ -1083,7 +1083,7 @@ reply_fuse_readlink(void *req, const char *link)
 static int
 reply_fuse_open(void *req, const struct file_info *fi)
 {
-    struct request_fuse *r = (struct request_fuse *)req;
+    struct request_fuse *r = req;
 
     set_fuse_file_info(r->fi, fi);
 
@@ -1093,7 +1093,7 @@ reply_fuse_open(void *req, const struct file_info *fi)
 static int
 reply_fuse_write(void *req, size_t count)
 {
-    struct request_fuse *r = (struct request_fuse *)req;
+    struct request_fuse *r = req;
 
     return fuse_reply_write(r->req, count);
 }
@@ -1101,7 +1101,7 @@ reply_fuse_write(void *req, size_t count)
 static int
 reply_fuse_buf(void *req, const char *buf, size_t size)
 {
-    struct request_fuse *r = (struct request_fuse *)req;
+    struct request_fuse *r = req;
 
     return fuse_reply_buf(r->req, buf, size);
 }
@@ -1109,7 +1109,7 @@ reply_fuse_buf(void *req, const char *buf, size_t size)
 static int
 reply_fuse_iov(void *req, const struct iovec *iov, int count)
 {
-    struct request_fuse *r = (struct request_fuse *)req;
+    struct request_fuse *r = req;
 
     return fuse_reply_iov(r->req, iov, count);
 }
@@ -1117,7 +1117,7 @@ reply_fuse_iov(void *req, const struct iovec *iov, int count)
 static int
 reply_fuse_statfs(void *req, const struct statvfs *stbuf)
 {
-    struct request_fuse *r = (struct request_fuse *)req;
+    struct request_fuse *r = req;
 
     return fuse_reply_statfs(r->req, stbuf);
 }
@@ -1125,7 +1125,7 @@ reply_fuse_statfs(void *req, const struct statvfs *stbuf)
 static int
 reply_fuse_xattr(void *req, size_t count)
 {
-    struct request_fuse *r = (struct request_fuse *)req;
+    struct request_fuse *r = req;
 
     return fuse_reply_xattr(r->req, count);
 }
@@ -1134,7 +1134,7 @@ static size_t
 add_direntry_fuse(void *req, char *buf, size_t bufsize, const char *name,
                   const struct stat *stbuf, off_t off)
 {
-    struct request_fuse *r = (struct request_fuse *)req;
+    struct request_fuse *r = req;
 
     return fuse_add_direntry(r->req, buf, bufsize, name, stbuf, off);
 }
@@ -1143,7 +1143,7 @@ static const struct ctx *
 req_ctx_fuse(void *req)
 {
     const struct fuse_ctx *ctx;
-    struct request_fuse *r = (struct request_fuse *)req;
+    struct request_fuse *r = req;
 
     ctx = fuse_req_ctx(r->req);
 

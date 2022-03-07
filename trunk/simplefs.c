@@ -114,7 +114,7 @@ static int unmount_fuse(struct fuse_data *);
 static void
 simplefs_exit(void *sctx)
 {
-    struct fuse_data *fusedata = (struct fuse_data *)sctx;
+    struct fuse_data *fusedata = sctx;
 
     fuse_session_exit(fusedata->sess);
     fusedata->aborted = 1;
@@ -239,7 +239,7 @@ static int
 opt_proc(void *data, const char *arg, int key, struct fuse_args *outargs)
 {
     size_t i;
-    struct mount_data *md = (struct mount_data *)data;
+    struct mount_data *md = data;
 
     static const struct ent {
         const char  *opt;

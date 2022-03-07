@@ -223,7 +223,7 @@ foreach_alloc_cb(uint64_t sz, int dealloc, void *ctx)
     if (dealloc)
         return;
 
-    actx = (struct foreach_alloc_ctx *)ctx;
+    actx = ctx;
 
     actx->tot_sz += sz;
 

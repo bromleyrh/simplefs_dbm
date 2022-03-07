@@ -367,7 +367,7 @@ __db_hl_sync(struct dbh *dbh, SOURCE_LINE_PARAMS)
 static void
 trans_cb(struct dbh *dbh, int trans_type, int act, int status, void *ctx)
 {
-    struct db_ctx *dbctx = (struct db_ctx *)ctx;
+    struct db_ctx *dbctx = ctx;
 
     (void)dbh;
 
@@ -377,7 +377,7 @@ trans_cb(struct dbh *dbh, int trans_type, int act, int status, void *ctx)
 static void
 sync_cb(struct dbh *dbh, int status, void *ctx)
 {
-    struct db_ctx *dbctx = (struct db_ctx *)ctx;
+    struct db_ctx *dbctx = ctx;
 
     (void)dbh;
 
@@ -530,7 +530,7 @@ back_end_dbm_create(void **ctx, size_t key_size, back_end_key_cmp_t key_cmp,
     int err;
     int flags;
     size_t hdrlen, jlen;
-    struct db_args *dbargs = (struct db_args *)args;
+    struct db_args *dbargs = args;
     struct db_ctx *ret;
     uint64_t blkdevsz;
 
@@ -625,7 +625,7 @@ back_end_dbm_open(void **ctx, size_t key_size, back_end_key_cmp_t key_cmp,
     int err;
     int flags;
     size_t hdrlen, jlen;
-    struct db_args *dbargs = (struct db_args *)args;
+    struct db_args *dbargs = args;
     struct db_ctx *ret;
     uint64_t blkdevsz;
 
@@ -727,7 +727,7 @@ int
 back_end_dbm_close(void *ctx)
 {
     int err;
-    struct db_ctx *dbctx = (struct db_ctx *)ctx;
+    struct db_ctx *dbctx = ctx;
 
     err = db_hl_close(dbctx->dbh);
 
@@ -744,7 +744,7 @@ int
 back_end_dbm_insert(void *ctx, const void *key, const void *data,
                     size_t datasize)
 {
-    struct db_ctx *dbctx = (struct db_ctx *)ctx;
+    struct db_ctx *dbctx = ctx;
 
     return db_hl_insert(dbctx->dbh, key, data, datasize);
 }
@@ -753,7 +753,7 @@ int
 back_end_dbm_replace(void *ctx, const void *key, const void *data,
                      size_t datasize)
 {
-    struct db_ctx *dbctx = (struct db_ctx *)ctx;
+    struct db_ctx *dbctx = ctx;
 
     return db_hl_replace(dbctx->dbh, key, data, datasize);
 }
@@ -764,7 +764,7 @@ back_end_dbm_look_up(void *ctx, const void *key, void *retkey, void *retdata,
 {
     int res;
     size_t datalen;
-    struct db_ctx *dbctx = (struct db_ctx *)ctx;
+    struct db_ctx *dbctx = ctx;
 
     if (retdatasize == NULL)
         retdatasize = &datalen;
@@ -796,7 +796,7 @@ back_end_dbm_look_up(void *ctx, const void *key, void *retkey, void *retdata,
 int
 back_end_dbm_delete(void *ctx, const void *key)
 {
-    struct db_ctx *dbctx = (struct db_ctx *)ctx;
+    struct db_ctx *dbctx = ctx;
 
     return db_hl_delete(dbctx->dbh, key);
 }
@@ -804,7 +804,7 @@ back_end_dbm_delete(void *ctx, const void *key)
 int
 back_end_dbm_walk(void *ctx, back_end_walk_cb_t fn, void *wctx)
 {
-    struct db_ctx *dbctx = (struct db_ctx *)ctx;
+    struct db_ctx *dbctx = ctx;
 
     return db_hl_walk(dbctx->dbh, (db_hl_walk_cb_t)fn, wctx);
 }
@@ -814,7 +814,7 @@ back_end_dbm_iter_new(void **iter, void *ctx)
 {
     int err;
     struct db_iter *ret;
-    struct db_ctx *dbctx = (struct db_ctx *)ctx;
+    struct db_ctx *dbctx = ctx;
 
     if (oemalloc(&ret) == NULL)
         return MINUS_ERRNO;
@@ -844,7 +844,7 @@ int
 back_end_dbm_iter_free(void *iter)
 {
     int err;
-    struct db_iter *iterator = (struct db_iter *)iter;
+    struct db_iter *iterator = iter;
 
     free(iterator->srch_key);
 
@@ -863,7 +863,7 @@ back_end_dbm_iter_get(void *iter, void *retkey, void *retdata,
     int res;
     size_t datalen;
     struct db_ctx *dbctx;
-    struct db_iter *iterator = (struct db_iter *)iter;
+    struct db_iter *iterator = iter;
 
     dbiter = iterator->iter;
     dbctx = iterator->dbctx;
@@ -895,7 +895,7 @@ int
 back_end_dbm_iter_next(void *iter)
 {
     int err;
-    struct db_iter *iterator = (struct db_iter *)iter;
+    struct db_iter *iterator = iter;
 
     err = db_hl_iter_next(iterator->iter);
 
@@ -908,7 +908,7 @@ int
 back_end_dbm_iter_search(void *iter, const void *key)
 {
     struct db_ctx *dbctx;
-    struct db_iter *iterator = (struct db_iter *)iter;
+    struct db_iter *iterator = iter;
 
     dbctx = iterator->dbctx;
 
@@ -925,7 +925,7 @@ back_end_dbm_iter_search(void *iter, const void *key)
 int
 back_end_dbm_trans_new(void *ctx)
 {
-    struct db_ctx *dbctx = (struct db_ctx *)ctx;
+    struct db_ctx *dbctx = ctx;
 
     return db_hl_trans_new(dbctx->dbh);
 }
@@ -933,7 +933,7 @@ back_end_dbm_trans_new(void *ctx)
 int
 back_end_dbm_trans_abort(void *ctx)
 {
-    struct db_ctx *dbctx = (struct db_ctx *)ctx;
+    struct db_ctx *dbctx = ctx;
 
     return db_hl_trans_abort(dbctx->dbh);
 }
@@ -941,7 +941,7 @@ back_end_dbm_trans_abort(void *ctx)
 int
 back_end_dbm_trans_commit(void *ctx)
 {
-    struct db_ctx *dbctx = (struct db_ctx *)ctx;
+    struct db_ctx *dbctx = ctx;
 
     return db_hl_trans_commit(dbctx->dbh);
 }
@@ -949,7 +949,7 @@ back_end_dbm_trans_commit(void *ctx)
 int
 back_end_dbm_sync(void *ctx)
 {
-    struct db_ctx *dbctx = (struct db_ctx *)ctx;
+    struct db_ctx *dbctx = ctx;
 
     return db_hl_sync(dbctx->dbh);
 }
@@ -959,15 +959,15 @@ back_end_dbm_ctl(void *ctx, int op, void *args)
 {
     int err;
     struct db_alloc_cb *alloc_cb;
-    struct db_ctx *dbctx = (struct db_ctx *)ctx;
+    struct db_ctx *dbctx = ctx;
 
     switch (op) {
     case BACK_END_DBM_OP_GET_HDR_LEN:
-        err = db_hl_ctl(dbctx->dbh, DB_HL_OP_GET_HDR_LEN, (size_t *)args);
+        err = db_hl_ctl(dbctx->dbh, DB_HL_OP_GET_HDR_LEN, args);
         break;
     case BACK_END_DBM_OP_FOREACH_ALLOC:
     case BACK_END_DBM_OP_SET_ALLOC_HOOK:
-        alloc_cb = (struct db_alloc_cb *)args;
+        alloc_cb = args;
         err = db_hl_ctl(dbctx->dbh,
                         (op == BACK_END_DBM_OP_FOREACH_ALLOC)
                         ? DB_HL_OP_FOREACH_ALLOC : DB_HL_OP_SET_ALLOC_HOOK,
@@ -983,7 +983,7 @@ back_end_dbm_ctl(void *ctx, int op, void *args)
 void
 back_end_dbm_disable_iter_commit(void *ctx)
 {
-    struct db_ctx *dbctx = (struct db_ctx *)ctx;
+    struct db_ctx *dbctx = ctx;
 
     db_hl_ctl(dbctx->dbh, DB_HL_OP_SET_ITER_COMMIT, 0);
 }
@@ -991,7 +991,7 @@ back_end_dbm_disable_iter_commit(void *ctx)
 int
 back_end_dbm_get_trans_state(void *ctx)
 {
-    struct db_ctx *dbctx = (struct db_ctx *)ctx;
+    struct db_ctx *dbctx = ctx;
 
     return db_hl_ctl(dbctx->dbh, DB_HL_OP_GET_TRANS_STATE);
 }

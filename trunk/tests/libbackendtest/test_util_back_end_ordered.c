@@ -51,9 +51,9 @@ static int
 walk_fn1(const void *kv, void *ctx)
 {
     int curr;
-    struct fn1_ctx *data = (struct fn1_ctx *)ctx;
+    struct fn1_ctx *data = ctx;
 
-    curr = get_short_key((const int *)kv, data->key_size);
+    curr = get_short_key(kv, data->key_size);
 
     ++data->keys_found;
     return (check_increasing(&data->prevkey, curr) == 0) ? 0 : -EIO;
@@ -83,9 +83,9 @@ walk_fn3(const void *kv, void *ctx)
 {
     char output[64];
     int curr;
-    struct fn3_ctx *data = (struct fn3_ctx *)ctx;
+    struct fn3_ctx *data = ctx;
 
-    curr = get_short_key((const int *)kv, data->key_size);
+    curr = get_short_key(kv, data->key_size);
 
     ++data->keys_found;
     if (check_increasing(&data->prevkey, curr) == -1) {
@@ -127,9 +127,9 @@ int
 verify_insertion_ordered(struct be_ctx *bectx)
 {
     int ret;
-    struct be_ctx_ordered *ctx = (struct be_ctx_ordered *)bectx->ctx;
+    struct be_ctx_ordered *ctx = bectx->ctx;
     struct be_stats *cstats = &bectx->stats;
-    void *be = (struct avl_tree *)bectx->be;
+    void *be = bectx->be;
     void *wctx = NULL;
 
     struct fn1_ctx data = {
@@ -183,12 +183,12 @@ int
 verify_rand_ordered(struct be_ctx *bectx)
 {
     int ret;
-    struct be_ctx_ordered *ctx = (struct be_ctx_ordered *)bectx->ctx;
+    struct be_ctx_ordered *ctx = bectx->ctx;
     struct bitmap_data *bmdata;
     struct fn3_ctx data;
     void *wctx = NULL;
 
-    bmdata = (struct bitmap_data *)bectx->bmdata;
+    bmdata = bectx->bmdata;
 
     data.checklog = open_log_file(1);
     if (data.checklog == NULL)

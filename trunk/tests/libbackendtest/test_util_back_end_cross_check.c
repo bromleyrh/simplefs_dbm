@@ -64,7 +64,7 @@ static int auto_test_cross_check_update(struct be_ctx *, struct be_ctx *,
 static void
 search_task(void *args)
 {
-    struct search_task_args *a = (struct search_task_args *)args;
+    struct search_task_args *a = args;
 
     a->ret = (*a->fn)(a->bectx, a->key, a->use_be, a->use_bitmap);
 }
@@ -72,7 +72,7 @@ search_task(void *args)
 static void
 update_task(void *args)
 {
-    struct update_task_args *a = (struct update_task_args *)args;
+    struct update_task_args *a = args;
 
     a->ret = (*a->fn)(a->bectx, a->key, a->replace, a->use_be, a->use_bitmap,
                       a->nonexistent_allowed, a->repeat_allowed, a->confirm);
@@ -249,7 +249,7 @@ be_test_cross_check(struct be_ctx *bectx1, struct be_ctx *bectx2,
     if (ret != 0)
         goto end1;
 
-    bmdata = (struct bitmap_data *)bectx1->bmdata;
+    bmdata = bectx1->bmdata;
     gen_key_fn = bep->zero_keys ? &gen_key : &gen_key_no_zero;
 
     while (!quit && (NUM_OPS(bectx1) < bep->num_ops)) {
