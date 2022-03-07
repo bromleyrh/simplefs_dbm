@@ -348,11 +348,10 @@ parse_cmdline(struct fuse_args *args, struct fuse_data *fusedata)
         }
     }
 
-    if (!fusedata->md.unmount) {
-        if (do_fuse_parse_cmdline(args, NULL, NULL, &fusedata->foreground)
-            == -1)
-            goto err2;
-    }
+    if (!fusedata->md.unmount
+        && (do_fuse_parse_cmdline(args, NULL, NULL, &fusedata->foreground)
+            == -1))
+        goto err2;
 
     if (fusedata->md.mountpoint == NULL) {
         error(0, 0, "Missing mountpoint parameter");
