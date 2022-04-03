@@ -261,7 +261,7 @@ opt_proc(void *data, const char *arg, int key, struct fuse_args *outargs)
     if (key == FUSE_OPT_KEY_NONOPT) {
         if (md->mountpoint == NULL) {
             md->mountpoint = strdup(arg);
-            return -(md->mountpoint == NULL);
+            return md->mountpoint == NULL ? -1 : 0;
         }
         return 1;
     }
