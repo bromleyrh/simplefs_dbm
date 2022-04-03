@@ -213,7 +213,7 @@ err_to_errno_p(int err)
 static int
 blkdev_flags(int flags)
 {
-    return (flags & ~(O_CREAT | O_EXCL));
+    return flags & ~(O_CREAT | O_EXCL);
 }
 
 static int
@@ -233,8 +233,8 @@ get_blkdev_size(int fd, uint64_t *sz)
     uint64_t count;
     uint32_t size;
 
-    if ((ioctl(fd, DKIOCGETBLOCKCOUNT, &count) == -1)
-        || (ioctl(fd, DKIOCGETBLOCKSIZE, &size) == -1))
+    if (ioctl(fd, DKIOCGETBLOCKCOUNT, &count) == -1
+        || ioctl(fd, DKIOCGETBLOCKSIZE, &size) == -1)
         return MINUS_ERRNO;
 
     count *= size;
@@ -255,14 +255,14 @@ init_header(struct disk_header *hdr, uint64_t blkdevsz)
 static int
 read_header(int fd, struct disk_header *hdr)
 {
-    return (do_ppread(fd, hdr, sizeof(*hdr), 0, IO_SIZE, NULL) == sizeof(*hdr))
+    return do_ppread(fd, hdr, sizeof(*hdr), 0, IO_SIZE, NULL) == sizeof(*hdr)
            ? 0 : -EIO;
 }
 
 static int
 write_header(int fd, const struct disk_header *hdr)
 {
-    return (do_ppwrite(fd, hdr, sizeof(*hdr), 0, IO_SIZE, NULL) == sizeof(*hdr))
+    return do_ppwrite(fd, hdr, sizeof(*hdr), 0, IO_SIZE, NULL) == sizeof(*hdr)
            ? 0 : -EIO;
 }
 
@@ -313,8 +313,8 @@ open_blkdev(int fd, int create, int ro, int *initialized,
 static int
 check_fd_regular(int fd, struct blkdev_ctx *bctx)
 {
-    if ((fd != FD(bctx)) && (fd != JFD(bctx)))
-        return err_to_errno((fd == DFD(bctx)) ? EINVAL : EBADF);
+    if (fd != FD(bctx) && fd != JFD(bctx))
+        return err_to_errno(fd == DFD(bctx) ? EINVAL : EBADF);
 
     return 0;
 }
@@ -347,7 +347,7 @@ do_blkdev_io(struct blkdev_ctx *bctx, int fd, void *buf, size_t count,
     if (offset + (off_t)count > maxreloff)
         return err_to_errno_sz(ENOSPC);
 
-    return (direction == 0)
+    return direction == 0
            ? do_ppread(fd, buf, count, off, maxio, intdata)
            : do_ppwrite(fd, (const void *)buf, count, off, maxio, intdata);
 }
@@ -477,7 +477,7 @@ fs_blkdev_openat(void *ctx, int dfd, const char *pathname, int flags,
         bctx->init = bctx->jinit = !initialized;
     }
 
-    init = (bfd == &FD(bctx)) ? &bctx->init : &bctx->jinit;
+    init = bfd == &FD(bctx) ? &bctx->init : &bctx->jinit;
     if (create) {
         if (!*init)
             *init = 1;
@@ -522,11 +522,11 @@ fs_blkdev_close(void *ctx, int fd)
        instead and remap the virtual descriptors by swapping bctx->fd and
        bctx->jfd */
     if (fd == bctx->lkfd) {
-        if (bctx->jlk && (fd == FD(bctx))) {
+        if (bctx->jlk && fd == FD(bctx)) {
             fd = JFD(bctx);
             JFD(bctx) = FD(bctx);
             FD(bctx) = fd;
-        } else if (bctx->lk && (fd == JFD(bctx))) {
+        } else if (bctx->lk && fd == JFD(bctx)) {
             fd = FD(bctx);
             FD(bctx) = JFD(bctx);
             JFD(bctx) = fd;
@@ -534,7 +534,7 @@ fs_blkdev_close(void *ctx, int fd)
     }
 
     ret = close(fd);
-    if ((ret != -1) || (errno != EBADF)) {
+    if (ret != -1 || errno != EBADF) {
         if (fd == FD(bctx))
             bctx->lk = 0;
         else if (fd == JFD(bctx))
@@ -565,7 +565,7 @@ fs_blkdev_mmap(void *ctx, void *addr, size_t length, int prot, int flags,
     struct blkdev_ctx *bctx = ctx;
     void *ret;
 
-    if ((fd != FD(bctx)) || (offset != 0))
+    if (fd != FD(bctx) || offset != 0)
         return err_to_errno_p(EINVAL);
 
     ret = mmap(addr, length, prot, flags, fd, bctx->hdr.off + offset);
@@ -586,7 +586,7 @@ fs_blkdev_munmap(void *ctx, void *addr, size_t length)
     struct blkdev_ctx *bctx = ctx;
 
     ret = munmap(addr, length);
-    if ((addr == bctx->mmap_addr) && (ret != 0))
+    if (addr == bctx->mmap_addr && ret != 0)
         bctx->mmap_addr = NULL;
 
     return ret;
@@ -603,7 +603,7 @@ fs_blkdev_mmap_validate_range(void *ctx, void *addr, size_t length)
 {
     struct blkdev_ctx *bctx = ctx;
 
-    if ((bctx->mmap_addr == NULL) || ((char *)addr < (char *)bctx->mmap_addr))
+    if (bctx->mmap_addr == NULL || (char *)addr < (char *)bctx->mmap_addr)
         return err_to_errno(EFAULT);
 
     if ((char *)addr + length > (char *)bctx->mmap_addr + DATA_SIZE(bctx))
@@ -648,7 +648,7 @@ fs_blkdev_fstat(void *ctx, int fd, struct stat *s)
     omemset(s, 0);
     s->st_mode = S_IFREG;
     s->st_rdev = (dev_t)~0;
-    s->st_size = (fd == FD(bctx)) ? DATA_SIZE(bctx) : JOURNAL_SIZE;
+    s->st_size = fd == FD(bctx) ? DATA_SIZE(bctx) : JOURNAL_SIZE;
 
     return 0;
 }
@@ -678,7 +678,7 @@ fs_blkdev_ftruncate(void *ctx, int fd, off_t length)
     (void)ctx;
     (void)fd;
 
-    return (length < 0) ? err_to_errno(EINVAL) : 0;
+    return length < 0 ? err_to_errno(EINVAL) : 0;
 }
 
 static int
@@ -729,7 +729,7 @@ fs_blkdev_flock(void *ctx, int fd, int operation)
     int op;
     struct blkdev_ctx *bctx = ctx;
 
-    if ((fd != FD(bctx)) && (fd != JFD(bctx)))
+    if (fd != FD(bctx) && fd != JFD(bctx))
         return flock(fd, operation);
 
     if (operation & ~(LOCK_OPS | LOCK_NB))
@@ -740,11 +740,10 @@ fs_blkdev_flock(void *ctx, int fd, int operation)
     if (op == LOCK_UN) {
         if (bctx->lkfd == -1)
             goto end;
-        if (((fd == FD(bctx)) && bctx->jlk)
-            || ((fd == JFD(bctx)) && bctx->lk))
+        if ((fd == FD(bctx) && bctx->jlk) || (fd == JFD(bctx) && bctx->lk))
             goto end;
     } else {
-        if ((op != LOCK_SH) && (op != LOCK_EX))
+        if (op != LOCK_SH && op != LOCK_EX)
             return err_to_errno(EINVAL);
         if (bctx->lkfd != -1)
             goto end;
@@ -755,14 +754,14 @@ fs_blkdev_flock(void *ctx, int fd, int operation)
     for (i = 0;; i++) { /* work around Linux kernel race condition */
         if (flock(fd, operation) == 0)
             break;
-        if ((errno != EAGAIN) || (i == 10))
+        if (errno != EAGAIN || i == 10)
             return -1;
         sleep(1);
     }
-    bctx->lkfd = (op == LOCK_UN) ? -1 : fd;
+    bctx->lkfd = op == LOCK_UN ? -1 : fd;
 
 end:
-    *((fd == FD(bctx)) ? &bctx->lk : &bctx->jlk) = (op != LOCK_UN);
+    *(fd == FD(bctx) ? &bctx->lk : &bctx->jlk) = op != LOCK_UN;
     return 0;
 }
 

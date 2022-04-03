@@ -60,7 +60,7 @@ int
 close_log_file(FILE *f)
 {
     if (f == NULL)
-        return (*testlogp == NULL) ? 0 : fclose(*testlogp);
+        return *testlogp == NULL ? 0 : fclose(*testlogp);
 
     return fclose(f);
 }

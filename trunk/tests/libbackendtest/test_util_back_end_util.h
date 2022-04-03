@@ -18,13 +18,13 @@
 extern struct params params;
 
 #define ERROR_FATAL(err) \
-    (((err) < 0) && ((err) != -ENOSPC) && (((err) != -ENOMEM) || !*mem_test))
+    ((err) < 0 && (err) != -ENOSPC && ((err) != -ENOMEM || !*mem_test))
 
 #define NUM_OPS(bectx) ((bectx)->stats.num_ops - (bectx)->stats.num_ops_start)
 
 #define VERBOSE_LOG(f, format, ...) \
     do { \
-        if ((verbose_debug != NULL) && *verbose_debug) \
+        if (verbose_debug != NULL && *verbose_debug) \
             fprintf(f, format, ##__VA_ARGS__); \
     } while (0)
 
@@ -34,9 +34,9 @@ refresh_stat_output(struct be_ctx *bectx)
     static struct timeval last_print_time = {.tv_sec = 0, .tv_usec = 0};
     struct timeval curr;
 
-    if ((gettimeofday(&curr, NULL) == 0)
-        && ((curr.tv_sec - last_print_time.tv_sec
-             + 0.000001 * (curr.tv_usec-last_print_time.tv_usec)) >= 1.0)) {
+    if (gettimeofday(&curr, NULL) == 0
+        && curr.tv_sec - last_print_time.tv_sec
+           + 0.000001 * (curr.tv_usec-last_print_time.tv_usec) >= 1.0) {
         clrscr(stderr);
         (*bectx->cb.print_stats)(stderr, bectx, 0);
         last_print_time = curr;

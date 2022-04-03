@@ -251,7 +251,7 @@ init_ver_3_to_4(struct back_end *be, size_t hdrlen, size_t jlen, int ro,
 
     res = back_end_look_up(be, &k, NULL, &hdr, NULL, 0);
     if (res != 1)
-        return (res == 0) ? -EILSEQ : res;
+        return res == 0 ? -EILSEQ : res;
 
     res = back_end_ctl(be, BACK_END_DBM_OP_GET_HDR_LEN, &db_hdrlen);
     if (res != 0)
@@ -264,7 +264,7 @@ init_ver_3_to_4(struct back_end *be, size_t hdrlen, size_t jlen, int ro,
     alloc_cb.alloc_cb_ctx = &actx;
 
     res = back_end_ctl(be, BACK_END_DBM_OP_FOREACH_ALLOC, &alloc_cb);
-    if ((res != 0) && (res != -ENOSPC))
+    if (res != 0 && res != -ENOSPC)
         return res;
 
     hdr.usedbytes = hdrlen + db_hdrlen + actx.tot_sz;
@@ -292,7 +292,7 @@ init_ver_4_to_5(struct back_end *be, size_t hdrlen, size_t jlen, int ro,
 
     res = back_end_look_up(be, &k, NULL, &hdr, NULL, 0);
     if (res != 1)
-        return (res == 0) ? -EILSEQ : res;
+        return res == 0 ? -EILSEQ : res;
 
     hdr.usedbytes += jlen;
 
@@ -400,7 +400,7 @@ init_ver_5_to_6(struct back_end *be, size_t hdrlen, size_t jlen, int ro,
         if (res != 0)
             goto err1;
 
-        if (end || (ino == ULONG_MAX))
+        if (end || ino == ULONG_MAX)
             break;
     }
 
@@ -451,7 +451,7 @@ compat_init(struct back_end *be, uint64_t user_ver, uint64_t fs_ver,
         for (i = 0; i < ARRAY_SIZE(conv_fns); i++) {
             const struct ent *conv = &conv_fns[i];
 
-            if ((conv->user_ver != user_ver) || (conv->fs_ver != fs_ver))
+            if (conv->user_ver != user_ver || conv->fs_ver != fs_ver)
                 continue;
 
             ret = (*conv->check_init)(be, ro, fmtconv);

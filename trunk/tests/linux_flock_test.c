@@ -83,7 +83,7 @@ main(int argc, char **argv)
     if (argc < 2)
         error(EXIT_FAILURE, 0, "Must specify file");
     file = argv[1];
-    num_opens = ((argc > 2) && (strcmp("1", argv[2]) == 0)) ? 1 : 2;
+    num_opens = argc > 2 && strcmp("1", argv[2]) == 0 ? 1 : 2;
 
     if (num_opens > 1)
         close_file(open_file(file));

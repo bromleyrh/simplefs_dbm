@@ -56,7 +56,7 @@ walk_fn1(const void *kv, void *ctx)
     curr = get_short_key(kv, data->key_size);
 
     ++data->keys_found;
-    return (check_increasing(&data->prevkey, curr) == 0) ? 0 : -EIO;
+    return check_increasing(&data->prevkey, curr) == 0 ? 0 : -EIO;
 }
 
 static int
@@ -74,7 +74,7 @@ walk_fn2(const void *kv, void *ctx)
     printf("%d\n", curr);
 
     /* test walk resume */
-    return (data->walk_resume_test && (data->keys_found % 10 == 0))
+    return data->walk_resume_test && data->keys_found % 10 == 0
            ? data->walk_resume_retval : 0;
 }
 
@@ -94,10 +94,10 @@ walk_fn3(const void *kv, void *ctx)
         return -EIO;
     }
 
-    if ((bitmap_find_next_set(data->bmdata->bitmap, data->bmdata->bitmap_len,
-                              data->bitmap_pos, (unsigned *)&data->bitmap_pos,
-                              1) == 0)
-        || (curr != data->bitmap_pos)) {
+    if (bitmap_find_next_set(data->bmdata->bitmap, data->bmdata->bitmap_len,
+                             data->bitmap_pos, (unsigned *)&data->bitmap_pos, 1)
+        == 0
+        || curr != data->bitmap_pos) {
         fillbuf(output, "Bitmap (%6d) and back end (%6d) differ\n",
                 data->bitmap_pos, curr);
         if (data->keys_found > 1)
@@ -119,7 +119,7 @@ walk_fn3(const void *kv, void *ctx)
     ++data->bitmap_pos;
 
     /* test walk resume */
-    return (data->walk_resume_test && (data->keys_found % 10 == 0))
+    return data->walk_resume_test && data->keys_found % 10 == 0
            ? data->walk_resume_retval : 0;
 }
 

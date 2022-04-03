@@ -251,9 +251,9 @@ fn2(const void *key, const void *data, size_t datalen, void *ctx)
 
     curr = get_short_key(key, wctx->key_size);
 
-    if ((datalen != DATA_LEN(d->len))
-        || (check_int_array((const int *)d->data, d->len / sizeof(int), curr)
-            != 0)) {
+    if (datalen != DATA_LEN(d->len)
+        || check_int_array((const int *)d->data, d->len / sizeof(int), curr)
+           != 0) {
         errmsgf("Data (length %zu) for key %d corrupt\n", datalen, *(int *)key);
         return -EIO;
     }
@@ -276,9 +276,9 @@ fn3(const void *key, const void *data, size_t datalen, void *ctx)
 
     curr = get_short_key(key, wctx->key_size);
 
-    if ((datalen != DATA_LEN(d->len))
-        || (check_int_array((const int *)d->data, d->len / sizeof(int), curr)
-            != 0)) {
+    if (datalen != DATA_LEN(d->len)
+        || check_int_array((const int *)d->data, d->len / sizeof(int), curr)
+           != 0) {
         errmsgf("Data (length %zu) for key %d corrupt\n", datalen, *(int *)key);
         return -EIO;
     }
@@ -290,12 +290,12 @@ fn3(const void *key, const void *data, size_t datalen, void *ctx)
         return -EIO;
     }
 
-    if ((bitmap_find_next_set(wctx->bmdata->bitmap, wctx->bmdata->bitmap_len,
-                              wctx->bitmap_pos, (unsigned *)&wctx->bitmap_pos,
-                              1) == 0)
-        || (curr != wctx->bitmap_pos)) {
+    if (bitmap_find_next_set(wctx->bmdata->bitmap, wctx->bmdata->bitmap_len,
+                             wctx->bitmap_pos, (unsigned *)&wctx->bitmap_pos, 1)
+        == 0
+        || curr != wctx->bitmap_pos) {
         errmsgf("%sBitmap (%6d) and database (%6d) differ\n",
-                (wctx->keys_found > 1) ? "\n" : "", wctx->bitmap_pos, curr);
+                wctx->keys_found > 1 ? "\n" : "", wctx->bitmap_pos, curr);
         return -EIO;
     }
 
@@ -335,10 +335,10 @@ load_bitmap(const char *file, struct be_stats *stats,
         goto err2;
     }
 
-    if ((do_read(fd, stats, sizeof(struct be_stats), 4096)
-         != sizeof(struct be_stats))
-        || (do_read(fd, bmdata->bitmap, bmsize, 4096) != bmsize)) {
-        err = (errno == 0) ? EILSEQ : ERRNO;
+    if (do_read(fd, stats, sizeof(struct be_stats), 4096)
+        != sizeof(struct be_stats)
+        || do_read(fd, bmdata->bitmap, bmsize, 4096) != bmsize) {
+        err = errno == 0 ? EILSEQ : ERRNO;
         errmsg = "Couldn't read bitmap file";
         goto err2;
     }
@@ -419,10 +419,10 @@ save_bitmap(const char *file, struct be_stats *stats,
         goto err1;
     }
 
-    if ((do_write(fd, stats, sizeof(struct be_stats), 4096)
-         != sizeof(struct be_stats))
-        || (do_write(fd, bmdata->bitmap, bmsize, 4096) != bmsize)
-        || (fsync(fd) == -1)) {
+    if (do_write(fd, stats, sizeof(struct be_stats), 4096)
+        != sizeof(struct be_stats)
+        || do_write(fd, bmdata->bitmap, bmsize, 4096) != bmsize
+        || fsync(fd) == -1) {
         errmsg = "Couldn't write bitmap file";
         goto err2;
     }
@@ -502,7 +502,7 @@ init_fuse_cache_ctx(struct fuse_cache_ctx *cachectx, const char *file,
 
     cachectx->bitmap = bitmap;
 
-    cachectx->max_data_len = (max_data_len == 0)
+    cachectx->max_data_len = max_data_len == 0
                              ? MAX_DATA_LEN
                              : MIN(max_data_len, MAX_DATA_LEN);
 
@@ -678,11 +678,11 @@ test_search(void *be, void *key, void *res)
         return MINUS_ERRNO;
 
     ret = back_end_look_up(cachectx->be, key, res, data, &datalen, 0);
-    if (((ret == 1)
-         && (check_int_array((const int *)data->data, data->len / sizeof(int),
-                             *(int *)res)
-             != 0))
-        || (ret == 0))
+    if ((ret == 1
+         && check_int_array((const int *)data->data, data->len / sizeof(int),
+                            *(int *)res)
+            != 0)
+        || ret == 0)
         ret = -EIO;
 
     free(data);
@@ -744,9 +744,9 @@ test_iter_get(void *iter, void *ret)
 
     err = back_end_iter_get(iter, ret, data, &datalen);
     if (!err
-        && (check_int_array((const int *)data->data, data->len / sizeof(int),
-                            *(int *)ret)
-            != 0))
+        && check_int_array((const int *)data->data, data->len / sizeof(int),
+                           *(int *)ret)
+           != 0)
         err = -EIO;
 
     free(data);
@@ -936,7 +936,7 @@ run_automated_test(int test_type, const struct params *p)
     if (ret != 0)
         goto end1;
 
-    if (fuse_cache_verbose_debug && (open_log_file(0) == NULL))
+    if (fuse_cache_verbose_debug && open_log_file(0) == NULL)
         goto end1;
 
     switch (test_type) {
@@ -1026,15 +1026,14 @@ main(int argc, char **argv)
 
     ret = parse_cmdline(argc, argv, &seed, &p, &test_type, &p.max_data_len);
     if (ret != 0)
-        return (ret == -1) ? EXIT_FAILURE : EXIT_SUCCESS;
+        return ret == -1 ? EXIT_FAILURE : EXIT_SUCCESS;
 
     if (init_test(argc, argv, seed, 0, 0, 0) == -1)
         return EXIT_FAILURE;
 
     ret = run_automated_test(test_type, &p);
 
-    if (end_test(argc, argv, seed, (ret == 0) ? EXIT_SUCCESS : EXIT_FAILURE)
-        != 0)
+    if (end_test(argc, argv, seed, ret == 0 ? EXIT_SUCCESS : EXIT_FAILURE) != 0)
         return EXIT_FAILURE;
 
     return EXIT_SUCCESS;

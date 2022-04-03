@@ -57,7 +57,7 @@ test_mknod(const char *name, mode_t mode)
 static int
 test_mkdir(const char *name, mode_t mode)
 {
-    return (mkdir(name, mode) == -1) ? handle_error("mkdir") : 0;
+    return mkdir(name, mode) == -1 ? handle_error("mkdir") : 0;
 }
 
 static int
@@ -66,19 +66,19 @@ test_opendir(const char *name)
     int fd;
 
     fd = open(name, O_DIRECTORY | O_RDONLY);
-    return (fd == -1) ? handle_error("open") : fd;
+    return fd == -1 ? handle_error("open") : fd;
 }
 
 static int
 test_unlinkat(int dfd, const char *name, int flag)
 {
-    return (unlinkat(dfd, name, flag) == -1) ? handle_error("unlinkat") : 0;
+    return unlinkat(dfd, name, flag) == -1 ? handle_error("unlinkat") : 0;
 }
 
 static int
 test_rmdir(const char *name)
 {
-    return (rmdir(name) == -1) ? handle_error("rmdir") : 0;
+    return rmdir(name) == -1 ? handle_error("rmdir") : 0;
 }
 
 static int

@@ -452,7 +452,7 @@ trans_cb(int trans_type, int act, int status, void *ctx)
                  type2str[trans_type], act2str[act], status);
     }
 
-    if ((status != 0) && (act != DB_HL_ACT_ABORT))
+    if (status != 0 && act != DB_HL_ACT_ABORT)
         return;
 
     switch (act) {
@@ -466,8 +466,8 @@ trans_cb(int trans_type, int act, int status, void *ctx)
                 op_list_roll_back(&cache->ops_user, USER_TRANS,
                                   &cache->ops_group, TRANS, cache);
             }
-            if ((trans_type & DB_HL_TRANS_GROUP)
-                && (op_list_replay(&cache->ops_group, cache) != 0))
+            if (trans_type & DB_HL_TRANS_GROUP
+                && op_list_replay(&cache->ops_group, cache) != 0)
                 cache->replay = 1;
         }
         break;
@@ -480,7 +480,7 @@ trans_cb(int trans_type, int act, int status, void *ctx)
                       __FUNCTION__);
             break;
         case 0:
-            if ((cache->sync_cb != NULL) && (trans_type & DB_HL_TRANS_GROUP)) {
+            if (cache->sync_cb != NULL && trans_type & DB_HL_TRANS_GROUP) {
                 /* invoke *sync_cb to allow clearing writeback error */
                 (*cache->sync_cb)(1, cache->sync_ctx);
             }
@@ -574,7 +574,7 @@ chk_process_cache_refs(struct avl_tree *objs, struct avl_tree *cache)
 
     res = avl_tree_iter_new(&iter, cache);
     if (res != 0)
-        return (res == -ENOENT) ? 0 : res;
+        return res == -ENOENT ? 0 : res;
 
     for (;;) {
         struct cache_obj *o;
@@ -690,7 +690,7 @@ verify_list(struct obj_list *list, struct fuse_cache *cache)
             errmsg = "Object in global list has refcnt 0";
             goto err;
         }
-        if (!o->in_cache && (o->lists == 0)) {
+        if (!o->in_cache && o->lists == 0) {
             errmsg = "Object in global list has in_cache status 0 and list "
                      "flags 0";
             goto err;
@@ -715,7 +715,7 @@ verify_list(struct obj_list *list, struct fuse_cache *cache)
                 break;
             }
         }
-        if (!in_list && (o->lists & TRANS)) {
+        if (!in_list && o->lists & TRANS) {
             errmsg = "Object not in group operation list has group operation "
                      "flag set";
             goto err;
@@ -727,7 +727,7 @@ verify_list(struct obj_list *list, struct fuse_cache *cache)
                 break;
             }
         }
-        if (!(in_list & 2) && (o->lists & USER_TRANS)) {
+        if (!(in_list & 2) && o->lists & USER_TRANS) {
             errmsg = "Object not in user operation list has user operation "
                      "flag set";
             goto err;
@@ -1016,7 +1016,7 @@ op_list_dump(FILE *f, struct op_list *list, struct fuse_cache *cache)
         [DELETE] = "delete"
     };
 
-    if (!fuse_cache_debug || (cache->dump_cb == NULL))
+    if (!fuse_cache_debug || cache->dump_cb == NULL)
         return;
 
     fprintf(f, "Operation list \"%s\"\n", list->name);
@@ -1087,7 +1087,7 @@ get_next_elem(struct cache_obj **o, const void *key, struct fuse_cache *cache)
         if (res != 0)
             goto end;
 
-        if (!(ret->deleted))
+        if (!ret->deleted)
             break;
     }
 
@@ -1232,7 +1232,7 @@ do_iter_search_cache(avl_tree_iter_t iter, const void *key,
     if (res < 0)
         return res;
 
-    if ((*(cache->key_cmp))(cache->key_ctx.last_key->key, key, NULL) < 0) {
+    if ((*cache->key_cmp)(cache->key_ctx.last_key->key, key, NULL) < 0) {
         res = avl_tree_iter_next(iter);
         if (res != 0)
             return res;
@@ -1286,7 +1286,7 @@ init_cache_obj(struct cache_obj *o, struct avl_tree_node *n, const void *key,
         goto err2;
     }
 
-    o->id = (cache->cur_id)++;
+    o->id = cache->cur_id++;
 
     memcpy(k, key, cache->key_size);
     memcpy(d, data, datasize);
@@ -1342,7 +1342,7 @@ static int
 destroy_cache_obj(struct cache_obj *o, int force, int keep_node,
                   struct fuse_cache *cache)
 {
-    if (force || (o->refcnt == 0)) {
+    if (force || o->refcnt == 0) {
         assert(!o->in_cache);
         assert(o->lists == 0);
         LIST_REMOVE(o, e);
@@ -1571,7 +1571,7 @@ fuse_cache_insert(void *ctx, const void *key, const void *data, size_t datasize)
         }
         assert(CACHE_OBJ_VALID(o_old));
 
-        if (!(o_old->deleted)) {
+        if (!o_old->deleted) {
             res = -EADDRINUSE;
             goto err2;
         }
@@ -1778,7 +1778,7 @@ fuse_cache_look_up(void *ctx, const void *key, void *retkey, void *retdata,
 
     /* look up in back end */
     res = be_look_up(cache, key, retkey, retdata, retdatasize, 0);
-    if (!look_up_nearest || (res != 0))
+    if (!look_up_nearest || res != 0)
         return res;
 
     /* look up nearest key in cache */
@@ -1791,7 +1791,7 @@ fuse_cache_look_up(void *ctx, const void *key, void *retkey, void *retdata,
     if (cache->key_ctx.last_key_valid) {
         cmp = (*cache->key_cmp)(cache->key_ctx.last_key->key, key, NULL);
         assert(cmp != 0);
-        if ((cmp < 0) || cache->key_ctx.last_key->deleted) {
+        if (cmp < 0 || cache->key_ctx.last_key->deleted) {
             res = get_next_elem(&o, cache->key_ctx.last_key->key, cache);
             if (res != 0) {
                 if (res != -EADDRNOTAVAIL)
@@ -1825,7 +1825,7 @@ fuse_cache_look_up(void *ctx, const void *key, void *retkey, void *retdata,
         res = avl_tree_search(cache->cache, &tmp, &tmp);
         if (res < 0)
             return res;
-        if ((res == 0) || !tmp->deleted) {
+        if (res == 0 || !tmp->deleted) {
             if (biter != NULL)
                 be_iter_free(cache, biter);
             break;
@@ -1839,7 +1839,7 @@ fuse_cache_look_up(void *ctx, const void *key, void *retkey, void *retdata,
             res = be_iter_search(cache, biter, retkey);
             if (res != 1) {
                 be_iter_free(cache, biter);
-                return (res == 0) ? -EIO : res;
+                return res == 0 ? -EIO : res;
             }
         } else {
             res = be_iter_next(cache, biter);
@@ -1868,7 +1868,7 @@ fuse_cache_look_up(void *ctx, const void *key, void *retkey, void *retdata,
     return 2;
 
 out_cache:
-    return (res > 0)
+    return res > 0
            ? return_cache_obj(o, retkey, retdata, retdatasize, res, cache)
            : res;
 }
@@ -1908,7 +1908,7 @@ fuse_cache_delete(void *ctx, const void *key)
         if (o->deleted)
             return -EADDRNOTAVAIL;
         in_cache = 1;
-        in_list = !!(o->lists);
+        in_list = !!o->lists;
     }
 
     /* delete from back end */
@@ -2019,7 +2019,7 @@ fuse_cache_walk(void *ctx, back_end_walk_cb_t fn, void *wctx)
             minkey = key;
         }
     }
-    if ((citer != NULL) && (biter != NULL)) {
+    if (citer != NULL && biter != NULL) {
         res = get_next_iter_elem(o, key, &data, &datalen, &datasize, citer,
                                  &biter, &iter, &minkey, cache);
         if (res != 0)
@@ -2092,7 +2092,7 @@ fuse_cache_walk(void *ctx, back_end_walk_cb_t fn, void *wctx)
                 minkey = key;
         }
 
-        if ((citer != NULL) && (biter != NULL)) { /* determine next element */
+        if (citer != NULL && biter != NULL) { /* determine next element */
             res = get_next_iter_elem(o, key, &data, &datalen, &datasize, citer,
                                      &biter, &iter, &minkey, cache);
             if (res != 0)
@@ -2254,7 +2254,7 @@ fuse_cache_iter_get(void *iter, void *retkey, void *retdata,
                 iterator->minkey = iterator->key;
         }
 
-        if ((iterator->citer != NULL) && (iterator->biter != NULL)) {
+        if (iterator->citer != NULL && iterator->biter != NULL) {
             /* determine next element */
             err = get_next_iter_elem(iterator->o, iterator->key, NULL, NULL,
                                      NULL, iterator->citer, &iterator->biter,
@@ -2306,7 +2306,7 @@ fuse_cache_iter_next(void *iter)
             res = avl_tree_iter_get(iterator->citer, &o);
             if (res != 0)
                 break;
-            if (!(o->deleted))
+            if (!o->deleted)
                 goto end;
         }
         if (res != -EADDRNOTAVAIL)
@@ -2546,7 +2546,7 @@ fuse_cache_set_dump_cb(struct fuse_cache *cache,
                        void *ctx)
 {
     cache->dump_cb = cb;
-    cache->dump_ctx = (cb == NULL) ? NULL : ctx;
+    cache->dump_ctx = cb == NULL ? NULL : ctx;
 }
 
 /* vi: set expandtab sw=4 ts=4: */

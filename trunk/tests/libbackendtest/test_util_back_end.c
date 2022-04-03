@@ -60,7 +60,7 @@ static const struct {
     [3] = {&auto_test_trans_commit, "committed"}
 };
 
-#define PERFORM_REPLACE(bep) (((bep)->test_replace) ? random() % 2 : 0)
+#define PERFORM_REPLACE(bep) ((bep)->test_replace ? random() % 2 : 0)
 
 #define RESET_ERR_TEST() \
     do { \
@@ -305,7 +305,7 @@ be_insert(struct be_ctx *bectx, int key, int *result, int repeat_allowed,
         if (record_stats)
             ++bectx->stats.num_keys;
     } else {
-        if ((ret == -EADDRINUSE) && repeat_allowed) {
+        if (ret == -EADDRINUSE && repeat_allowed) {
             if (verbose > 0)
                 error(0, -ret, "Error inserting in back end");
             if (record_stats)
@@ -319,7 +319,7 @@ be_insert(struct be_ctx *bectx, int key, int *result, int repeat_allowed,
     if (record_stats) {
         ++bectx->stats.num_gen;
         ++bectx->stats.num_ops;
-        if ((bectx->max_key != -1) && (key > bectx->max_key))
+        if (bectx->max_key != -1 && key > bectx->max_key)
             ++bectx->stats.num_ops_out_of_range;
     }
 
@@ -343,7 +343,7 @@ be_replace(struct be_ctx *bectx, int key, int *result, int nonexistent_allowed,
         if (verbose > 1)
             infomsgf("Replaced %d\n", key);
     } else {
-        if ((ret == -EADDRNOTAVAIL) && nonexistent_allowed) {
+        if (ret == -EADDRNOTAVAIL && nonexistent_allowed) {
             if (verbose > 0)
                 error(0, -ret, "Error replacing data in back end");
             if (record_stats)
@@ -357,7 +357,7 @@ be_replace(struct be_ctx *bectx, int key, int *result, int nonexistent_allowed,
     if (record_stats) {
         ++bectx->stats.num_gen;
         ++bectx->stats.num_ops;
-        if ((bectx->max_key != -1) && (key > bectx->max_key))
+        if (bectx->max_key != -1 && key > bectx->max_key)
             ++bectx->stats.num_ops_out_of_range;
     }
 
@@ -383,7 +383,7 @@ be_delete(struct be_ctx *bectx, int key, int *result, int repeat_allowed,
         if (record_stats)
             --bectx->stats.num_keys;
     } else {
-        if ((ret == -EADDRNOTAVAIL) && repeat_allowed) {
+        if (ret == -EADDRNOTAVAIL && repeat_allowed) {
             if (verbose > 0)
                 error(0, -ret, "Error deleting from back end");
             if (record_stats)
@@ -396,7 +396,7 @@ be_delete(struct be_ctx *bectx, int key, int *result, int repeat_allowed,
 
     if (record_stats) {
         ++bectx->stats.num_ops;
-        if ((bectx->max_key != -1) && (key > bectx->max_key))
+        if (bectx->max_key != -1 && key > bectx->max_key)
             ++bectx->stats.num_ops_out_of_range;
     }
 
@@ -416,7 +416,7 @@ be_delete_from(struct be_ctx *bectx, int node, int *result, int repeat_allowed,
         if (record_stats)
             --bectx->stats.num_keys;
     } else {
-        if ((ret == -EADDRNOTAVAIL) && repeat_allowed) {
+        if (ret == -EADDRNOTAVAIL && repeat_allowed) {
             if (verbose > 0)
                 error(0, -ret, "Error deleting from back end");
             if (record_stats)
@@ -461,7 +461,7 @@ be_find(struct be_ctx *bectx, int key, int *result, int verbose,
 
     if (record_stats) {
         ++bectx->stats.num_ops;
-        if ((bectx->max_key != -1) && (key > bectx->max_key))
+        if (bectx->max_key != -1 && key > bectx->max_key)
             ++bectx->stats.num_ops_out_of_range;
     }
 
@@ -483,14 +483,14 @@ be_range_find(struct be_ctx *bectx, int key, int *result, int verbose,
     full_key = get_full_key(key, bectx->key_size, buf);
 
     ret = (*bectx->ops.range_search)(bectx->be, full_key, res);
-    if ((ret != 0) && (ret != 1)) {
+    if (ret != 0 && ret != 1) {
         error(0, -ret, "Error looking up in back end");
         return ret;
     }
 
     if (record_stats) {
         ++bectx->stats.num_ops;
-        if ((bectx->max_key != -1) && (key > bectx->max_key))
+        if (bectx->max_key != -1 && key > bectx->max_key)
             ++bectx->stats.num_ops_out_of_range;
     }
 
@@ -522,7 +522,7 @@ be_select(struct be_ctx *bectx, int idx, int *result, int verbose,
 
     if (record_stats) {
         ++bectx->stats.num_ops;
-        if ((bectx->max_key != -1) && (idx > bectx->max_key))
+        if (bectx->max_key != -1 && idx > bectx->max_key)
             ++bectx->stats.num_ops_out_of_range;
     }
 
@@ -556,7 +556,7 @@ be_get_index(struct be_ctx *bectx, int key, int *result, int verbose,
 
     if (record_stats) {
         ++bectx->stats.num_ops;
-        if ((bectx->max_key != -1) && (key > bectx->max_key))
+        if (bectx->max_key != -1 && key > bectx->max_key)
             ++bectx->stats.num_ops_out_of_range;
     }
 
@@ -650,7 +650,7 @@ be_iter_prev(struct be_ctx *bectx, void *iter, int verbose, int record_stats)
     (void)record_stats;
 
     ret = (*bectx->ops.iter_prev)(iter);
-    if ((ret != 0) && (ret != -EADDRNOTAVAIL))
+    if (ret != 0 && ret != -EADDRNOTAVAIL)
         error(0, -ret, "Error decrementing iterator");
 
     return ret;
@@ -665,7 +665,7 @@ be_iter_next(struct be_ctx *bectx, void *iter, int verbose, int record_stats)
     (void)record_stats;
 
     ret = (*bectx->ops.iter_next)(iter);
-    if ((ret != 0) && (ret != -EADDRNOTAVAIL))
+    if (ret != 0 && ret != -EADDRNOTAVAIL)
         error(0, -ret, "Error incrementing iterator");
 
     return ret;
@@ -796,28 +796,28 @@ do_iter_seek_single(struct be_ctx *bectx, void *iter, unsigned *curkey, int dir,
         bmdata = bectx->bmdata;
 
         oldkey = *curkey;
-        if ((dir == 0) && (*curkey == 0))
+        if (dir == 0 && *curkey == 0)
             tmp = 0;
         else {
-            *curkey = (dir == 0) ? *curkey - 1 : *curkey + 1;
+            *curkey = dir == 0 ? *curkey - 1 : *curkey + 1;
             tmp = (*bmseekfn)(bmdata->bitmap, bmdata->bitmap_len, *curkey,
                               curkey, 1);
             if (tmp == 0)
                 *curkey = oldkey;
         }
-        if (use_be && (tmp != ret)) {
+        if (use_be && tmp != ret) {
             error(0, 0, "Bitmap and iterator differ seeking %s from %u (%d "
-                  "vs. %d)", (dir == 0) ? "left" : "right", oldkey, !ret, ret);
+                  "vs. %d)", dir == 0 ? "left" : "right", oldkey, !ret, ret);
             return -EIO;
         }
     }
 
-    if (use_be && use_bitmap && (ret == 1)) {
+    if (use_be && use_bitmap && ret == 1) {
         if ((unsigned)res == *curkey)
             infomsgf("\rBitmap and iterator agree up to %9d", res);
         else {
             error(0, 0, "Bitmap and iterator differ at key %s of %u (%u vs. "
-                  "%d)", (dir == 0) ? "left" : "right", oldkey, *curkey, res);
+                  "%d)", dir == 0 ? "left" : "right", oldkey, *curkey, res);
             return -EIO;
         }
     }
@@ -833,13 +833,13 @@ do_test_iter(struct be_ctx *bectx, void *iter, unsigned startkey, int max_key,
              int use_be, int use_bitmap, uint64_t *n, uint64_t num_ops)
 {
     int dir, range_end = 0;
-    int no_prev = (bectx->ops.iter_prev == NULL);
+    int no_prev = bectx->ops.iter_prev == NULL;
     int ret;
     uint64_t nseeks = 0;
     unsigned curkey;
 
     curkey = startkey;
-    dir = no_prev ? 1 : (random() % 2);
+    dir = no_prev ? 1 : random() % 2;
 
     for (;;) {
         int i;
@@ -923,8 +923,8 @@ test_iter_funcs(struct be_ctx *bectx, int test_iter_only, uint64_t num_ops,
         unsigned next;
 
         if (test_iter_only && use_bitmap
-            && (bitmap_find_next_set(bmdata->bitmap, bmdata->bitmap_len, 0,
-                                     &next, 0) == 1))
+            && bitmap_find_next_set(bmdata->bitmap, bmdata->bitmap_len, 0,
+                                    &next, 0) == 1)
             key = next;
         else
             key = (*gen_key_fn)(max_key, out_of_range_interval);
@@ -942,10 +942,9 @@ test_iter_funcs(struct be_ctx *bectx, int test_iter_only, uint64_t num_ops,
             ret = 0;
 
         if (use_bitmap) {
-            tmp = (key < (int)bmdata->size)
-                  ? bitmap_get(bmdata->bitmap, key) : 0;
+            tmp = key < (int)bmdata->size ? bitmap_get(bmdata->bitmap, key) : 0;
 
-            if ((tmp != ret) && use_be) {
+            if (tmp != ret && use_be) {
                 error(0, 0, "Bitmap and back end differ at %d (%d vs. %d)", key,
                       !ret, ret);
                 ret = -EIO;
@@ -954,7 +953,7 @@ test_iter_funcs(struct be_ctx *bectx, int test_iter_only, uint64_t num_ops,
         } else
             tmp = 0;
 
-        if ((ret == 1) || (tmp == 1)) {
+        if (ret == 1 || tmp == 1) {
             ret = do_test_iter(bectx, iter, (unsigned)key, max_key, use_be,
                                use_bitmap, &n, num_ops);
             if (ret != 0)
@@ -971,7 +970,7 @@ test_iter_funcs(struct be_ctx *bectx, int test_iter_only, uint64_t num_ops,
     for (;;) {
         ret = be_iter_free(bectx, iter, 0, 1);
         RESET_ERR_TEST();
-        if ((ret == 0) || ERROR_FATAL(ret))
+        if (ret == 0 || ERROR_FATAL(ret))
             break;
     }
     return ret;
@@ -1002,7 +1001,7 @@ cmp_nonzero_unsigned(const void *k, const void *e)
 
     (void)k;
 
-    return (uword == 0);
+    return uword == 0;
 }
 
 #endif
@@ -1040,7 +1039,7 @@ empty_back_end(struct be_ctx *bectx)
         goto err;
     keys = (int *)dynamic_array_buf(key_list);
 
-    for (i = 0; !quit && (i < n); i++) {
+    for (i = 0; !quit && i < n; i++) {
         int buf[MAX_KEY_SIZE / sizeof(int)];
 
         for (;;) {
@@ -1051,7 +1050,7 @@ empty_back_end(struct be_ctx *bectx)
             if (!err)
                 break;
             if (!db_err_test
-                || ((err != -ENOMEM) && (err != -EIO) && (err != -EBADF))) {
+                || (err != -ENOMEM && err != -EIO && err != -EBADF)) {
                 error(0, -err, "Error removing from back end");
                 goto err;
             }
@@ -1127,10 +1126,10 @@ be_test_insertion(struct be_ctx *bectx, const struct be_params *bep, FILE *log)
     int i;
     int ret = 0, tmp;
 
-    if ((set_signal_handler(SIGINT, &lib_term_handler) == -1)
-        || (set_signal_handler(SIGTERM, &lib_term_handler) == -1)
-        || (set_signal_handler(SIGHUP, &pipe_handler) == -1)
-        || (set_signal_handler(SIGPIPE, &pipe_handler) == -1)) {
+    if (set_signal_handler(SIGINT, &lib_term_handler) == -1
+        || set_signal_handler(SIGTERM, &lib_term_handler) == -1
+        || set_signal_handler(SIGHUP, &pipe_handler) == -1
+        || set_signal_handler(SIGPIPE, &pipe_handler) == -1) {
         ret = -errno;
         error(0, errno, "Couldn't set signal handler");
         return ret;
@@ -1181,30 +1180,30 @@ be_test_rand_repeat(struct be_ctx *bectx, const struct be_params *bep,
     int test_iter_only;
     struct perf_cmp_hdl *perf_cmp_hdl = NULL;
 
-    if ((check_insert_ratio(bep) != 0) || (check_search_period(bep) != 0)
-        || (check_max_key(bep) != 0)
-        || (bep->test_order_stats && (check_order_stats(bectx) != 0)))
+    if (check_insert_ratio(bep) != 0 || check_search_period(bep) != 0
+        || check_max_key(bep) != 0
+        || (bep->test_order_stats && check_order_stats(bectx) != 0))
         return -EINVAL;
 
-    if ((set_signal_handler(SIGINT, &lib_term_handler) == -1)
-        || (set_signal_handler(SIGTERM, &lib_term_handler) == -1)
-        || (set_signal_handler(SIGHUP, &pipe_handler) == -1)
-        || (set_signal_handler(SIGPIPE, &pipe_handler) == -1)
-        || (set_signal_handler(SIGUSR1, &usr1_handler) == -1)
-        || (set_signal_handler(SIGUSR2, &usr2_handler) == -1)) {
+    if (set_signal_handler(SIGINT, &lib_term_handler) == -1
+        || set_signal_handler(SIGTERM, &lib_term_handler) == -1
+        || set_signal_handler(SIGHUP, &pipe_handler) == -1
+        || set_signal_handler(SIGPIPE, &pipe_handler) == -1
+        || set_signal_handler(SIGUSR1, &usr1_handler) == -1
+        || set_signal_handler(SIGUSR2, &usr2_handler) == -1) {
         ret = -errno;
         error(0, errno, "Couldn't set signal handler");
         return ret;
     }
 
-    test_iter_only = (bep->test_iter == 2);
+    test_iter_only = bep->test_iter == 2;
 
     gen_key_fn = bep->zero_keys ? &gen_key : &gen_key_no_zero;
     insert_ratio = bep->insert_ratio;
 
     perf_cmp_wait(&perf_cmp_hdl);
 
-    while (!quit && (NUM_OPS(bectx) < bep->num_ops)) {
+    while (!quit && NUM_OPS(bectx) < bep->num_ops) {
         int key;
         int delete, search, trans;
         int verify = -1;
@@ -1254,7 +1253,7 @@ be_test_rand_repeat(struct be_ctx *bectx, const struct be_params *bep,
                                      bep->use_bitmap);
                 break;
             case 1:
-                if (bep->test_range_search && (random() % 2 == 0)) {
+                if (bep->test_range_search && random() % 2 == 0) {
                     ret = auto_test_range_search(bectx, key, bep->use_be,
                                                  bep->use_bitmap);
                 } else {
@@ -1309,7 +1308,7 @@ be_test_rand_repeat(struct be_ctx *bectx, const struct be_params *bep,
                 }
             }
 
-            delete = (insert_ratio > 0) ? !(random() % (insert_ratio+1))
+            delete = insert_ratio > 0 ? !(random() % (insert_ratio+1))
                      : !!(random() % -(insert_ratio+1));
 
             if (!delete) {
@@ -1354,9 +1353,8 @@ be_test_rand_repeat(struct be_ctx *bectx, const struct be_params *bep,
         }
 
         if (bep->verify
-            && ((verify == 1)
-                || ((verify != 0)
-                    && !(random() % bep->verification_period)))) {
+            && (verify == 1
+                || (verify != 0 && !(random() % bep->verification_period)))) {
             ret = (*bectx->cb.verify_rand)(bectx);
             if (ret != 0)
                 break;
@@ -1395,16 +1393,16 @@ be_test_sorted(struct be_ctx *bectx, const struct be_params *bep, FILE *log)
     int ret = 0, tmp;
     struct perf_cmp_hdl *perf_cmp_hdl = NULL;
 
-    if ((check_search_period(bep) != 0) || (check_max_key(bep) != 0)
-        || (bep->test_order_stats && (check_order_stats(bectx) != 0)))
+    if (check_search_period(bep) != 0 || check_max_key(bep) != 0
+        || (bep->test_order_stats && check_order_stats(bectx) != 0))
         return -EINVAL;
 
-    if ((set_signal_handler(SIGINT, &lib_term_handler) == -1)
-        || (set_signal_handler(SIGTERM, &lib_term_handler) == -1)
-        || (set_signal_handler(SIGHUP, &pipe_handler) == -1)
-        || (set_signal_handler(SIGPIPE, &pipe_handler) == -1)
-        || (set_signal_handler(SIGUSR1, &usr1_handler) == -1)
-        || (set_signal_handler(SIGUSR2, &usr2_handler) == -1)) {
+    if (set_signal_handler(SIGINT, &lib_term_handler) == -1
+        || set_signal_handler(SIGTERM, &lib_term_handler) == -1
+        || set_signal_handler(SIGHUP, &pipe_handler) == -1
+        || set_signal_handler(SIGPIPE, &pipe_handler) == -1
+        || set_signal_handler(SIGUSR1, &usr1_handler) == -1
+        || set_signal_handler(SIGUSR2, &usr2_handler) == -1) {
         ret = -errno;
         error(0, errno, "Couldn't set signal handler");
         return ret;
@@ -1415,7 +1413,7 @@ be_test_sorted(struct be_ctx *bectx, const struct be_params *bep, FILE *log)
     perf_cmp_wait(&perf_cmp_hdl);
 
     key = (*gen_key_fn)(bep->max_key, 0);
-    while (!quit && (NUM_OPS(bectx) < bep->num_ops)) {
+    while (!quit && NUM_OPS(bectx) < bep->num_ops) {
         int search, trans;
         int verify = -1;
 
@@ -1440,7 +1438,7 @@ be_test_sorted(struct be_ctx *bectx, const struct be_params *bep, FILE *log)
                         trans_ops[trans].act);
         } else {
             if (direction) {
-                if ((key < bep->max_key) || delete)
+                if (key < bep->max_key || delete)
                     ++key;
             } else if (key > !bep->zero_keys)
                 --key;
@@ -1456,7 +1454,7 @@ be_test_sorted(struct be_ctx *bectx, const struct be_params *bep, FILE *log)
                                          bep->use_bitmap);
                     break;
                 case 1:
-                    if (bep->test_range_search && (random() % 2 == 0)) {
+                    if (bep->test_range_search && random() % 2 == 0) {
                         ret = auto_test_range_search(bectx, key, bep->use_be,
                                                      bep->use_bitmap);
                     } else {
@@ -1496,7 +1494,7 @@ be_test_sorted(struct be_ctx *bectx, const struct be_params *bep, FILE *log)
                                            bep->use_bitmap, 1, 1, bep->confirm);
                     if (ERROR_FATAL(ret))
                         break;
-                    if ((ret == -ENOSPC) && bep->empty_on_fill) {
+                    if (ret == -ENOSPC && bep->empty_on_fill) {
                         ret = empty_back_end(bectx);
                         if (ret != 0)
                             break;
@@ -1523,9 +1521,8 @@ be_test_sorted(struct be_ctx *bectx, const struct be_params *bep, FILE *log)
         }
 
         if (bep->verify
-            && ((verify == 1)
-                || ((verify != 0)
-                    && !(random() % bep->verification_period)))) {
+            && (verify == 1
+                || (verify != 0 && !(random() % bep->verification_period)))) {
             ret = (*bectx->cb.verify_rand)(bectx);
             if (ret != 0)
                 break;
@@ -1565,16 +1562,16 @@ be_test_rand_norepeat(struct be_ctx *bectx, const struct be_params *bep,
     struct bitmap_data *bmdata;
     struct perf_cmp_hdl *perf_cmp_hdl = NULL;
 
-    if ((check_search_period(bep) != 0) || (check_max_key(bep) != 0)
-        || (bep->test_order_stats && (check_order_stats(bectx) != 0)))
+    if (check_search_period(bep) != 0 || check_max_key(bep) != 0
+        || (bep->test_order_stats && check_order_stats(bectx) != 0))
         return -EINVAL;
 
-    if ((set_signal_handler(SIGINT, &lib_term_handler) == -1)
-        || (set_signal_handler(SIGTERM, &lib_term_handler) == -1)
-        || (set_signal_handler(SIGHUP, &pipe_handler) == -1)
-        || (set_signal_handler(SIGPIPE, &pipe_handler) == -1)
-        || (set_signal_handler(SIGUSR1, &usr1_handler) == -1)
-        || (set_signal_handler(SIGUSR2, &usr2_handler) == -1)) {
+    if (set_signal_handler(SIGINT, &lib_term_handler) == -1
+        || set_signal_handler(SIGTERM, &lib_term_handler) == -1
+        || set_signal_handler(SIGHUP, &pipe_handler) == -1
+        || set_signal_handler(SIGPIPE, &pipe_handler) == -1
+        || set_signal_handler(SIGUSR1, &usr1_handler) == -1
+        || set_signal_handler(SIGUSR2, &usr2_handler) == -1) {
         ret = -errno;
         error(0, errno, "Couldn't set signal handler");
         return ret;
@@ -1585,7 +1582,7 @@ be_test_rand_norepeat(struct be_ctx *bectx, const struct be_params *bep,
 
     perf_cmp_wait(&perf_cmp_hdl);
 
-    while (!quit && (NUM_OPS(bectx) < bep->num_ops)) {
+    while (!quit && NUM_OPS(bectx) < bep->num_ops) {
         int key;
         int delete, search, trans;
         int verify = -1;
@@ -1636,7 +1633,7 @@ be_test_rand_norepeat(struct be_ctx *bectx, const struct be_params *bep,
                     ret = auto_test_walk(bectx, key, 1, 1);
                     break;
                 case 1:
-                    if (bep->test_range_search && (random() % 2 == 0))
+                    if (bep->test_range_search && random() % 2 == 0)
                         ret = auto_test_range_search(bectx, key, 1, 1);
                     else
                         ret = auto_test_search(bectx, key, 1, 1);
@@ -1663,7 +1660,7 @@ be_test_rand_norepeat(struct be_ctx *bectx, const struct be_params *bep,
                                            bep->confirm);
                     if (ERROR_FATAL(ret))
                         break;
-                    if ((ret == -ENOSPC) && bep->empty_on_fill) {
+                    if (ret == -ENOSPC && bep->empty_on_fill) {
                         ret = empty_back_end(bectx);
                         if (ret != 0)
                             break;
@@ -1678,7 +1675,7 @@ be_test_rand_norepeat(struct be_ctx *bectx, const struct be_params *bep,
                                            bep->confirm);
                     if (ERROR_FATAL(ret))
                         break;
-                    if ((ret == -ENOSPC) && bep->empty_on_fill) {
+                    if (ret == -ENOSPC && bep->empty_on_fill) {
                         ret = empty_back_end(bectx);
                         if (ret != 0)
                             break;
@@ -1703,7 +1700,7 @@ be_test_rand_norepeat(struct be_ctx *bectx, const struct be_params *bep,
         }
 
         if (bep->verify
-            && ((verify == 1) || !(random() % bep->verification_period))) {
+            && (verify == 1 || !(random() % bep->verification_period))) {
             ret = (*bectx->cb.verify_rand)(bectx);
             if (ret != 0)
                 break;
@@ -1743,12 +1740,12 @@ be_test_fill_drain(struct be_ctx *bectx, const struct be_params *bep, FILE *log)
     struct avl_tree *key_set;
     uint64_t seed[256/sizeof(uint64_t)];
 
-    if ((set_signal_handler(SIGINT, &lib_term_handler) == -1)
-        || (set_signal_handler(SIGTERM, &lib_term_handler) == -1)
-        || (set_signal_handler(SIGHUP, &pipe_handler) == -1)
-        || (set_signal_handler(SIGPIPE, &pipe_handler) == -1)
-        || (set_signal_handler(SIGUSR1, &usr1_handler) == -1)
-        || (set_signal_handler(SIGUSR2, &usr2_handler) == -1)) {
+    if (set_signal_handler(SIGINT, &lib_term_handler) == -1
+        || set_signal_handler(SIGTERM, &lib_term_handler) == -1
+        || set_signal_handler(SIGHUP, &pipe_handler) == -1
+        || set_signal_handler(SIGPIPE, &pipe_handler) == -1
+        || set_signal_handler(SIGUSR1, &usr1_handler) == -1
+        || set_signal_handler(SIGUSR2, &usr2_handler) == -1) {
         ret = -errno;
         error(0, errno, "Couldn't set signal handler");
         return ret;
@@ -1765,7 +1762,7 @@ be_test_fill_drain(struct be_ctx *bectx, const struct be_params *bep, FILE *log)
 
     init_shuffle((long *)seed, sizeof(seed));
 
-    while (!quit && (NUM_OPS(bectx) < bep->num_ops)) {
+    while (!quit && NUM_OPS(bectx) < bep->num_ops) {
         int key;
         int verify = -1;
 
@@ -1794,7 +1791,7 @@ be_test_fill_drain(struct be_ctx *bectx, const struct be_params *bep, FILE *log)
                 ++n;
                 if (n == bep->max_key)
                     drain = 1;
-            } else if ((ret == -ENOSPC) && (n > 0))
+            } else if (ret == -ENOSPC && n > 0)
                 drain = 1;
             else if (ret == 2)
                 verify = 1;
@@ -1838,7 +1835,7 @@ be_test_fill_drain(struct be_ctx *bectx, const struct be_params *bep, FILE *log)
         }
 
         if (bep->verify
-            && ((verify == 1) || !(random() % bep->verification_period))) {
+            && (verify == 1 || !(random() % bep->verification_period))) {
             ret = (*bectx->cb.verify_rand)(bectx);
             if (ret != 0)
                 break;
@@ -1873,18 +1870,18 @@ be_test_fill_drain_sorted(struct be_ctx *bectx, const struct be_params *bep,
     int n = 0;
     int ret = 0, tmp;
 
-    if ((set_signal_handler(SIGINT, &lib_term_handler) == -1)
-        || (set_signal_handler(SIGTERM, &lib_term_handler) == -1)
-        || (set_signal_handler(SIGHUP, &pipe_handler) == -1)
-        || (set_signal_handler(SIGPIPE, &pipe_handler) == -1)
-        || (set_signal_handler(SIGUSR1, &usr1_handler) == -1)
-        || (set_signal_handler(SIGUSR2, &usr2_handler) == -1)) {
+    if (set_signal_handler(SIGINT, &lib_term_handler) == -1
+        || set_signal_handler(SIGTERM, &lib_term_handler) == -1
+        || set_signal_handler(SIGHUP, &pipe_handler) == -1
+        || set_signal_handler(SIGPIPE, &pipe_handler) == -1
+        || set_signal_handler(SIGUSR1, &usr1_handler) == -1
+        || set_signal_handler(SIGUSR2, &usr2_handler) == -1) {
         ret = -errno;
         error(0, errno, "Couldn't set signal handler");
         return ret;
     }
 
-    while (!quit && (NUM_OPS(bectx) < bep->num_ops)) {
+    while (!quit && NUM_OPS(bectx) < bep->num_ops) {
         int key;
         int verify = -1;
 
@@ -1902,7 +1899,7 @@ be_test_fill_drain_sorted(struct be_ctx *bectx, const struct be_params *bep,
                 ++n;
                 if (n == bep->max_key)
                     drain = 1;
-            } else if ((ret == -ENOSPC) && (n > 0))
+            } else if (ret == -ENOSPC && n > 0)
                 drain = 1;
             else if (ret == 2)
                 verify = 1;
@@ -1938,7 +1935,7 @@ be_test_fill_drain_sorted(struct be_ctx *bectx, const struct be_params *bep,
         }
 
         if (bep->verify
-            && ((verify == 1) || !(random() % bep->verification_period))) {
+            && (verify == 1 || !(random() % bep->verification_period))) {
             ret = (*bectx->cb.verify_rand)(bectx);
             if (ret != 0)
                 break;

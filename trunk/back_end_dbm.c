@@ -429,7 +429,7 @@ is_blkdev(int dfd, const char *pathname)
      * type, this module relies on the DBM implementation to return an error if
      * the pathname no longer resolves to a regular file. */
     if (fstatat(dfd, pathname, &s, 0) == -1)
-        return (errno == ENOENT) ? 0 : MINUS_ERRNO;
+        return errno == ENOENT ? 0 : MINUS_ERRNO;
 
     return (s.st_mode & S_IFMT) == S_IFBLK;
 }
@@ -773,7 +773,7 @@ back_end_dbm_look_up(void *ctx, const void *key, void *retkey, void *retdata,
 
     res = db_hl_search(dbctx->dbh, key, retkey, retdata, retdatasize);
 
-    if (look_up_nearest && (res == 0) && dbctx->key_ctx->last_key_valid) {
+    if (look_up_nearest && res == 0 && dbctx->key_ctx->last_key_valid) {
         int cmp;
 
         cmp = (*dbctx->key_cmp)(dbctx->key_ctx->last_key, key, NULL);
@@ -781,12 +781,12 @@ back_end_dbm_look_up(void *ctx, const void *key, void *retkey, void *retdata,
             res = db_hl_search(dbctx->dbh, dbctx->key_ctx->last_key, retkey,
                                retdata, retdatasize);
             assert(res != 0);
-            return (res == 1) ? 2 : res;
+            return res == 1 ? 2 : res;
         }
         res = get_next_elem(retkey, retdata, retdatasize,
                             dbctx->key_ctx->last_key, dbctx);
         if (res != 0)
-            return (res == -EADDRNOTAVAIL) ? 0: res;
+            return res == -EADDRNOTAVAIL ? 0: res;
         return 2;
     }
 
@@ -969,7 +969,7 @@ back_end_dbm_ctl(void *ctx, int op, void *args)
     case BACK_END_DBM_OP_SET_ALLOC_HOOK:
         alloc_cb = args;
         err = db_hl_ctl(dbctx->dbh,
-                        (op == BACK_END_DBM_OP_FOREACH_ALLOC)
+                        op == BACK_END_DBM_OP_FOREACH_ALLOC
                         ? DB_HL_OP_FOREACH_ALLOC : DB_HL_OP_SET_ALLOC_HOOK,
                         alloc_cb->alloc_cb, alloc_cb->alloc_cb_ctx);
         break;

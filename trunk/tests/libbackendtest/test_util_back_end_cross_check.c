@@ -154,9 +154,9 @@ auto_test_cross_check_search(struct be_ctx *bectx1, struct be_ctx *bectx2,
         || (err = thread_pool_release(th)))
         return err;
 
-    return (ERROR_FATAL(args1.ret)
-            ? args1.ret
-            : (ERROR_FATAL(args2.ret) ? args2.ret : 0));
+    return ERROR_FATAL(args1.ret)
+           ? args1.ret
+           : ERROR_FATAL(args2.ret) ? args2.ret : 0;
 }
 
 static int
@@ -228,18 +228,18 @@ be_test_cross_check(struct be_ctx *bectx1, struct be_ctx *bectx2,
     struct bitmap_data *bmdata;
     struct thread_pool *tp;
 
-    if ((check_search_period(bep) != 0) || (check_max_key(bep) != 0)
+    if (check_search_period(bep) != 0 || check_max_key(bep) != 0
         || (bep->test_order_stats
-            && ((check_order_stats(bectx1) != 0)
-                || (check_order_stats(bectx2) != 0))))
+            && (check_order_stats(bectx1) != 0
+                || check_order_stats(bectx2) != 0)))
         return -EINVAL;
 
-    if ((set_signal_handler(SIGINT, &int_handler) == -1)
-        || (set_signal_handler(SIGTERM, &int_handler) == -1)
-        || (set_signal_handler(SIGHUP, &pipe_handler) == -1)
-        || (set_signal_handler(SIGPIPE, &pipe_handler) == -1)
-        || (set_signal_handler(SIGUSR1, &usr1_handler) == -1)
-        || (set_signal_handler(SIGUSR2, &usr2_handler) == -1)) {
+    if (set_signal_handler(SIGINT, &int_handler) == -1
+        || set_signal_handler(SIGTERM, &int_handler) == -1
+        || set_signal_handler(SIGHUP, &pipe_handler) == -1
+        || set_signal_handler(SIGPIPE, &pipe_handler) == -1
+        || set_signal_handler(SIGUSR1, &usr1_handler) == -1
+        || set_signal_handler(SIGUSR2, &usr2_handler) == -1) {
         ret = -errno;
         error(0, errno, "Couldn't set signal handler");
         return ret;
@@ -252,7 +252,7 @@ be_test_cross_check(struct be_ctx *bectx1, struct be_ctx *bectx2,
     bmdata = bectx1->bmdata;
     gen_key_fn = bep->zero_keys ? &gen_key : &gen_key_no_zero;
 
-    while (!quit && (NUM_OPS(bectx1) < bep->num_ops)) {
+    while (!quit && NUM_OPS(bectx1) < bep->num_ops) {
         int force_verify = 0;
         int key;
         int delete, search;

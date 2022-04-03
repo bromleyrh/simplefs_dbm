@@ -37,7 +37,7 @@ read_cb(char *buf, size_t off, size_t len, void *ctx)
     (void)off;
 
     ret = fread(buf, 1, len, f);
-    return ((ret == 0) && !feof(f)) ? (size_t)-1 : ret;
+    return ret == 0 && !feof(f) ? (size_t)-1 : ret;
 }
 
 static int

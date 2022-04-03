@@ -28,7 +28,7 @@
                     line, set) \
     do { \
         if (enabled) { \
-            int err = (((set) == 2) || !(random() % (err_period))); \
+            int err = (set) == 2 || !(random() % (err_period)); \
             if (err) { \
                 if ((set) == 1) \
                     (set) = 2; \
@@ -102,7 +102,7 @@ int do_pfdatasync(int, const struct interrupt_data *);
 
 int gettime(clockid_t clk_id, struct timespec *tm);
 
-#define INT_OUTPUT(num, e) num, ((num) == 1) ? "" : (e ? "es" : "s")
+#define INT_OUTPUT(num, e) num, (num) == 1 ? "" : e ? "es" : "s"
 
 #endif
 

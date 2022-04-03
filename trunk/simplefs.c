@@ -176,10 +176,10 @@ set_up_signal_handlers()
         .sa_handler = SIG_IGN
     };
 
-    return ((sigaction(SIGINT, &sa_term, NULL) == -1)
-            || (sigaction(SIGTERM, &sa_term, NULL) == -1)
-            || (sigaction(SIGHUP, &sa_pipe, NULL) == -1)
-            || (sigaction(SIGPIPE, &sa_pipe, NULL) == -1))
+    return sigaction(SIGINT, &sa_term, NULL) == -1
+           || sigaction(SIGTERM, &sa_term, NULL) == -1
+           || sigaction(SIGHUP, &sa_pipe, NULL) == -1
+           || sigaction(SIGPIPE, &sa_pipe, NULL) == -1
            ? MINUS_ERRNO : 0;
 }
 
@@ -198,8 +198,8 @@ enable_debugging_features()
     omemset(&sa, 0);
     sa.sa_sigaction = &abrt_handler;
     sa.sa_flags = SA_SIGINFO;
-    if ((sigaction(SIGABRT, &sa, NULL) == -1)
-        || (sigaction(SIGSEGV, &sa, NULL) == -1)) {
+    if (sigaction(SIGABRT, &sa, NULL) == -1
+        || sigaction(SIGSEGV, &sa, NULL) == -1) {
         errmsg = "Error setting signal handler";
         goto err;
     }
@@ -349,8 +349,7 @@ parse_cmdline(struct fuse_args *args, struct fuse_data *fusedata)
     }
 
     if (!fusedata->md.unmount
-        && (do_fuse_parse_cmdline(args, NULL, NULL, &fusedata->foreground)
-            == -1))
+        && do_fuse_parse_cmdline(args, NULL, NULL, &fusedata->foreground) == -1)
         goto err2;
 
     if (fusedata->md.mountpoint == NULL) {
@@ -430,7 +429,7 @@ read_errpipe(int pipefd, const char **buf)
         }
     }
 
-    if ((numread < ERRPIPE_MIN_MSGLEN) || (numread != msg.msglen))
+    if (numread < ERRPIPE_MIN_MSGLEN || numread != msg.msglen)
         return -EIO;
 
     if (msg.err)
@@ -631,8 +630,8 @@ init_fuse(struct fuse_args *args, struct fuse_data *fusedata)
     int status;
     pid_t pid;
 
-    if ((fuse_opt_add_arg(args, "-o") == -1)
-        || (fuse_opt_add_arg(args, DEFAULT_FUSE_OPTIONS) == -1))
+    if (fuse_opt_add_arg(args, "-o") == -1
+        || fuse_opt_add_arg(args, DEFAULT_FUSE_OPTIONS) == -1)
         goto err1;
 
     dn = dirname_safe(fusedata->mountpoint, buf, sizeof(buf));
@@ -647,12 +646,12 @@ init_fuse(struct fuse_args *args, struct fuse_data *fusedata)
 
     fusedata->mountpoint = bn;
 
-    if ((fusedata->md.db_pathname == NULL)
-        || (fusedata->md.db_pathname[0] != '/')) {
+    if (fusedata->md.db_pathname == NULL
+        || fusedata->md.db_pathname[0] != '/') {
         errmsg = "Error opening directory";
         fusedata->md.wd = open(".", O_CLOEXEC | O_DIRECTORY | O_RDONLY);
         if (fusedata->md.wd == -1) {
-            if ((OPEN_MODE_EXEC == O_RDONLY) || (errno != EACCES)) {
+            if (OPEN_MODE_EXEC == O_RDONLY || errno != EACCES) {
                 res = MINUS_ERRNO;
                 goto err1;
             }
@@ -826,7 +825,7 @@ main(int argc, char **argv)
 
     if (fusedata.md.unmount) {
         fuse_opt_free_args(&args);
-        status = (unmount_fuse(&fusedata) == 0) ? EXIT_SUCCESS : EXIT_FAILURE;
+        status = unmount_fuse(&fusedata) == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
         goto end;
     }
 

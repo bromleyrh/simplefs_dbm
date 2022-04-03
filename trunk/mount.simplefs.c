@@ -139,7 +139,7 @@ read_simplefs_pipe(int pipefd)
         toread -= ret;
     }
 
-    return (strcmp(buf, SIMPLEFS_MOUNT_PIPE_MSG_OK) != 0);
+    return strcmp(buf, SIMPLEFS_MOUNT_PIPE_MSG_OK) != 0;
 }
 
 static int
@@ -152,8 +152,8 @@ redirect_std_fds(const char *path)
     if (fd == -1)
         return MINUS_ERRNO;
 
-    if ((dup2(fd, STDIN_FILENO) == -1) || (dup2(fd, STDOUT_FILENO) == -1)
-        || (dup2(fd, STDERR_FILENO) == -1))
+    if (dup2(fd, STDIN_FILENO) == -1 || dup2(fd, STDOUT_FILENO) == -1
+        || dup2(fd, STDERR_FILENO) == -1)
         err = MINUS_ERRNO;
     else
         err = 0;
@@ -182,8 +182,8 @@ do_start_simplefs(int mount_argc, char **mount_argv, sigset_t *set)
 
         close(pipefd[0]);
 
-        if ((sigprocmask(SIG_SETMASK, set, NULL) != 0)
-            || (redirect_std_fds(_PATH_DEVNULL) != 0) || (setsid() == -1))
+        if (sigprocmask(SIG_SETMASK, set, NULL) != 0
+            || redirect_std_fds(_PATH_DEVNULL) != 0 || setsid() == -1)
             _exit(EXIT_FAILURE);
 
         if (snprintf(buf, sizeof(buf), "%d", pipefd[1]) >= (int)sizeof(buf))
@@ -226,7 +226,7 @@ main(int argc, char **argv)
 
     if (snprintf(buf, sizeof(buf), "%s", argv[0]) >= (int)sizeof(buf))
         return EXIT_FAILURE;
-    file_based = (strcmp("mount.simplefs-file", basename(buf)) == 0);
+    file_based = strcmp("mount.simplefs-file", basename(buf)) == 0;
 
     if (parse_cmdline(argc, argv, file_based, &mount_argc, &mount_argv) == -1)
         return EXIT_FAILURE;
@@ -249,8 +249,7 @@ main(int argc, char **argv)
         mountpoint = mount_argv[MOUNT_MOUNTPOINT_ARGV_IDX] = basename(buf);
     }
 
-    if ((sigfillset(&set) != 0)
-        || (sigprocmask(SIG_BLOCK, &set, &oset) == -1)) {
+    if (sigfillset(&set) != 0 || sigprocmask(SIG_BLOCK, &set, &oset) == -1) {
         free(mount_argv);
         return EXIT_FAILURE;
     }
@@ -282,7 +281,7 @@ err2:
     do_mount(mount_argv, 1);
 err1:
     free(mount_argv);
-    error(EXIT_FAILURE, (err > 0) ? EIO : -err, "%s", errmsg);
+    error(EXIT_FAILURE, err > 0 ? EIO : -err, "%s", errmsg);
 }
 
 /* vi: set expandtab sw=4 ts=4: */

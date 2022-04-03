@@ -78,7 +78,7 @@ parse_cmdline(int argc, char **argv, int *force, const char **dev)
 
     if (optind != argc - 1) {
         errmsgf("%s\n",
-                (optind == argc)
+                optind == argc
                 ? "Must specify device" : "Unrecognized arguments");
         return -1;
     }
@@ -103,7 +103,7 @@ query(const char *prompt)
     if (input == NULL)
         return -1;
 
-    res = ((input[0] == 'y') || (input[0] == 'Y'));
+    res = input[0] == 'y' || input[0] == 'Y';
 
     free(input);
 
@@ -118,7 +118,7 @@ init_header(int fd)
     omemset(&hdr, 0);
     hdr.magic = MAGIC;
 
-    return (do_ppwrite(fd, &hdr, sizeof(hdr), 0, 4096, NULL) == sizeof(hdr))
+    return do_ppwrite(fd, &hdr, sizeof(hdr), 0, 4096, NULL) == sizeof(hdr)
            ? 0 : -EIO;
 }
 
@@ -141,7 +141,7 @@ zero_data_and_journal_areas(int fd)
                              totwritten + numwritten, IO_SIZE, NULL);
             if (res > 0)
                 continue;
-            if ((res != 0) && (errno != ENOSPC))
+            if (res != 0 && errno != ENOSPC)
                 err = MINUS_ERRNO;
             else
                 totwritten += numwritten;
@@ -199,7 +199,7 @@ format_device(const char *dev, int force)
         if (res != 1) {
             close(fd);
             infomsgf("Device %s not written\n", dev);
-            return (res == 0) ? -ECANCELED : -ENOMEM;
+            return res == 0 ? -ECANCELED : -ENOMEM;
         }
     }
 
@@ -242,9 +242,9 @@ main(int argc, char **argv)
 
     ret = parse_cmdline(argc, argv, &force, &dev);
     if (ret != 0)
-        return (ret == -2) ? EXIT_SUCCESS : EXIT_FAILURE;
+        return ret == -2 ? EXIT_SUCCESS : EXIT_FAILURE;
 
-    return (format_device(dev, force) == 0) ? EXIT_SUCCESS : EXIT_FAILURE;
+    return format_device(dev, force) == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }
 
 /* vi: set expandtab sw=4 ts=4: */

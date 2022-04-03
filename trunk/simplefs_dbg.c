@@ -186,7 +186,7 @@ db_key_cmp(const void *k1, const void *k2, void *key_ctx)
     (void)key_ctx;
 
     cmp = uint64_cmp(key1->type, key2->type);
-    if ((cmp != 0) || (key1->type == TYPE_HEADER))
+    if (cmp != 0 || key1->type == TYPE_HEADER)
         return cmp;
 
     cmp = uint64_cmp(key1->ino, key2->ino);
@@ -224,7 +224,7 @@ confirm_del_hdr(struct db_key *k)
     if (arg == NULL)
         return 2;
 
-    ret = ((arg[0] == 'y') || (arg[0] == 'Y')) ? 0 : 2;
+    ret = arg[0] == 'y' || arg[0] == 'Y' ? 0 : 2;
 
     free(arg);
 
@@ -338,7 +338,7 @@ scan_int(char *str, void *data, size_t off, int is_signed, int width, int base)
     fmt[i] = convspec;
     fmt[i+1] = '\0';
 
-    return (sscanf(str, fmt, (char *)data + off) == 1) ? 0 : 2;
+    return sscanf(str, fmt, (char *)data + off) == 1 ? 0 : 2;
 }
 
 static int
@@ -584,7 +584,7 @@ disp_free_ino_full(FILE *f, const struct db_key *key, const void *data,
             fputc('\n', f);
             break;
         }
-        if ((i > 0) && (i % OUTPUT_WIDTH == 0))
+        if (i > 0 && i % OUTPUT_WIDTH == 0)
             fputc('\n', f);
         fputc(used_ino_get(freeino->used_ino, key->ino, key->ino + i)
               ? '1' : '0',
@@ -697,7 +697,7 @@ used_ino_get(uint64_t *used_ino, uint32_t base, uint32_t ino)
 
     idx = ino - base;
     wordidx = idx / NBWD;
-    mask = 1ull << (idx % NBWD);
+    mask = 1ull << idx % NBWD;
 
     return !!(used_ino[wordidx] & mask);
 }
@@ -740,7 +740,7 @@ dump_db_obj(FILE *f, const void *key, const void *data, size_t datasize,
     if (objinfop->disp_data == NULL)
         goto type_err;
 
-    if ((objinfop->datasize != 0) && (datasize != objinfop->datasize)) {
+    if (objinfop->datasize != 0 && datasize != objinfop->datasize) {
         error(0, 0, "%s data size %zu bytes incorrect\n", objinfop->dispstr,
               datasize);
         return -EILSEQ;
@@ -817,7 +817,7 @@ cmd_dump(struct dbh *dbh)
         goto err2;
     }
 
-    if ((fflush(f) != 0) || (fsync(fileno(f)) == -1)) {
+    if (fflush(f) != 0 || fsync(fileno(f)) == -1) {
         err = MINUS_ERRNO;
         error(0, -err, "Error writing %s", path);
         goto err2;
@@ -937,7 +937,7 @@ cmd_find(struct dbh *dbh)
     if (res != 1)
         goto lookup_err;
 
-    if ((typep->datasize != 0) && (datasize != typep->datasize)) {
+    if (typep->datasize != 0 && datasize != typep->datasize) {
         error(0, 0, "Object data size %zu bytes incorrect", datasize);
         return -EILSEQ;
     }
@@ -1282,7 +1282,7 @@ cmd_update(struct dbh *dbh)
     if (res != 1)
         goto lookup_err;
 
-    if ((typep->datasize != 0) && (datasize != typep->datasize)) {
+    if (typep->datasize != 0 && datasize != typep->datasize) {
         error(0, 0, "Object data size %zu bytes incorrect", datasize);
         return -EILSEQ;
     }
@@ -1362,7 +1362,7 @@ process_cmd(struct dbh *dbh)
         goto input_err;
 
     cmdp = &cmds[i];
-    if ((cmdp->cmd == NULL) || (strcmp(cmdp->cmd, cmd) != 0))
+    if (cmdp->cmd == NULL || strcmp(cmdp->cmd, cmd) != 0)
         goto input_err;
 
     free(cmd);
@@ -1399,7 +1399,7 @@ is_blkdev(int dfd, const char *pathname)
     struct stat s;
 
     if (fstatat(dfd, pathname, &s, 0) == -1)
-        return (errno == ENOENT) ? 0 : MINUS_ERRNO;
+        return errno == ENOENT ? 0 : MINUS_ERRNO;
 
     return (s.st_mode & S_IFMT) == S_IFBLK;
 }
@@ -1444,7 +1444,7 @@ do_fix_up_interactive(const char *db_pathname, int ro)
         return ret;
     }
 
-    while (((ret = process_cmd(dbh)) == 0) || (ret == 2))
+    while ((ret = process_cmd(dbh)) == 0 || ret == 2)
         ;
     if (ret == 1)
         ret = 0;
@@ -1464,7 +1464,7 @@ main(int argc, char **argv)
 
     ret = parse_cmdline(argc, argv, &op, &db_pathname, &ro);
     if (ret != 0)
-        return (ret == -2) ? EXIT_SUCCESS : EXIT_FAILURE;
+        return ret == -2 ? EXIT_SUCCESS : EXIT_FAILURE;
     if (op == 0)
         error(EXIT_FAILURE, 0, "Must specify operation");
 
@@ -1476,7 +1476,7 @@ main(int argc, char **argv)
         ret = -EIO;
     }
 
-    return (ret == 0) ? EXIT_SUCCESS : EXIT_FAILURE;
+    return ret == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }
 
 /* vi: set expandtab sw=4 ts=4: */

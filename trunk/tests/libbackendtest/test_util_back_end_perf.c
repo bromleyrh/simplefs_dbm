@@ -126,7 +126,7 @@ be_perf_test_do_op(void *ctx)
     lower_bound = targs->nelem <= targs->limit_lower;
     upper_bound = targs->nelem >= targs->limit_upper;
 
-    op = lower_bound + random() % ((lower_bound || upper_bound) ? 2 : 3);
+    op = lower_bound + random() % (lower_bound || upper_bound ? 2 : 3);
 
     key = (*gen_key_fn)(bep->max_key, 0);
 
@@ -140,7 +140,7 @@ be_perf_test_do_op(void *ctx)
             --targs->nelem;
         break;
     case SEARCH:
-        ret = (bep->test_range_search && (random() % 2 == 0))
+        ret = bep->test_range_search && random() % 2 == 0
               ? be_range_find(bectx, key, NULL, 0, 0)
               : be_find(bectx, key, NULL, 0, 0);
         if (ret < 0)
@@ -160,7 +160,7 @@ be_perf_test_do_op(void *ctx)
 
     infomsgf("\rn == %u: %u", targs->n, targs->nops);
 
-    return (++targs->nops == NUM_PERF_TEST_OPS);
+    return ++targs->nops == NUM_PERF_TEST_OPS;
 }
 
 static int
@@ -183,10 +183,10 @@ be_test_perf(struct be_ctx *bectx, const struct be_params *bep,
     struct perf_test_ctx *tctx;
     unsigned n;
 
-    if ((set_signal_handler(SIGINT, &int_handler) == -1)
-        || (set_signal_handler(SIGTERM, &int_handler) == -1)
-        || (set_signal_handler(SIGHUP, &pipe_handler) == -1)
-        || (set_signal_handler(SIGPIPE, &pipe_handler) == -1)) {
+    if (set_signal_handler(SIGINT, &int_handler) == -1
+        || set_signal_handler(SIGTERM, &int_handler) == -1
+        || set_signal_handler(SIGHUP, &pipe_handler) == -1
+        || set_signal_handler(SIGPIPE, &pipe_handler) == -1) {
         ret = -errno;
         error(0, errno, "Couldn't set signal handler");
         return ret;
@@ -199,7 +199,7 @@ be_test_perf(struct be_ctx *bectx, const struct be_params *bep,
     if (ret != 0)
         goto err1;
 
-    for (n = 64 * 1024; !quit && (n < 1024 * 1024); n *= 2) {
+    for (n = 64 * 1024; !quit && n < 1024 * 1024; n *= 2) {
         struct perf_test_info info;
 
         ret = do_perf_test(tctx, (void *)(uintptr_t)n, &info);

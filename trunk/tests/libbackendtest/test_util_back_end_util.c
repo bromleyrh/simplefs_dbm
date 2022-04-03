@@ -55,8 +55,7 @@ handle_usr_signals(struct be_ctx *bectx1, struct be_ctx *bectx2, void *ctx)
 int
 check_insert_ratio(const struct be_params *bep)
 {
-    if ((bep->insert_ratio < INT_MIN / 16)
-        || (bep->insert_ratio > INT_MAX / 16)) {
+    if (bep->insert_ratio < INT_MIN / 16 || bep->insert_ratio > INT_MAX / 16) {
         error(0, 0, "Invalid insertion ratio %d", bep->insert_ratio);
         return -EINVAL;
     }
@@ -78,7 +77,7 @@ check_max_key(const struct be_params *bep)
 int
 check_order_stats(const struct be_ctx *bectx)
 {
-    if ((bectx->ops.select == NULL) || (bectx->ops.get_index == NULL)) {
+    if (bectx->ops.select == NULL || bectx->ops.get_index == NULL) {
         error(0, 0, "Back end does not support order statistics operations");
         return -EINVAL;
     }
@@ -100,8 +99,8 @@ check_search_period(const struct be_params *bep)
 int
 gen_key(int max_key, int out_of_range_interval)
 {
-    if (((out_of_range_interval != 0) && !(random() % out_of_range_interval))
-        || (max_key == INT_MAX))
+    if ((out_of_range_interval != 0 && !(random() % out_of_range_interval))
+        || max_key == INT_MAX)
         return random();
 
     return random() % (max_key+1);
@@ -110,7 +109,7 @@ gen_key(int max_key, int out_of_range_interval)
 int
 gen_key_no_zero(int max_key, int out_of_range_interval)
 {
-    if ((out_of_range_interval != 0) && !(random() % out_of_range_interval))
+    if (out_of_range_interval != 0 && !(random() % out_of_range_interval))
         return random() % INT_MAX + 1;
 
     return random() % max_key + 1;
@@ -174,7 +173,7 @@ auto_test_insert(struct be_ctx *bectx, int key, int replace, int use_be,
               : be_insert(bectx, key, NULL, repeat_allowed, 0, 1);
         if (ret != 0)
             return ret;
-        fault = (fault_test == NULL) ? 0 : (*fault_test == 2);
+        fault = fault_test == NULL ? 0 : *fault_test == 2;
         if (confirm) {
             ret = be_find(bectx, key, NULL, 0, 1);
             if (ret == 0) {
@@ -192,7 +191,7 @@ auto_test_insert(struct be_ctx *bectx, int key, int replace, int use_be,
     if (use_bitmap && !replace) {
         struct bitmap_data *bmdata = bectx->bmdata;
 
-        if (fault && (bitmap_get(bmdata->bitmap, key) == 0)) {
+        if (fault && bitmap_get(bmdata->bitmap, key) == 0) {
             error(0, 0, "Detectable %s fault generated",
                   replace ? "replacement" : "insertion");
             error(0, 0, "Verification before further operations should fail");
@@ -217,7 +216,7 @@ auto_test_delete(struct be_ctx *bectx, int key, int use_be, int use_bitmap,
         ret = be_delete(bectx, key, NULL, repeat_allowed, 0, 1);
         if (ret != 0)
             return ret;
-        fault = (fault_test == NULL) ? 0 : (*fault_test == 2);
+        fault = fault_test == NULL ? 0 : *fault_test == 2;
         if (confirm) {
             ret = be_find(bectx, key, NULL, 0, 1);
             if (ret == 1) {
@@ -231,8 +230,8 @@ auto_test_delete(struct be_ctx *bectx, int key, int use_be, int use_bitmap,
         }
     }
 
-    if (use_bitmap && (key < (int)bmdata->size)) {
-        if (fault && (bitmap_get(bmdata->bitmap, key) == 1)) {
+    if (use_bitmap && key < (int)bmdata->size) {
+        if (fault && bitmap_get(bmdata->bitmap, key) == 1) {
             error(0, 0, "Detectable deletion fault generated");
             error(0, 0, "Verification before further operations should fail");
             be_bitmap_set(bectx, key, 0, 0);
@@ -254,9 +253,9 @@ auto_test_delete_from(struct be_ctx *bectx, int node, int *key, int use_be,
 
     if (use_be) {
         ret = be_delete_from(bectx, node, key, repeat_allowed, 0, 1);
-        if ((ret != 0) || (*key == -1))
+        if (ret != 0 || *key == -1)
             return ret;
-        fault = (fault_test == NULL) ? 0 : (*fault_test == 2);
+        fault = fault_test == NULL ? 0 : *fault_test == 2;
         if (confirm) {
             ret = be_find(bectx, *key, NULL, 0, 1);
             if (ret == 1) {
@@ -270,8 +269,8 @@ auto_test_delete_from(struct be_ctx *bectx, int node, int *key, int use_be,
         }
     }
 
-    if (use_bitmap && (*key < (int)bmdata->size)) {
-        if (fault && (bitmap_get(bmdata->bitmap, *key) == 1)) {
+    if (use_bitmap && *key < (int)bmdata->size) {
+        if (fault && bitmap_get(bmdata->bitmap, *key) == 1) {
             error(0, 0, "Detectable deletion fault generated");
             error(0, 0, "Verification before further operations should fail");
             be_bitmap_set(bectx, *key, 0, 0);
@@ -293,21 +292,20 @@ auto_test_search(struct be_ctx *bectx, int key, int use_be, int use_bitmap)
         ret = be_find(bectx, key, NULL, 0, 1);
         if (ret < 0)
             return ret;
-        fault = (fault_test == NULL) ? 0 : (*fault_test == 2);
+        fault = fault_test == NULL ? 0 : *fault_test == 2;
     }
 
     if (use_bitmap) {
         struct bitmap_data *bmdata = bectx->bmdata;
 
-        int tmp = (key < (int)bmdata->size)
-                  ? bitmap_get(bmdata->bitmap, key) : 0;
+        int tmp = key < (int)bmdata->size ? bitmap_get(bmdata->bitmap, key) : 0;
 
-        if (fault && (tmp == 1)) {
+        if (fault && tmp == 1) {
             error(0, 0, "Detectable search fault generated");
             error(0, 0, "Test error should follow");
         }
 
-        if (use_be && (tmp != ret)) {
+        if (use_be && tmp != ret) {
             error(0, 0, "Bitmap and back end differ at %d (%d vs. %d)", key,
                   !ret, ret);
             return -EIO;
@@ -330,21 +328,20 @@ auto_test_range_search(struct be_ctx *bectx, int key, int use_be,
         ret = be_range_find(bectx, key, NULL, 0, 1);
         if (ret < 0)
             return ret;
-        fault = (fault_test == NULL) ? 0 : (*fault_test == 2);
+        fault = fault_test == NULL ? 0 : *fault_test == 2;
     }
 
     if (use_bitmap) {
         struct bitmap_data *bmdata = bectx->bmdata;
 
-        int tmp = (key < (int)bmdata->size)
-                  ? bitmap_get(bmdata->bitmap, key) : 0;
+        int tmp = key < (int)bmdata->size ? bitmap_get(bmdata->bitmap, key) : 0;
 
-        if (fault && (tmp == 1)) {
+        if (fault && tmp == 1) {
             error(0, 0, "Detectable search fault generated");
             error(0, 0, "Test error should follow");
         }
 
-        if (use_be && (tmp != ret)) {
+        if (use_be && tmp != ret) {
             error(0, 0, "Bitmap and back end differ at %d (%d vs. %d)", key,
                   !ret, ret);
             return -EIO;
@@ -368,21 +365,21 @@ auto_test_select(struct be_ctx *bectx, int idx, int use_be, int use_bitmap)
         ret = be_select(bectx, idx, &res, 0, 1);
         if (ret < 0)
             return ret;
-        ret = (ret == 0) ? -1 : res;
-        fault = (fault_test == NULL) ? 0 : (*fault_test == 2);
+        ret = ret == 0 ? -1 : res;
+        fault = fault_test == NULL ? 0 : *fault_test == 2;
     }
 
     if (use_bitmap) {
         struct bitmap_data *bmdata = bectx->bmdata;
 
-        int tmp = (idx < (int)bmdata->size) ? bitmap_select(bmdata, idx) : -1;
+        int tmp = idx < (int)bmdata->size ? bitmap_select(bmdata, idx) : -1;
 
-        if (fault && (tmp != -1)) {
+        if (fault && tmp != -1) {
             error(0, 0, "Detectable select fault generated");
             error(0, 0, "Test error should follow");
         }
 
-        if (use_be && (tmp != ret)) {
+        if (use_be && tmp != ret) {
             error(0, 0, "Bitmap and back end differ at index %d (%d vs. %d)",
                   idx, tmp, ret);
             return -EIO;
@@ -406,22 +403,21 @@ auto_test_get_index(struct be_ctx *bectx, int key, int use_be, int use_bitmap)
         ret = be_get_index(bectx, key, &res, 0, 1);
         if (ret < 0)
             return ret;
-        ret = (ret == 0) ? -1 : res;
-        fault = (fault_test == NULL) ? 0 : (*fault_test == 2);
+        ret = ret == 0 ? -1 : res;
+        fault = fault_test == NULL ? 0 : *fault_test == 2;
     }
 
     if (use_bitmap) {
         struct bitmap_data *bmdata = bectx->bmdata;
 
-        int tmp = (key < (int)bmdata->size)
-                  ? bitmap_get_index(bmdata, key) : -1;
+        int tmp = key < (int)bmdata->size ? bitmap_get_index(bmdata, key) : -1;
 
-        if (fault && (tmp != -1)) {
+        if (fault && tmp != -1) {
             error(0, 0, "Detectable get-index fault generated");
             error(0, 0, "Test error should follow");
         }
 
-        if (use_be && (tmp != ret)) {
+        if (use_be && tmp != ret) {
             error(0, 0, "Bitmap and back end differ in index of key %d (%d vs. "
                         "%d)", key, tmp, ret);
             return -EIO;

@@ -135,7 +135,7 @@ falloc(int fd, off_t offset, off_t len)
 
     /* set file size to offset + len, as with posix_fallocate() */
     len += offset;
-    if ((s.st_size < len) && (ftruncate(fd, len) == -1))
+    if (s.st_size < len && ftruncate(fd, len) == -1)
         return ERRNO;
 
     return 0;
@@ -200,7 +200,7 @@ change_to_tmpdir(const char *template)
 
     tmp = strdup(templ);
     if (tmp == NULL)
-        return (errno == 0) ? -ENOMEM : -errno;
+        return errno == 0 ? -ENOMEM : -errno;
 
     dfd = open(dirname(tmp), DIR_OPEN_FLAGS);
     err = -errno;
@@ -219,7 +219,7 @@ change_to_tmpdir(const char *template)
 
     close(dfd);
 
-    err = (fchdir(fd) == -1) ? -errno : 0;
+    err = fchdir(fd) == -1 ? -errno : 0;
 
     close(fd);
 

@@ -35,7 +35,7 @@ typedef ssize_t (*io_fn_t)(int, void *, size_t, off_t,
     do { \
         errno = 0; \
         (ret) = (expr); \
-        if (((ret) == NULL) && (errno == 0)) \
+        if ((ret) == NULL && errno == 0) \
             errno = ENOMEM; \
     } while (0)
 
@@ -80,7 +80,7 @@ strlen_cmp(const void *e1, const void *e2, void *ctx)
 static int
 interrupt_recv(const struct interrupt_data *intdata)
 {
-    if ((intdata != NULL) && (intdata->interrupted != NULL)
+    if (intdata != NULL && intdata->interrupted != NULL
         && (*intdata->interrupted)()) {
         errno = EINTR;
         return 1;
@@ -365,7 +365,7 @@ int
 gettime(clockid_t clk_id, struct timespec *tm)
 {
 #ifdef HAVE_CLOCK_GETTIME
-    return (clock_gettime(clk_id, tm) == -1) ? MINUS_ERRNO : 0;
+    return clock_gettime(clk_id, tm) == -1 ? MINUS_ERRNO : 0;
 #else
     struct timeval tv;
 

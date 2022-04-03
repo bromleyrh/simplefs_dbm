@@ -278,9 +278,9 @@ cmd_listen_cb_be(const char *cmd, void *ctx)
 
     (void)cmd;
 
-    if ((cmddata->assert_key >= 0)
-        && (shell_check_assertion(cmddata->ctx, cmddata->search_back_end,
-                                  cmddata->assert_key) == -1))
+    if (cmddata->assert_key >= 0
+        && shell_check_assertion(cmddata->ctx, cmddata->search_back_end,
+                                 cmddata->assert_key) == -1)
         return -1;
 
     return 0;
