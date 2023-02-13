@@ -6,6 +6,7 @@
 #define _SIMPLEFS_H
 
 struct mount_data {
+    char        *creds;
     int         wd;
     const char  *db_pathname;
     const char  *mountpoint;

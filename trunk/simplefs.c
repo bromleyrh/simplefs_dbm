@@ -25,8 +25,10 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <grp.h>
 #include <limits.h>
 #include <paths.h>
+#include <pwd.h>
 #include <signal.h>
 #include <stddef.h>
 #include <stdlib.h>
@@ -92,6 +94,8 @@ static int write_errpipe(int, int, const char *);
 static int opt_proc(void *, const char *, int, struct fuse_args *);
 static int do_fuse_parse_cmdline(struct fuse_args *, char **, int *, int *);
 static int parse_cmdline(struct fuse_args *, struct fuse_data *);
+
+static int set_privs(char *);
 
 static struct fuse_session *do_fuse_mount(const char *, struct fuse_args *,
                                           const struct fuse_lowlevel_ops *,
@@ -324,9 +328,10 @@ parse_cmdline(struct fuse_args *args, struct fuse_data *fusedata)
     int err = -EINVAL, res;
 
     static const struct fuse_opt opts[] = {
-        {"-F %s",   offsetof(struct mount_data, db_pathname),   0},
-        {"-p %d",   offsetof(struct mount_data, pipefd),        0},
-        {"-u",      offsetof(struct mount_data, unmount),       1},
+        {"privs=%s",    offsetof(struct mount_data, creds),         0},
+        {"-F %s",       offsetof(struct mount_data, db_pathname),   0},
+        {"-p %d",       offsetof(struct mount_data, pipefd),        0},
+        {"-u",          offsetof(struct mount_data, unmount),       1},
         FUSE_OPT_END
     };
 
@@ -365,6 +370,92 @@ err2:
         free((void *)fusedata->md.db_pathname);
 err1:
     fuse_opt_free_args(args);
+    return err;
+}
+
+static int
+set_privs(char *privs)
+{
+    char *ptr, *tmp;
+    const char *grpname, *usrname;
+    gid_t gid;
+    int err;
+    long val;
+    struct group grp, *grpres;
+    struct passwd pwd, *pwdres;
+    uid_t uid;
+
+    usrname = strtok_r(privs, ":", &ptr);
+    if (usrname == NULL)
+        return -EINVAL;
+    grpname = strtok_r(NULL, ":", &ptr);
+    if (grpname == NULL)
+        return -EINVAL;
+
+    errno = 0;
+    val = sysconf(_SC_GETPW_R_SIZE_MAX);
+    if (val == -1) {
+        if (errno != 0)
+            return MINUS_ERRNO;
+        val = 1024;
+    }
+
+    ptr = malloc(val);
+    if (ptr == NULL)
+        return MINUS_ERRNO;
+
+    for (;;) {
+        err = getpwnam_r(usrname, &pwd, ptr, val, &pwdres);
+        if (!err)
+            break;
+        if (err != ERANGE) {
+            err = -err;
+            goto err;
+        }
+
+        val *= 2;
+        tmp = realloc(ptr, val);
+        if (tmp == NULL) {
+            err = MINUS_ERRNO;
+            goto err;
+        }
+        ptr = tmp;
+    }
+    if (pwdres == NULL) {
+        err = -ENOENT;
+        goto err;
+    }
+    uid = pwdres->pw_uid;
+
+    for (;;) {
+        err = getgrnam_r(grpname, &grp, ptr, val, &grpres);
+        if (!err)
+            break;
+        if (err != ERANGE) {
+            err = -err;
+            goto err;
+        }
+
+        val *= 2;
+        tmp = realloc(ptr, val);
+        if (tmp == NULL) {
+            err = MINUS_ERRNO;
+            goto err;
+        }
+        ptr = tmp;
+    }
+    if (grpres == NULL) {
+        err = -ENOENT;
+        goto err;
+    }
+    gid = grpres->gr_gid;
+
+    free(ptr);
+
+    return setegid(gid) == -1 || seteuid(uid) == -1 ? MINUS_ERRNO : 0;
+
+err:
+    free(ptr);
     return err;
 }
 
@@ -810,6 +901,13 @@ main(int argc, char **argv)
     ret = parse_cmdline(&args, &fusedata);
     if (ret != 0)
         error(EXIT_FAILURE, -ret, "Error parsing command line");
+
+    if (fusedata.md.creds != NULL) {
+        ret = set_privs(fusedata.md.creds);
+        free(fusedata.md.creds);
+        if (ret != 0)
+            error(EXIT_FAILURE, -ret, "Error setting privileges");
+    }
 
     if (enable_debugging_features() != 0)
         goto err1;
