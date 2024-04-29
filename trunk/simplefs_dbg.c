@@ -240,7 +240,7 @@ get_key_ino(struct db_key *k)
     if (arg == NULL)
         return 2;
 
-    k->ino = (uint64_t)strtoul(arg, NULL, 10);
+    k->ino = strtoul(arg, NULL, 10);
 
     free(arg);
 
