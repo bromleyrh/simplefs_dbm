@@ -240,7 +240,7 @@ get_key_ino(struct db_key *k)
     if (arg == NULL)
         return 2;
 
-    k->ino = strtoul(arg, NULL, 10);
+    k->ino = strtoumax(arg, NULL, 10);
 
     free(arg);
 
@@ -282,7 +282,7 @@ get_key_ino_pgno(struct db_key *k)
     if (arg == NULL)
         return 2;
 
-    k->pgno = strtoull(arg, NULL, 10);
+    k->pgno = strtoumax(arg, NULL, 10);
 
     free(arg);
 
