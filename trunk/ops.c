@@ -612,7 +612,7 @@ free_ino_find(uint64_t *used_ino, inum_t base)
     int idx;
     int maxidx;
     inum_t ino;
-    static const uint64_t filled = ~(uint64_t)0;
+    static const uint64_t filled = ~UINT64_C(0);
     uint64_t word;
 
     maxidx = FREE_INO_RANGE_SZ / NBWD - 1;
