@@ -42,7 +42,7 @@
 #include <sys/wait.h>
 
 struct fuse_data {
-    const char          *mountpoint;
+    char                *mountpoint;
     int                 foreground;
     struct mount_data   md;
     struct fuse_chan    *chan;
@@ -229,12 +229,12 @@ err:
 static void
 destroy_mount_data(struct mount_data *md)
 {
-    free((void *)md->mountpoint);
+    free(md->mountpoint);
 
     if (md->wd != -1)
         close(md->wd);
     if (md->db_pathname != NULL)
-        free((void *)md->db_pathname);
+        free(md->db_pathname);
 }
 
 #define FLAG_MAP_ENTRY(fl, keep) {#fl, offsetof(struct mount_data, fl), keep}
@@ -367,7 +367,7 @@ parse_cmdline(struct fuse_args *args, struct fuse_data *fusedata)
 
 err2:
     if (fusedata->md.db_pathname != NULL)
-        free((void *)fusedata->md.db_pathname);
+        free(fusedata->md.db_pathname);
 err1:
     fuse_opt_free_args(args);
     return err;
@@ -827,7 +827,7 @@ parent_end:
     if (fusedata->md.wd != -1)
         close(fusedata->md.wd);
     if (fusedata->mountpoint != fusedata->md.mountpoint)
-        free((void *)fusedata->mountpoint);
+        free(fusedata->mountpoint);
     return 1;
 
 err6:
@@ -845,7 +845,7 @@ err2:
         close(fusedata->md.wd);
 err1:
     if (fusedata->mountpoint != fusedata->md.mountpoint)
-        free((void *)fusedata->mountpoint);
+        free(fusedata->mountpoint);
     if (res == 0) {
         res = -ENOMEM;
         errmsg = "Out of memory";
@@ -953,7 +953,7 @@ main(int argc, char **argv)
         syslog(LOG_ERR, "Returned failure status");
     }
 
-    free((void *)fusedata.mountpoint);
+    free(fusedata.mountpoint);
 
     closelog();
 

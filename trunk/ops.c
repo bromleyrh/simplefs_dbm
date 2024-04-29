@@ -117,7 +117,8 @@ struct op_args {
         struct {
             off_t           off;
             size_t          size;
-            char            *buf;
+            char            *a_rd;
+            const char      *a_wr;
             struct iovec    *iov;
             int             count;
         } rdwr_data;                        /* read(), write(), readlink() */
@@ -129,7 +130,8 @@ struct op_args {
         } readdir_data;                     /* readdir() */
         struct {
             const char      *name;
-            char            *value;
+            char            *value_a_rd;
+            const char      *value_a_wr;
             size_t          size;
             int             flags;
         } xattr_data;                       /* setxattr(), getxattr(),
@@ -496,12 +498,12 @@ static void
 dump_db_obj(FILE *f, const void *key, const void *data, size_t datasize,
             const char *prefix, void *ctx)
 {
+    const struct db_key *k = key;
     const union {
         struct db_obj_dirent    de;
         struct db_obj_header    hdr;
         struct db_obj_stat      s;
     } *d;
-    struct db_key *k = (struct db_key *)key;
 
     (void)ctx;
 
@@ -580,8 +582,8 @@ dump_db(struct back_end *be)
 static int
 ref_inode_cmp(const void *k1, const void *k2, void *ctx)
 {
-    struct ref_ino *ino1 = *(struct ref_ino **)k1;
-    struct ref_ino *ino2 = *(struct ref_ino **)k2;
+    struct ref_ino *ino1 = *(struct ref_ino *const *)k1;
+    struct ref_ino *ino2 = *(struct ref_ino *const *)k2;
 
     (void)ctx;
 
@@ -834,7 +836,7 @@ free_ref_inodes_cb(const void *keyval, void *ctx)
     int err;
     struct free_ref_inodes_ctx *fctx = ctx;
     struct fspriv *priv = fctx->priv;
-    struct ref_ino *ino = *(struct ref_ino **)keyval;
+    struct ref_ino *ino = *(struct ref_ino *const *)keyval;
 
     if (fctx->nowrite) {
         err = unref_inode(priv->be, priv->root_id, &priv->ref_inodes, ino, 0,
@@ -2030,7 +2032,7 @@ err1:
 static int
 do_read_symlink(void *args)
 {
-    const char *link;
+    char *link;
     int ret;
     size_t buflen;
     struct db_key k;
@@ -2048,13 +2050,13 @@ do_read_symlink(void *args)
     if (link == NULL)
         return MINUS_ERRNO;
 
-    ret = back_end_look_up(opargs->be, &k, NULL, (void *)link, NULL, 0);
+    ret = back_end_look_up(opargs->be, &k, NULL, link, NULL, 0);
     if (ret != 1) {
-        free((void *)link);
+        free(link);
         return ret == 0 ? -ENOENT : ret;
     }
 
-    opargs->op_data.rdwr_data.buf = (char *)link;
+    opargs->op_data.rdwr_data.a_rd = link;
 
     return 0;
 }
@@ -3161,7 +3163,7 @@ do_write_data(void *args)
 
     k.type = TYPE_PAGE;
 
-    write_buf = opargs->op_data.rdwr_data.buf;
+    write_buf = opargs->op_data.rdwr_data.a_wr;
     off = opargs->op_data.rdwr_data.off;
     size = write_size = opargs->op_data.rdwr_data.size;
     newpages = 0;
@@ -3363,7 +3365,7 @@ do_setxattr(void *args)
     k.ino = opargs->ino;
     strlcpy((char *)k.name, opargs->op_data.xattr_data.name, sizeof(k.name));
 
-    value = opargs->op_data.xattr_data.value;
+    value = opargs->op_data.xattr_data.value_a_wr;
     size = opargs->op_data.xattr_data.size;
 
     if (flags == 0 || flags == XATTR_CREATE) {
@@ -3437,7 +3439,7 @@ do_getxattr(void *args)
     }
 
 end:
-    opargs->op_data.xattr_data.value = value;
+    opargs->op_data.xattr_data.value_a_rd = value;
     opargs->op_data.xattr_data.size = valsize;
     return 0;
 }
@@ -3508,7 +3510,7 @@ end:
 
     back_end_iter_free(iter);
 
-    opargs->op_data.xattr_data.value = value;
+    opargs->op_data.xattr_data.value_a_rd = value;
     opargs->op_data.xattr_data.size = len;
 
     return 0;
@@ -4076,7 +4078,7 @@ err:
 static void
 simplefs_readlink(void *req, inum_t ino)
 {
-    const char *link;
+    char *link;
     int ret;
     struct fspriv *priv;
     struct mount_data *md = req_userdata(req);
@@ -4092,10 +4094,10 @@ simplefs_readlink(void *req, inum_t ino)
     if (ret != 0)
         goto err;
 
-    link = (const char *)opargs.op_data.rdwr_data.buf;
+    link = opargs.op_data.rdwr_data.a_rd;
 
     ret = reply_readlink(req, link);
-    free((void *)link);
+    free(link);
     if (ret != 0 && ret != -ENOENT)
         goto err;
 
@@ -4551,7 +4553,7 @@ simplefs_write(void *req, inum_t ino, const char *buf, size_t size, off_t off,
 
     opargs.ino = ino;
 
-    opargs.op_data.rdwr_data.buf = (char *)buf;
+    opargs.op_data.rdwr_data.a_wr = buf;
     opargs.op_data.rdwr_data.size = size;
     opargs.op_data.rdwr_data.off = off;
 
@@ -4885,7 +4887,7 @@ simplefs_setxattr(void *req, inum_t ino, const char *name, const char *value,
     opargs.ino = ino;
 
     opargs.op_data.xattr_data.name = name;
-    opargs.op_data.xattr_data.value = (char *)value;
+    opargs.op_data.xattr_data.value_a_wr = value;
     opargs.op_data.xattr_data.size = size;
     opargs.op_data.xattr_data.flags = flags;
 
@@ -4938,7 +4940,7 @@ simplefs_getxattr(void *req, inum_t ino, const char *name, size_t size)
         return;
     }
 
-    value = opargs.op_data.xattr_data.value;
+    value = opargs.op_data.xattr_data.value_a_rd;
 
     ret = reply_buf(req, value, valsize);
 
@@ -4985,7 +4987,7 @@ simplefs_listxattr(void *req, inum_t ino, size_t size)
         return;
     }
 
-    value = opargs.op_data.xattr_data.value;
+    value = opargs.op_data.xattr_data.value_a_rd;
 
     ret = reply_buf(req, value, bufsize);
 
@@ -5162,7 +5164,7 @@ simplefs_fallocate(void *req, inum_t ino, int mode, off_t offset, off_t length,
 
     opargs.ino = ino;
 
-    opargs.op_data.rdwr_data.buf = (char *)null_data;
+    opargs.op_data.rdwr_data.a_wr = null_data;
     opargs.op_data.rdwr_data.size = length;
     opargs.op_data.rdwr_data.off = offset;
 

@@ -29,7 +29,7 @@ struct cache_obj {
     unsigned                magic;
     uint64_t                id; /* used for debugging */
     const void              *key;
-    const void              *data;
+    void                    *data;
     size_t                  datasize;
     unsigned                replace:2;
     unsigned                deleted:1;
@@ -42,6 +42,7 @@ struct cache_obj {
     unsigned                chk_in_cache:1; /* used for consistency checking */
     unsigned                chk_lists:2;
     int                     chk_refcnt;
+    void                    *keybuf;
     LIST_ENTRY(cache_obj)   e;
     struct avl_tree_node    *n;
 };
@@ -502,8 +503,8 @@ trans_cb(int trans_type, int act, int status, void *ctx)
 static int
 cache_obj_cmp(const void *k1, const void *k2, void *ctx)
 {
-    struct cache_obj *o1 = *(struct cache_obj **)k1;
-    struct cache_obj *o2 = *(struct cache_obj **)k2;
+    struct cache_obj *o1 = *(struct cache_obj *const *)k1;
+    struct cache_obj *o2 = *(struct cache_obj *const *)k2;
     struct fuse_cache *cache = ctx;
 
     if (cache->key_ctx.last_key_valid != -1) {
@@ -517,8 +518,8 @@ cache_obj_cmp(const void *k1, const void *k2, void *ctx)
 static int
 cache_obj_cmp_chk(const void *k1, const void *k2, void *ctx)
 {
-    struct cache_obj *o1 = *(struct cache_obj **)k1;
-    struct cache_obj *o2 = *(struct cache_obj **)k2;
+    struct cache_obj *o1 = *(struct cache_obj *const *)k1;
+    struct cache_obj *o2 = *(struct cache_obj *const *)k2;
 
     (void)ctx;
 
@@ -528,7 +529,7 @@ cache_obj_cmp_chk(const void *k1, const void *k2, void *ctx)
 static int
 obj_free_cb(const void *k, void *ctx)
 {
-    struct cache_obj *o = *(struct cache_obj **)k;
+    struct cache_obj *o = *(struct cache_obj *const *)k;
     struct fuse_cache *cache = ctx;
 
     o->in_cache = 0;
@@ -542,7 +543,7 @@ obj_free_cb(const void *k, void *ctx)
 static int
 obj_verify_refcnt_cb(const void *k, void *ctx)
 {
-    struct cache_obj *o = *(struct cache_obj **)k;
+    struct cache_obj *o = *(struct cache_obj *const *)k;
 
     (void)ctx;
 
@@ -1126,7 +1127,7 @@ get_next_iter_elem(struct cache_obj *o, void *key, void **data, size_t *datalen,
     }
 
     *iter = citer;
-    *minkey = (void *)o->key;
+    *minkey = o->keybuf;
     return 0;
 }
 
@@ -1290,7 +1291,7 @@ init_cache_obj(struct cache_obj *o, struct avl_tree_node *n, const void *key,
     memcpy(k, key, cache->key_size);
     memcpy(d, data, datasize);
 
-    o->key = k;
+    o->key = o->keybuf = k;
     o->data = d;
     o->datasize = datasize;
     o->replace = 0;
@@ -1327,10 +1328,10 @@ update_cache_obj(struct cache_obj *o, const void *key, const void *data,
     if (d == NULL)
         return MINUS_ERRNO;
 
-    memcpy((void *)o->key, key, cache->key_size);
+    memcpy(o->keybuf, key, cache->key_size);
 
     memcpy(d, data, datasize);
-    free((void *)o->data);
+    free(o->data);
     o->data = d;
     o->datasize = datasize;
 
@@ -1347,8 +1348,8 @@ destroy_cache_obj(struct cache_obj *o, int force, int keep_node,
         LIST_REMOVE(o, e);
         if (!keep_node)
             avl_tree_free_node(o->n, cache->cache);
-        free((void *)o->key);
-        free((void *)o->data);
+        free(o->keybuf);
+        free(o->data);
         o->magic = 0;
         return 1;
     }
@@ -1949,8 +1950,8 @@ fuse_cache_walk(void *ctx, back_end_walk_cb_t fn, void *wctx)
     struct cache_obj *o;
     struct fuse_cache *cache = ctx;
     void *biter;
-    void *iter;
     void *data;
+    void *iter;
     void *key, *minkey;
 
     /* allocate key and data buffers */
@@ -2006,7 +2007,7 @@ fuse_cache_walk(void *ctx, back_end_walk_cb_t fn, void *wctx)
             goto err4;
         if (biter == NULL) {
             iter = citer;
-            minkey = (void *)o->key;
+            minkey = o->keybuf;
         }
     }
     if (biter != NULL) {
@@ -2082,7 +2083,7 @@ fuse_cache_walk(void *ctx, back_end_walk_cb_t fn, void *wctx)
             if (res != 0)
                 goto err4;
             if (biter == NULL)
-                minkey = (void *)o->key;
+                minkey = o->keybuf;
         } else {
             res = be_iter_get(cache, biter, key, NULL, NULL);
             if (res != 0)
@@ -2243,7 +2244,7 @@ fuse_cache_iter_get(void *iter, void *retkey, void *retdata,
             if (err)
                 return err;
             if (iterator->biter == NULL)
-                iterator->minkey = (void *)iterator->o->key;
+                iterator->minkey = iterator->o->keybuf;
         } else {
             err = be_iter_get(iterator->cache, iterator->biter, iterator->key,
                               NULL, NULL);

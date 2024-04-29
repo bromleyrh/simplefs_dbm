@@ -94,7 +94,7 @@ static void disp_xattr(FILE *, const struct db_key *, const void *, size_t);
 static void disp_ulinked_inode(FILE *, const struct db_key *, const void *,
                                size_t);
 
-static int used_ino_get(uint64_t *, uint32_t, uint32_t);
+static int used_ino_get(const uint64_t *, uint32_t, uint32_t);
 
 static int dump_db_obj(FILE *, const void *, const void *, size_t, const char *,
                        void *);
@@ -573,8 +573,8 @@ static void
 disp_free_ino_full(FILE *f, const struct db_key *key, const void *data,
                    size_t datasize)
 {
+    const struct db_obj_free_ino *freeino = data;
     int i;
-    struct db_obj_free_ino *freeino = (struct db_obj_free_ino *)data;
 
     disp_free_ino(f, key, data, datasize);
     fputc('\n', f);
@@ -690,7 +690,7 @@ disp_ulinked_inode(FILE *f, const struct db_key *key, const void *data,
 }
 
 static int
-used_ino_get(uint64_t *used_ino, uint32_t base, uint32_t ino)
+used_ino_get(const uint64_t *used_ino, uint32_t base, uint32_t ino)
 {
     int idx, wordidx;
     uint64_t mask;

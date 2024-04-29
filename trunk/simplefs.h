@@ -8,8 +8,8 @@
 struct mount_data {
     char        *creds;
     int         wd;
-    const char  *db_pathname;
-    const char  *mountpoint;
+    char        *db_pathname;
+    char        *mountpoint;
     unsigned    ro;
     unsigned    lkw;
     unsigned    fmtconv;

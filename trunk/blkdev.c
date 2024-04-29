@@ -87,9 +87,8 @@ struct fs_ops {
     int (*fstat)(void *ctx, int fd, struct stat *s);
     size_t (*pread)(void *ctx, int fd, void *buf, size_t count, off_t offset,
                     size_t maxread, const struct interrupt_data *intdata);
-    size_t (*pwrite)(void *ctx, int fd, const void *buf, size_t count,
-                     off_t offset, size_t maxwrite,
-                     const struct interrupt_data *intdata);
+    size_t (*pwrite)(void *ctx, int fd, void *buf, size_t count, off_t offset,
+                     size_t maxwrite, const struct interrupt_data *intdata);
     int (*ftruncate)(void *ctx, int fd, off_t length);
     int (*falloc)(void *ctx, int fd, off_t offset, off_t len);
     int (*fsync)(void *ctx, int fd, const struct interrupt_data *intdata);
@@ -116,7 +115,7 @@ static int fs_blkdev_fstat(void *ctx, int fd, struct stat *s);
 static size_t fs_blkdev_pread(void *ctx, int fd, void *buf, size_t count,
                               off_t offset, size_t maxread,
                               const struct interrupt_data *intdata);
-static size_t fs_blkdev_pwrite(void *ctx, int fd, const void *buf, size_t count,
+static size_t fs_blkdev_pwrite(void *ctx, int fd, void *buf, size_t count,
                                off_t offset, size_t maxwrite,
                                const struct interrupt_data *intdata);
 static int fs_blkdev_ftruncate(void *ctx, int fd, off_t length);
@@ -349,7 +348,7 @@ do_blkdev_io(struct blkdev_ctx *bctx, int fd, void *buf, size_t count,
 
     return direction == 0
            ? do_ppread(fd, buf, count, off, maxio, intdata)
-           : do_ppwrite(fd, (const void *)buf, count, off, maxio, intdata);
+           : do_ppwrite(fd, buf, count, off, maxio, intdata);
 }
 
 static int
@@ -663,13 +662,12 @@ fs_blkdev_pread(void *ctx, int fd, void *buf, size_t count, off_t offset,
 }
 
 static size_t
-fs_blkdev_pwrite(void *ctx, int fd, const void *buf, size_t count, off_t offset,
+fs_blkdev_pwrite(void *ctx, int fd, void *buf, size_t count, off_t offset,
                  size_t maxwrite, const struct interrupt_data *intdata)
 {
     struct blkdev_ctx *bctx = ctx;
 
-    return do_blkdev_io(bctx, fd, (void *)buf, count, offset, maxwrite, intdata,
-                        1);
+    return do_blkdev_io(bctx, fd, buf, count, offset, maxwrite, intdata, 1);
 }
 
 static int
