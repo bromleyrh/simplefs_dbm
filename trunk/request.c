@@ -47,7 +47,7 @@ struct request_fuse {
 #define REQUEST(op, ...) \
     do { \
         struct request r = {.ctx = ctx, .req = req}; \
-        (*(ctx)->req_ops->op)(&r, ##__VA_ARGS__); \
+        (*(ctx)->req_ops->op)(&r, __VA_ARGS__); \
     } while (0);
 
 #define _REQUEST_FUSE(nm, r, filei) \
