@@ -56,7 +56,7 @@
 #include <assert.h>
 #include <errno.h>
 
-static __thread int asserttmp;
+static _Thread_local int asserttmp;
 
 #define ERRNO (asserttmp = errno, assert(asserttmp > 0), asserttmp)
 #define MINUS_ERRNO (asserttmp = -errno, assert(asserttmp < 0), asserttmp)
