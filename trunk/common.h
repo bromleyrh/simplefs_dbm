@@ -51,7 +51,7 @@
 #define _STATIC_ASSERT(expr, line) __STATIC_ASSERT(expr, line)
 #define STATIC_ASSERT(expr) _STATIC_ASSERT(expr, __LINE__)
 
-/* for eliminating false negatives from static analysis tools */
+/* for eliminating false positives from static analysis tools */
 #ifndef NO_ASSERT
 #include <assert.h>
 #include <errno.h>
