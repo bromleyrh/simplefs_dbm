@@ -564,7 +564,7 @@ obj_verify_refcnt_cb(const void *k, void *ctx)
 }
 
 /*
- * Note: This function assumes the object set referenced by objs is empty
+ * Note: This function assumes the object set referenced by objs is empty.
  */
 static int
 chk_process_cache_refs(struct avl_tree *objs, struct avl_tree *cache)
