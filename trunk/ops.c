@@ -4650,7 +4650,7 @@ simplefs_readdir(void *req, inum_t ino, size_t size, off_t off,
     struct fspriv *priv;
     struct mount_data *md = req_userdata(req);
     struct op_args opargs;
-    struct open_dir *odir = (struct open_dir *)(uintptr_t)fi->fh;
+    struct open_dir *odir = (void *)(uintptr_t)fi->fh;
 
     (void)ino;
 
@@ -4713,7 +4713,7 @@ simplefs_release(void *req, inum_t ino, struct file_info *fi)
 
     priv = md->priv;
 
-    ofile = (struct open_file *)(uintptr_t)fi->fh;
+    ofile = (void *)(uintptr_t)fi->fh;
 
     opargs.be = priv->be;
     opargs.ro = md->ro;
@@ -4769,7 +4769,7 @@ simplefs_releasedir(void *req, inum_t ino, struct file_info *fi)
 
     priv = md->priv;
 
-    odir = (struct open_dir *)(uintptr_t)fi->fh;
+    odir = (void *)(uintptr_t)fi->fh;
 
     opargs.be = priv->be;
     opargs.ro = md->ro;
