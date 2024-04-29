@@ -8,7 +8,7 @@
 #include "request.h"
 
 extern struct request_ops request_simplefs_ops;
-#define REQUEST_SIMPLEFS ((void *)&request_simplefs_ops)
+#define REQUEST_SIMPLEFS (&request_simplefs_ops)
 
 #endif
 

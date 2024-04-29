@@ -440,7 +440,7 @@ do_create(struct dbh **dbh, int dfd, const char *relpath, mode_t mode,
           int blkdev, size_t *hdr_len, size_t *jlen, uint64_t *blkdev_size,
           struct db_alloc_cb *alloc_cb)
 {
-    db_hl_key_cmp_t keycmp = (db_hl_key_cmp_t)key_cmp;
+    db_hl_key_cmp_t keycmp = key_cmp;
     int err;
 
     if (blkdev) {
@@ -466,7 +466,7 @@ do_open(struct dbh **dbh, int dfd, const char *relpath, size_t key_size,
         back_end_key_cmp_t key_cmp, void *key_ctx, int flags,
         int blkdev, size_t *hdr_len, size_t *jlen, uint64_t *blkdev_size)
 {
-    db_hl_key_cmp_t keycmp = (db_hl_key_cmp_t)key_cmp;
+    db_hl_key_cmp_t keycmp = key_cmp;
     int err;
 
     if (blkdev) {

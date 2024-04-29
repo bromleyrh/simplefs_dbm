@@ -17,7 +17,7 @@ struct blkdev_args {
 };
 
 extern const struct fs_ops fs_blkdev_ops;
-#define FS_BLKDEV_OPS ((void *)&fs_blkdev_ops)
+#define FS_BLKDEV_OPS (&fs_blkdev_ops)
 
 #endif
 

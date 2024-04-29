@@ -41,7 +41,7 @@ struct db_key_ctx {
 };
 
 extern const struct back_end_ops back_end_dbm_ops;
-#define BACK_END_DBM ((void *)&back_end_dbm_ops)
+#define BACK_END_DBM (&back_end_dbm_ops)
 
 #define BACK_END_DBM_OP_FOREACH_ALLOC 1
 #define BACK_END_DBM_OP_GET_HDR_LEN 2

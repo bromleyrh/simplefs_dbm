@@ -129,7 +129,7 @@ struct sess_ops {
 #define REQUEST_DEFAULT REQUEST_SIMPLEFS
 
 extern const struct reply_ops reply_default_ops;
-#define REPLY_DEFAULT ((void *)&reply_default_ops)
+#define REPLY_DEFAULT (&reply_default_ops)
 
 int request_new(struct request_ctx **ctx, const struct request_ops *req_ops,
                 const struct reply_ops *reply_ops, void *rctx,

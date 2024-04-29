@@ -1357,7 +1357,7 @@ process_cmd(struct dbh *dbh)
         return 1;
     }
 
-    i = (unsigned char)cmd[0];
+    i = cmd[0];
     if (i >= ARRAY_SIZE(cmds))
         goto input_err;
 

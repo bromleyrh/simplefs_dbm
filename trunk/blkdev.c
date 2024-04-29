@@ -239,7 +239,7 @@ get_blkdev_size(int fd, uint64_t *sz)
     count *= size;
 #endif
 
-    *sz = (uint64_t)count;
+    *sz = count;
     return 0;
 }
 

@@ -2553,8 +2553,8 @@ do_create_symlink(void *args)
      * access, last data modification, and last file status change timestamps of
      * the symbolic link. */
     ret = new_node(opargs->be, opargs->ref_inodes, parent, name, ctx->uid,
-                   ctx->gid, S_IFLNK | S_IRWXU | S_IRWXG | S_IRWXO, 0,
-                   (off_t)len, &opargs->attr, opargs->refinop, 1);
+                   ctx->gid, S_IFLNK | S_IRWXU | S_IRWXG | S_IRWXO, 0, len,
+                   &opargs->attr, opargs->refinop, 1);
     if (ret != 0)
         goto err2;
 

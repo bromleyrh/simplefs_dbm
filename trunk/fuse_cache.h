@@ -25,7 +25,7 @@ struct fuse_cache_args {
 };
 
 extern const struct back_end_ops back_end_fuse_cache_ops;
-#define BACK_END_FUSE_CACHE ((void *)&back_end_fuse_cache_ops)
+#define BACK_END_FUSE_CACHE (&back_end_fuse_cache_ops)
 
 void fuse_cache_set_dump_cb(struct fuse_cache *cache,
                             void (*cb)(FILE *f, const void *key,
