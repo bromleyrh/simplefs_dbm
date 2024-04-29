@@ -598,7 +598,7 @@ used_ino_set(uint64_t *used_ino, inum_t base, inum_t ino, int val)
 
     idx = ino - base;
     wordidx = idx / NBWD;
-    mask = 1ull << idx % NBWD;
+    mask = UINT64_C(1) << idx % NBWD;
 
     if (val)
         used_ino[wordidx] |= mask;

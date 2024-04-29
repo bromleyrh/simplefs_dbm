@@ -697,7 +697,7 @@ used_ino_get(const uint64_t *used_ino, uint32_t base, uint32_t ino)
 
     idx = ino - base;
     wordidx = idx / NBWD;
-    mask = 1ull << idx % NBWD;
+    mask = UINT64_C(1) << idx % NBWD;
 
     return !!(used_ino[wordidx] & mask);
 }
