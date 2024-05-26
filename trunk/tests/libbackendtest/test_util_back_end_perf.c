@@ -209,7 +209,7 @@ be_test_perf(struct be_ctx *bectx, const struct be_params *bep,
         infomsgf("\nTest for n == %u: %.6f s\n",
                  n,
                  (double)info.tot_tm.tv_sec
-                 + (double)info.tot_tm.tv_nsec / 1000000000.0);
+                 + (double)info.tot_tm.tv_nsec / 1e9);
     }
 
     end_perf_test(tctx);

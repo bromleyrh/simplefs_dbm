@@ -36,7 +36,7 @@ refresh_stat_output(struct be_ctx *bectx)
 
     if (gettimeofday(&curr, NULL) == 0
         && curr.tv_sec - last_print_time.tv_sec
-           + 0.000001 * (curr.tv_usec-last_print_time.tv_usec) >= 1.0) {
+           + 1e-6 * (curr.tv_usec-last_print_time.tv_usec) >= 1.0) {
         clrscr(stderr);
         (*bectx->cb.print_stats)(stderr, bectx, 0);
         last_print_time = curr;
