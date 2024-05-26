@@ -84,6 +84,7 @@ walk_fn3(const void *kv, void *ctx)
     char output[64];
     int curr;
     struct fn3_ctx *data = ctx;
+    unsigned res;
 
     curr = get_short_key(kv, data->key_size);
 
@@ -95,9 +96,9 @@ walk_fn3(const void *kv, void *ctx)
     }
 
     if (bitmap_find_next_set(data->bmdata->bitmap, data->bmdata->bitmap_len,
-                             data->bitmap_pos, (unsigned *)&data->bitmap_pos, 1)
+                             data->bitmap_pos, &res, 1)
         == 0
-        || curr != data->bitmap_pos) {
+        || curr != (data->bitmap_pos = res)) {
         fillbuf(output, "Bitmap (%6d) and back end (%6d) differ\n",
                 data->bitmap_pos, curr);
         if (data->keys_found > 1)
@@ -186,6 +187,7 @@ verify_rand_ordered(struct be_ctx *bectx)
     struct be_ctx_ordered *ctx = bectx->ctx;
     struct bitmap_data *bmdata;
     struct fn3_ctx data;
+    unsigned res;
     void *wctx = NULL;
 
     bmdata = bectx->bmdata;
@@ -219,10 +221,11 @@ verify_rand_ordered(struct be_ctx *bectx)
         infochr('\n');
 
     if (bitmap_find_next_set(data.bmdata->bitmap, data.bmdata->bitmap_len,
-                             data.bitmap_pos, (unsigned *)&data.bitmap_pos, 1)
+                             data.bitmap_pos, &res, 1)
         != 0) {
         infomsg("Bitmap and back end differ\n");
         fputs("Bitmap and back end differ\n", data.checklog);
+        data.bitmap_pos = res;
         ret = -EIO;
     }
 

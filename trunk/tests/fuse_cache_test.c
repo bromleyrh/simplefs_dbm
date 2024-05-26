@@ -273,6 +273,7 @@ fn3(const void *key, const void *data, size_t datalen, void *ctx)
     const struct cache_data *d = data;
     int curr;
     struct fn3_ctx *wctx = ctx;
+    unsigned res;
 
     curr = get_short_key(key, wctx->key_size);
 
@@ -292,9 +293,9 @@ fn3(const void *key, const void *data, size_t datalen, void *ctx)
     }
 
     if (bitmap_find_next_set(wctx->bmdata->bitmap, wctx->bmdata->bitmap_len,
-                             wctx->bitmap_pos, (unsigned *)&wctx->bitmap_pos, 1)
+                             wctx->bitmap_pos, &res, 1)
         == 0
-        || curr != wctx->bitmap_pos) {
+        || curr != (wctx->bitmap_pos = res)) {
         errmsgf("%sBitmap (%6d) and database (%6d) differ\n",
                 wctx->keys_found > 1 ? "\n" : "", wctx->bitmap_pos, curr);
         return -EIO;
@@ -835,6 +836,7 @@ verify_rand(struct be_ctx *bectx)
     struct bitmap_data *bmdata = bectx->bmdata;
     struct fuse_cache_ctx *cachectx;
     struct fn3_ctx data;
+    unsigned res;
 
     cachectx = bectx->be;
 
@@ -861,9 +863,10 @@ verify_rand(struct be_ctx *bectx)
         infochr('\n');
 
     if (bitmap_find_next_set(data.bmdata->bitmap, data.bmdata->bitmap_len,
-                             data.bitmap_pos, (unsigned *)&data.bitmap_pos, 1)
+                             data.bitmap_pos, &res, 1)
         != 0) {
         errmsg("Bitmap and cache differ\n");
+        data.bitmap_pos = res;
         ret = -EIO;
     }
 
