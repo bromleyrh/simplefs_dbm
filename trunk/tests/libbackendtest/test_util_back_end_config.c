@@ -24,12 +24,12 @@
 
 #define ROOT_RULE_ID "config"
 
-static size_t read_cb(void *, size_t, size_t, void *);
+static size_t rd_cb(void *, size_t, size_t, void *);
 
 static int u64_to_int_filter(void *, const void *, void *);
 
 static size_t
-read_cb(void *buf, size_t off, size_t len, void *ctx)
+rd_cb(void *buf, size_t off, size_t len, void *ctx)
 {
     FILE *f = ctx;
     size_t ret;
@@ -84,7 +84,7 @@ parse_config(const char *path, struct params *params)
     }
 
     json_in_filter_ctx_init(&rctx);
-    rctx.rd_cb = &read_cb;
+    rctx.rd_cb = &rd_cb;
     rctx.ctx = f;
 
     err = json_parse_text_with_syntax(&jv, NULL,
