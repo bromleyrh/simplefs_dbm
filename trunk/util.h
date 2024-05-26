@@ -11,15 +11,14 @@
 #include <io_ext.h>
 
 #include <errno.h>
+#include <limits.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
 
-#include <sys/param.h>
-
-#define NBWD (sizeof(uint64_t) * NBBY)
+#define NBWD (sizeof(uint64_t) * CHAR_BIT)
 
 #define SOURCE_LINE_PARAMS const char *func, const char *file, int line
 #define SOURCE_LINE __func__, __FILE__, __LINE__
