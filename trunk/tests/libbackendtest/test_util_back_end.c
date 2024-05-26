@@ -180,7 +180,7 @@ init_shuffle(long *seed, size_t seedlen)
 
     rem = (char *)&seed[i];
     for (i = 0; i < seedwords.rem; i++)
-        rem[i] = (char)(random() & 0xff);
+        rem[i] = random() & 0xff;
 }
 
 #define MINUS_ZERO (INT_MIN / 8)

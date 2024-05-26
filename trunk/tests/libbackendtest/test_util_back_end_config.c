@@ -95,7 +95,7 @@ parse_config(const char *path, struct params *params)
 
     if (!err) {
         if (json_val_object_get_num_elem(jval) > 0)
-            err = json_oscanf(params, spec, (int)ARRAY_SIZE(spec), 0, jval);
+            err = json_oscanf(params, spec, ARRAY_SIZE(spec), 0, jval);
         json_val_free(jval);
     }
 
