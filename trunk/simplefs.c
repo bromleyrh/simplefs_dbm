@@ -2,8 +2,6 @@
  * simplefs.c
  */
 
-#define _GNU_SOURCE
-
 #include "config.h"
 
 #include "common.h"

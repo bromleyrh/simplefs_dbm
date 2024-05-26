@@ -2,8 +2,6 @@
  * lib_test_common.c
  */
 
-#define _GNU_SOURCE
-
 #include "config.h"
 
 #include "util_test_common.h"

@@ -4,7 +4,6 @@
  * TODO: refactor to avoid redundancies
  */
 
-#define _GNU_SOURCE
 #define _XOPEN_SOURCE
 
 #include "config.h"

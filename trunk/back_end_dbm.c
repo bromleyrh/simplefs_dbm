@@ -2,8 +2,6 @@
  * back_end_dbm.c
  */
 
-#define _GNU_SOURCE
-
 #include "back_end.h"
 #include "back_end_dbm.h"
 #include "blkdev.h"
