@@ -101,6 +101,8 @@ int do_pfdatasync(int, const struct interrupt_data *);
 
 int gettime(clockid_t clk_id, struct timespec *tm);
 
+char *_strptime(const char *s, const char *format, struct tm *tm);
+
 #define INT_OUTPUT(num, e) num, (num) == 1 ? "" : e ? "es" : "s"
 
 #endif

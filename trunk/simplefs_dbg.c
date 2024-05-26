@@ -4,8 +4,6 @@
  * TODO: refactor to avoid redundancies
  */
 
-#define _XOPEN_SOURCE
-
 #include "config.h"
 
 #include "blkdev.h"
@@ -350,7 +348,7 @@ scan_time(char *str, void *data, size_t off, int is_signed, int width, int base)
     (void)base;
 
     omemset(&tm, 0);
-    if (strptime(str, "%Y-%m-%d %H:%M:%S", &tm) == NULL)
+    if (_strptime(str, "%Y-%m-%d %H:%M:%S", &tm) == NULL)
         return 2;
     tm.tm_isdst = -1;
 
