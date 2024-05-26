@@ -253,7 +253,8 @@ fn2(const void *key, const void *data, size_t datalen, void *ctx)
     if (datalen != DATA_LEN(d->len)
         || check_int_array((const int *)d->data, d->len / sizeof(int), curr)
            != 0) {
-        errmsgf("Data (length %zu) for key %d corrupt\n", datalen, *(int *)key);
+        errmsgf("Data (length %zu) for key %d corrupt\n", datalen,
+                *(const int *)key);
         return -EIO;
     }
 
@@ -278,7 +279,8 @@ fn3(const void *key, const void *data, size_t datalen, void *ctx)
     if (datalen != DATA_LEN(d->len)
         || check_int_array((const int *)d->data, d->len / sizeof(int), curr)
            != 0) {
-        errmsgf("Data (length %zu) for key %d corrupt\n", datalen, *(int *)key);
+        errmsgf("Data (length %zu) for key %d corrupt\n", datalen,
+                *(const int *)key);
         return -EIO;
     }
 
