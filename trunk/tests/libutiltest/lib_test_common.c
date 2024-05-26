@@ -7,7 +7,9 @@
 #include "util_test_common.h"
 
 #if !defined(HAVE_POSIX_FALLOCATE) && defined(__APPLE__)
+#define NO_ASSERT
 #include "common.h"
+#undef NO_ASSERT
 #endif
 
 #include <strings_ext.h>
