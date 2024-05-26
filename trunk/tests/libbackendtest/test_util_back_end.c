@@ -32,7 +32,6 @@
 #include <string.h>
 #include <unistd.h>
 
-#include <sys/param.h>
 #include <sys/time.h>
 
 struct empty_be_ctx {

@@ -29,7 +29,6 @@
 #include <unistd.h>
 
 #include <sys/mman.h>
-#include <sys/param.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 

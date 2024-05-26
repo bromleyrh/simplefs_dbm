@@ -34,7 +34,6 @@
 #include <time.h>
 #include <unistd.h>
 
-#include <sys/param.h>
 #include <sys/stat.h>
 
 #ifdef HAVE_STRUCT_STAT_ST_MTIMESPEC

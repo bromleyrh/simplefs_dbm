@@ -6,11 +6,9 @@
 
 #include "util_test_common.h"
 
-#if !defined(HAVE_POSIX_FALLOCATE) && defined(__APPLE__)
 #define NO_ASSERT
 #include "common.h"
 #undef NO_ASSERT
-#endif
 
 #include <strings_ext.h>
 
@@ -28,7 +26,6 @@
 #include <time.h>
 #include <unistd.h>
 
-#include <sys/param.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 
