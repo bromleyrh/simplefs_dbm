@@ -76,7 +76,8 @@ parse_config(const char *path, struct params *params)
     if (f == NULL)
         return -errno;
 
-    err = json_parser_init(BACK_END_TEST_CONFIG_GRAM, ROOT_RULE_ID, &parser);
+    err = json_parser_generate(BACK_END_TEST_CONFIG_GRAM, ROOT_RULE_ID,
+                               &parser);
     if (err) {
         fclose(f);
         return err;
