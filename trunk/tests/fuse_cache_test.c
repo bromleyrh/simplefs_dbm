@@ -922,6 +922,7 @@ run_automated_test(int test_type, const struct params *p)
 {
     const struct be_params *bep = &p->bep;
     int ret, tmp;
+    struct be_ctx *bectx;
     struct cache_bitmap_data bmdata;
     struct fuse_cache_ctx cachectx;
 
@@ -940,18 +941,20 @@ run_automated_test(int test_type, const struct params *p)
     if (ret != 0)
         goto end1;
 
+    bectx = (struct be_ctx *)&cachectx;
+
     if (fuse_cache_verbose_debug && open_log_file(0) == NULL)
         goto end1;
 
     switch (test_type) {
     case 3:
-        ret = be_test_rand_repeat((struct be_ctx *)&cachectx, bep, testlog);
+        ret = be_test_rand_repeat(bectx, bep, testlog);
         break;
     case 4:
-        ret = be_test_sorted((struct be_ctx *)&cachectx, bep, testlog);
+        ret = be_test_sorted(bectx, bep, testlog);
         break;
     case 5:
-        ret = be_test_rand_norepeat((struct be_ctx *)&cachectx, bep, testlog);
+        ret = be_test_rand_norepeat(bectx, bep, testlog);
         break;
     default:
         ret = -EIO;
@@ -963,15 +966,13 @@ run_automated_test(int test_type, const struct params *p)
     switch (test_type) {
     case 3:
     case 4:
-        if (bep->use_be) {
-            ret = bep->use_bitmap
-                  ? verify_rand((struct be_ctx *)&cachectx)
-                  : walk_cache(&cachectx);
-        } else if (bep->use_bitmap)
+        if (bep->use_be)
+            ret = bep->use_bitmap ? verify_rand(bectx) : walk_cache(&cachectx);
+        else if (bep->use_bitmap)
             print_bitmap(stdout, cachectx.bectx.bmdata);
         break;
     case 5:
-        ret = verify_rand((struct be_ctx *)&cachectx);
+        ret = verify_rand(bectx);
         break;
     default:
         ret = -EIO;
