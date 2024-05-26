@@ -110,7 +110,7 @@ do_link_at(int dfd, const char *name, mode_t mode, void *ctx)
 {
     (void)mode;
 
-    return linkat(AT_FDCWD, (const char *)ctx, dfd, name, 0);
+    return linkat(AT_FDCWD, ctx, dfd, name, 0);
 }
 
 static int
@@ -118,7 +118,7 @@ do_rename_at(int dfd, const char *name, mode_t mode, void *ctx)
 {
     (void)mode;
 
-    return renameat(AT_FDCWD, (const char *)ctx, dfd, name);
+    return renameat(AT_FDCWD, ctx, dfd, name);
 }
 
 static int

@@ -230,8 +230,8 @@ get_short_key(const int *full_key, int key_size)
 int
 int_key_cmp(const void *k1, const void *k2, void *ctx)
 {
-    int key1 = get_short_key((int *)k1, (intptr_t)ctx);
-    int key2 = get_short_key((int *)k2, (intptr_t)ctx);
+    int key1 = get_short_key(k1, (intptr_t)ctx);
+    int key2 = get_short_key(k2, (intptr_t)ctx);
 
     return (key1 > key2) - (key1 < key2);
 }
@@ -239,7 +239,7 @@ int_key_cmp(const void *k1, const void *k2, void *ctx)
 const char *
 int_key_to_str(const void *k, void *ctx)
 {
-    int key = get_short_key((int *)k, (intptr_t)ctx);
+    int key = get_short_key(k, (intptr_t)ctx);
     static char buf[16];
 
     fillbuf(buf, "%d", key);
@@ -987,7 +987,7 @@ empty_be_cb(const void *k, void *ctx)
     int key;
     struct empty_be_ctx *wctx = ctx;
 
-    key = get_short_key((int *)k, wctx->key_size);
+    key = get_short_key(k, wctx->key_size);
 
     return dynamic_array_push_back(wctx->key_list, &key);
 }
