@@ -60,7 +60,7 @@ parse_config(const char *path, struct params *params)
     FILE *f;
     json_value_t jv;
     struct json_parser *parser;
-    struct json_in_filter_ctx rctx;
+    struct json_in_filter_ctx ictx;
 
     static const struct json_unpack_mapping spec[] = {
         SCAN_SPEC(iter_test_period),
@@ -83,12 +83,12 @@ parse_config(const char *path, struct params *params)
         return err;
     }
 
-    json_in_filter_ctx_init(&rctx);
-    rctx.rd_cb = &rd_cb;
-    rctx.ctx = f;
+    json_in_filter_ctx_init(&ictx);
+    ictx.rd_cb = &rd_cb;
+    ictx.ctx = f;
 
     err = json_parse_text_with_syntax(&jv, NULL,
-                                      &json_in_filter_discard_comments, &rctx,
+                                      &json_in_filter_discard_comments, &ictx,
                                       parser);
 
     json_parser_destroy(parser);
