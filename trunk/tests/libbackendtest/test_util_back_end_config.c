@@ -87,8 +87,8 @@ parse_config(const char *path, struct params *params)
     rctx.read_cb = &read_cb;
     rctx.ctx = f;
 
-    err = json_grammar_validate(NULL, &json_in_filter_discard_comments, &rctx,
-                                parser, &jval);
+    err = json_parse_text_with_syntax(NULL, &json_in_filter_discard_comments,
+                                      &rctx, parser, &jval);
 
     json_parser_destroy(parser);
 
