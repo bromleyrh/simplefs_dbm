@@ -58,7 +58,7 @@ parse_config(const char *path, struct params *params)
 {
     int err;
     FILE *f;
-    json_val_t jval;
+    json_value_t jval;
     struct json_parser *parser;
     struct json_read_cb_ctx rctx;
 
