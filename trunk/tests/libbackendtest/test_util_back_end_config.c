@@ -84,7 +84,7 @@ parse_config(const char *path, struct params *params)
     }
 
     json_in_filter_ctx_init(&rctx);
-    rctx.read_cb = &read_cb;
+    rctx.rd_cb = &read_cb;
     rctx.ctx = f;
 
     err = json_parse_text_with_syntax(&jval, NULL,
