@@ -13,6 +13,7 @@
 
 #include <strings_ext.h>
 
+#include <inttypes.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -114,7 +115,7 @@ parse_be_test_opt(int opt, void *test_opts)
         *mem_test = 1;
         break;
     case 'n':
-        bep->num_ops = strtoull(optarg, NULL, 10);
+        bep->num_ops = strtoumax(optarg, NULL, 10);
         break;
     case 'O':
         if (testopts->order_stats)

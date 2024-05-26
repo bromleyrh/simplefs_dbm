@@ -164,7 +164,7 @@ parse_test_opt(int opt, void *test_opts)
         *testopts->test_type = 5;
         break;
     case 'K':
-        *testopts->max_data_len = strtoul(optarg, NULL, 10);
+        *testopts->max_data_len = strtoumax(optarg, NULL, 10);
         break;
     case 'z':
         *testopts->test_type = 4;
