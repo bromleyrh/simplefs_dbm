@@ -22,10 +22,10 @@ extern struct params params;
 
 #define NUM_OPS(bectx) ((bectx)->stats.num_ops - (bectx)->stats.num_ops_start)
 
-#define VERBOSE_LOG(f, format, ...) \
+#define VERBOSE_LOG(f, ...) \
     do { \
         if (verbose_debug != NULL && *verbose_debug) \
-            fprintf(f, format, ##__VA_ARGS__); \
+            fprintf(f, __VA_ARGS__); \
     } while (0)
 
 static inline void
