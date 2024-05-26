@@ -22,7 +22,7 @@
 #define NBWD (sizeof(uint64_t) * NBBY)
 
 #define SOURCE_LINE_PARAMS const char *func, const char *file, int line
-#define SOURCE_LINE __FUNCTION__, __FILE__, __LINE__
+#define SOURCE_LINE __func__, __FILE__, __LINE__
 
 #define _ERR_INJECT(enabled, err_period, funcname, errnum, errret, func, file, \
                     line, set) \
@@ -44,7 +44,7 @@
 
 #define ERR_INJECT(enabled, err_period, errnum, errret, prefixlen, func, file, \
                    line, set) \
-    _ERR_INJECT(enabled, err_period, __FUNCTION__ + prefixlen, errnum, errret, \
+    _ERR_INJECT(enabled, err_period, __func__ + prefixlen, errnum, errret, \
                 func, file, line, set)
 
 #define ERR_CLEAR(set) \
