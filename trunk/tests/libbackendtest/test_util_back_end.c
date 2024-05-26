@@ -40,14 +40,14 @@ struct empty_be_ctx {
     int                     key_size;
 };
 
-extern __thread int db_err_test;
-extern __thread int db_io_err;
-extern __thread int db_mem_err;
+extern _Thread_local int db_err_test;
+extern _Thread_local int db_io_err;
+extern _Thread_local int db_mem_err;
 
-extern __thread int avl_tree_mem_test;
-extern __thread int avl_tree_mem_err;
-extern __thread int btree_mem_test;
-extern __thread int btree_mem_err;
+extern _Thread_local int avl_tree_mem_test;
+extern _Thread_local int avl_tree_mem_err;
+extern _Thread_local int btree_mem_test;
+extern _Thread_local int btree_mem_err;
 
 void (*term_handler)(int);
 
