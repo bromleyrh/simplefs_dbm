@@ -12,7 +12,6 @@
 #include <limits.h>
 #include <stdint.h>
 
-#include <sys/param.h>
 #include <sys/stat.h>
 
 enum db_obj_type {
@@ -100,6 +99,10 @@ struct db_obj_stat {
 #endif
     uint32_t                num_ents;
 } __attribute__((packed));
+
+#ifndef DEV_BSIZE
+#define DEV_BSIZE 512
+#endif
 
 #define DATA_BLOCK_MIN_SIZE 64
 #define PG_SIZE (128 * 1024 - DATA_BLOCK_MIN_SIZE)
