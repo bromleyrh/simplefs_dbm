@@ -945,16 +945,13 @@ run_automated_test(int test_type, const struct params *p)
 
     switch (test_type) {
     case 3:
-        ret = be_test_rand_repeat((struct be_ctx *)&cachectx,
-                                  (const struct be_params *)p, testlog);
+        ret = be_test_rand_repeat((struct be_ctx *)&cachectx, bep, testlog);
         break;
     case 4:
-        ret = be_test_sorted((struct be_ctx *)&cachectx,
-                             (const struct be_params *)p, testlog);
+        ret = be_test_sorted((struct be_ctx *)&cachectx, bep, testlog);
         break;
     case 5:
-        ret = be_test_rand_norepeat((struct be_ctx *)&cachectx,
-                                    (const struct be_params *)p, testlog);
+        ret = be_test_rand_norepeat((struct be_ctx *)&cachectx, bep, testlog);
         break;
     default:
         ret = -EIO;
