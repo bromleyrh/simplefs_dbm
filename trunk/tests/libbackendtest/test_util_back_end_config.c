@@ -62,7 +62,7 @@ parse_config(const char *path, struct params *params)
     struct json_parser *parser;
     struct json_in_filter_ctx rctx;
 
-    static const struct json_scan_spec spec[] = {
+    static const struct json_unpack_mapping spec[] = {
         SCAN_SPEC(iter_test_period),
         SCAN_SPEC(iter_test_out_of_range_period),
         SCAN_SPEC(out_of_range_period),
