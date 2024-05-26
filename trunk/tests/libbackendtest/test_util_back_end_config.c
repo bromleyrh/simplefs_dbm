@@ -24,12 +24,12 @@
 
 #define ROOT_RULE_ID "config"
 
-static size_t read_cb(char *, size_t, size_t, void *);
+static size_t read_cb(void *, size_t, size_t, void *);
 
 static int u64_to_int_filter(void *, void *, void *);
 
 static size_t
-read_cb(char *buf, size_t off, size_t len, void *ctx)
+read_cb(void *buf, size_t off, size_t len, void *ctx)
 {
     FILE *f = ctx;
     size_t ret;
