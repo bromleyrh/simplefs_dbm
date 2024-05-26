@@ -50,8 +50,8 @@ u64_to_int_filter(void *src, void *dst, void *arg)
 }
 
 #define SCAN_SPEC(param) \
-    {L"" STR(param), JSON_TYPE_NUMBER, 0, 0, 0, &u64_to_int_filter, NULL, \
-     NULL, offsetof(struct params, param)}
+    {L"" STR(param), JSON_NUMBER_T, 0, 0, 0, &u64_to_int_filter, NULL, NULL, \
+     offsetof(struct params, param)}
 
 int
 parse_config(const char *path, struct params *params)
