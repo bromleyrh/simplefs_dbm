@@ -60,7 +60,7 @@ parse_config(const char *path, struct params *params)
     FILE *f;
     json_value_t jval;
     struct json_parser *parser;
-    struct json_read_cb_ctx rctx;
+    struct json_in_filter_ctx rctx;
 
     static const struct json_scan_spec spec[] = {
         SCAN_SPEC(iter_test_period),
