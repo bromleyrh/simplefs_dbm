@@ -26,7 +26,7 @@
 
 static size_t read_cb(void *, size_t, size_t, void *);
 
-static int u64_to_int_filter(void *, void *, void *);
+static int u64_to_int_filter(const void *, void *, void *);
 
 static size_t
 read_cb(void *buf, size_t off, size_t len, void *ctx)
@@ -41,11 +41,11 @@ read_cb(void *buf, size_t off, size_t len, void *ctx)
 }
 
 static int
-u64_to_int_filter(void *src, void *dst, void *arg)
+u64_to_int_filter(const void *src, void *dst, void *arg)
 {
     (void)arg;
 
-    *(int *)dst = *(uint64_t *)src;
+    *(int *)dst = *(const uint64_t *)src;
     return 0;
 }
 
