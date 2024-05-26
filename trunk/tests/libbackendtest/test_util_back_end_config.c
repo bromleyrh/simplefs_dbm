@@ -58,7 +58,7 @@ parse_config(const char *path, struct params *params)
 {
     int err;
     FILE *f;
-    json_value_t jval;
+    json_value_t jv;
     struct json_parser *parser;
     struct json_in_filter_ctx rctx;
 
@@ -87,7 +87,7 @@ parse_config(const char *path, struct params *params)
     rctx.rd_cb = &read_cb;
     rctx.ctx = f;
 
-    err = json_parse_text_with_syntax(&jval, NULL,
+    err = json_parse_text_with_syntax(&jv, NULL,
                                       &json_in_filter_discard_comments, &rctx,
                                       parser);
 
@@ -96,9 +96,9 @@ parse_config(const char *path, struct params *params)
     fclose(f);
 
     if (!err) {
-        if (json_object_get_size(jval) > 0)
-            err = json_unpack(spec, ARRAY_SIZE(spec), jval, params, 0);
-        json_value_put(jval);
+        if (json_object_get_size(jv) > 0)
+            err = json_unpack(spec, ARRAY_SIZE(spec), jv, params, 0);
+        json_value_put(jv);
     }
 
     return err;
