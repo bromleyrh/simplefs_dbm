@@ -1,0 +1,3 @@
+[submodule "simplefs_dbm-tests"]
+	path = trunk/tests
+	url = ssh://git@altssh.bitbucket.org:443/bromleyrh/simplefs_dbm-tests.git
