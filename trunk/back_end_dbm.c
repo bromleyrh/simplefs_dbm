@@ -216,7 +216,7 @@ __db_hl_walk(struct dbh *dbh, db_hl_walk_cb_t fn, void *ctx, SOURCE_LINE_PARAMS)
 }
 
 static int
-__db_hl_iter_new(db_hl_iter_t *iter, const struct dbh *dbh, SOURCE_LINE_PARAMS)
+__db_hl_iter_new(db_hl_iter_t *iter, struct dbh *dbh, SOURCE_LINE_PARAMS)
 {
     DO_ERR_INJECT(0, -EIO);
 
