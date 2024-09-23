@@ -8,8 +8,8 @@ MOUNT_POINT
 .SH DESCRIPTION
 Unmount a SimpleFS file system currently mounted on the specified mount point.
 .SH NOTES
-The \fBumount.simplefs\fR command is not synchronous with respect to termination
-of the file system server associated with the mount point. If synchronization
+The \fBumount.simplefs\fR command is asynchronous with respect to termination of
+the file system server associated with the mount point. If synchronization
 between \fBumount.simplefs\fR and a subsequent \fBmount.simplefs\fR with the
 same device argument is required, the \fB-o lkw\fR option of
 \fBmount.simplefs\fR can be used to enable waiting for the previous file system
