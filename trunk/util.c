@@ -59,9 +59,9 @@ strlen_cmp(const void *e1, const void *e2, void *ctx)
     size_t len1, len2;
     ssize_t *maxlen = ctx;
 
-    len1 = strlen(*(const char **)e1);
+    len1 = strlen(*(const char *const *)e1);
     if (*maxlen == -1)
-        len2 = strlen(*(const char **)e2);
+        len2 = strlen(*(const char *const *)e2);
     else
         len2 = *maxlen;
 
