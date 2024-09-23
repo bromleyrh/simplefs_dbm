@@ -587,7 +587,7 @@ disp_free_ino_full(FILE *f, const struct db_key *key, const void *data,
               f);
     }
 
-    fprintf(f, "Last: %s", (freeino->flags & FREE_INO_LAST_USED) ? "1" : "0");
+    fprintf(f, "Last: %s", freeino->flags & FREE_INO_LAST_USED ? "1" : "0");
 }
 
 #undef OUTPUT_WIDTH
