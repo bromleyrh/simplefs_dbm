@@ -1461,7 +1461,7 @@ new_dir(struct back_end *be, inum_t root_id, struct ref_inodes *ref_inodes,
         struct stat *attr, struct ref_ino **inop, int notrans)
 {
     int ret;
-    int rootdir = (parent == 0);
+    int rootdir = parent == 0;
     inum_t ino;
     struct db_key k;
     struct db_obj_stat s;
