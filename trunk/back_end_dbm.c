@@ -666,7 +666,7 @@ back_end_dbm_open(void **ctx, size_t key_size, back_end_key_cmp_t key_cmp,
     blkdevsz = 0;
     err = do_open(&ret->dbh, dfd, relpath, key_size, key_cmp, ret->key_ctx,
                   flags | DB_HL_RDONLY, blkdev, &hdrlen, &jlen, &blkdevsz);
-    if (!(dbargs->ro)) {
+    if (!dbargs->ro) {
         if (err) {
             if (err != -EROFS)
                 goto err4;
