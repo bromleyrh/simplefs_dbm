@@ -2,6 +2,8 @@
  * blkdev.c
  */
 
+#define _GNU_SOURCE
+
 #include "config.h"
 
 #include "blkdev.h"
@@ -30,7 +32,9 @@
 #error "Support for platform not yet implemented"
 #endif
 
+#ifndef HAVE_FCNTL_F_OFD_LOCKS
 #include <sys/file.h>
+#endif
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
@@ -361,6 +365,30 @@ do_blkdev_io(struct blkdev_ctx *bctx, int fd, void *buf, size_t count,
 static int
 _flock(int fd, int operation, int blkdev)
 {
+#ifdef HAVE_FCNTL_F_OFD_LOCKS
+    struct flock lk;
+
+    (void)blkdev;
+
+    memset(&lk, 0, sizeof(lk));
+
+    if (operation & FILE_LOCK_EX) {
+        if (operation & FILE_LOCK_SH)
+            goto inval_err;
+        lk.l_type = F_WRLCK;
+    } else if (operation & FILE_LOCK_SH)
+        lk.l_type = F_RDLCK;
+    else
+        goto inval_err;
+
+    lk.l_whence = SEEK_SET;
+
+    return fcntl(fd, operation & FILE_LOCK_NB ? F_OFD_SETLK : F_OFD_SETLKW,
+                 &lk);
+
+inval_err:
+    return err_to_errno(EINVAL);
+#else
     int fl;
     int i;
 
@@ -397,6 +425,7 @@ _flock(int fd, int operation, int blkdev)
     }
 
     return 0;
+#endif
 }
 
 static int

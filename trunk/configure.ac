@@ -66,6 +66,7 @@ AC_CHECK_MEMBERS([struct stat.st_atimespec, struct stat.st_mtimespec,
 AC_CHECK_FUNCS([fdatasync posix_fallocate])
 
 AX_FUNC_ERROR
+AX_FUNC_FCNTL
 
 AC_ARG_WITH([libfuse-3],
             [  --with-libfuse-3        use libfuse 3],
