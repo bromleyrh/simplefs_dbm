@@ -52,6 +52,11 @@ struct disk_header {
 /* The disk header size must be a multiple of 4096 */
 STATIC_ASSERT(sizeof(struct disk_header) == 4096);
 
+#define FILE_LOCK_SH 1
+#define FILE_LOCK_EX 2
+#define FILE_LOCK_NB 4
+#define FILE_LOCK_UN 8
+
 #define BLKDEV_OPEN(bctx) ((bctx)->hdr.blkdevsz > 0)
 
 #define BCTX_FD(bctx, n) ((bctx)->fd[n])
@@ -187,6 +192,8 @@ static int check_fd_regular(int, struct blkdev_ctx *);
 
 static size_t do_blkdev_io(struct blkdev_ctx *, int, void *, size_t, off_t,
                            size_t, const struct interrupt_data *, int);
+
+static int _flock(int, int, int);
 
 static int
 err_to_errno(int err)
@@ -349,6 +356,47 @@ do_blkdev_io(struct blkdev_ctx *bctx, int fd, void *buf, size_t count,
     return direction == 0
            ? do_ppread(fd, buf, count, off, maxio, intdata)
            : do_ppwrite(fd, buf, count, off, maxio, intdata);
+}
+
+static int
+_flock(int fd, int operation, int blkdev)
+{
+    int fl;
+    int i;
+
+    static const struct ent {
+        int src;
+        int dst;
+    } flmap[] = {
+        {FILE_LOCK_SH, LOCK_SH},
+        {FILE_LOCK_EX, LOCK_EX},
+        {FILE_LOCK_NB, LOCK_NB},
+        {FILE_LOCK_UN, LOCK_UN}
+    };
+
+    if (blkdev && operation & FILE_LOCK_SH) {
+        if (operation & (FILE_LOCK_EX | FILE_LOCK_UN))
+            return err_to_errno(EINVAL);
+        operation = FILE_LOCK_EX | (operation & FILE_LOCK_NB);
+    }
+
+    fl = 0;
+    for (i = 0; i < (int)ARRAY_SIZE(flmap); i++) {
+        const struct ent *ent = &flmap[i];
+
+        if (operation & ent->src)
+            fl |= ent->dst;
+    }
+
+    for (i = 0;; i++) { /* work around Linux kernel race condition */
+        if (flock(fd, fl) == 0)
+            break;
+        if (errno != EAGAIN || i == 10)
+            return -1;
+        sleep(1);
+    }
+
+    return 0;
 }
 
 static int
@@ -718,48 +766,40 @@ fs_blkdev_fdatasync(void *ctx, int fd, const struct interrupt_data *intdata)
 #endif
 }
 
-#define LOCK_OPS (LOCK_SH | LOCK_EX | LOCK_UN)
+#define LOCK_OPS (FILE_LOCK_SH | FILE_LOCK_EX | FILE_LOCK_UN)
 
 static int
 fs_blkdev_flock(void *ctx, int fd, int operation)
 {
-    int i;
     int op;
     struct blkdev_ctx *bctx = ctx;
 
     if (fd != FD(bctx) && fd != JFD(bctx))
-        return flock(fd, operation);
+        return _flock(fd, operation, 0);
 
-    if (operation & ~(LOCK_OPS | LOCK_NB))
+    if (operation & ~(LOCK_OPS | FILE_LOCK_NB))
         return err_to_errno(EINVAL);
 
     op = operation & LOCK_OPS;
 
-    if (op == LOCK_UN) {
+    if (op == FILE_LOCK_UN) {
         if (bctx->lkfd == -1)
             goto end;
         if ((fd == FD(bctx) && bctx->jlk) || (fd == JFD(bctx) && bctx->lk))
             goto end;
     } else {
-        if (op != LOCK_SH && op != LOCK_EX)
+        if (op != FILE_LOCK_SH && op != FILE_LOCK_EX)
             return err_to_errno(EINVAL);
         if (bctx->lkfd != -1)
             goto end;
-        if (op == LOCK_SH)
-            operation = LOCK_EX | (operation & LOCK_NB);
     }
 
-    for (i = 0;; i++) { /* work around Linux kernel race condition */
-        if (flock(fd, operation) == 0)
-            break;
-        if (errno != EAGAIN || i == 10)
-            return -1;
-        sleep(1);
-    }
-    bctx->lkfd = op == LOCK_UN ? -1 : fd;
+    if (_flock(fd, operation, 1) == -1)
+        return -1;
+    bctx->lkfd = op == FILE_LOCK_UN ? -1 : fd;
 
 end:
-    *(fd == FD(bctx) ? &bctx->lk : &bctx->jlk) = op != LOCK_UN;
+    *(fd == FD(bctx) ? &bctx->lk : &bctx->jlk) = op != FILE_LOCK_UN;
     return 0;
 }
 
