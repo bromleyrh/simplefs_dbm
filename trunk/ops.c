@@ -169,6 +169,8 @@ struct space_alloc_ctx {
 
 #define SIMPLEFS_MOUNT_PIPE_MSG_OK "1"
 
+#define ALL_PERMS (S_ISUID | S_ISGID | S_ISVTX | ACC_MODE_ACCESS_PERMS)
+
 #ifdef HAVE_STRUCT_STAT_ST_MTIMESPEC
 #define st_atim st_atimespec
 #define st_mtim st_mtimespec
@@ -1335,7 +1337,7 @@ new_node(struct back_end *be, struct ref_inodes *ref_inodes, inum_t parent,
 
     s.st_dev = 64 * 1024;
     s.st_ino = ino;
-    s.st_mode = mode & (S_IFMT | ALLPERMS);
+    s.st_mode = mode & (S_IFMT | ALL_PERMS);
     s.st_nlink = 0;
     s.st_uid = uid;
     s.st_gid = gid;
@@ -1486,7 +1488,7 @@ new_dir(struct back_end *be, inum_t root_id, struct ref_inodes *ref_inodes,
 
     s.st_dev = 64 * 1024;
     s.st_ino = ino;
-    s.st_mode = S_IFDIR | (mode & ALLPERMS);
+    s.st_mode = S_IFDIR | (mode & ALL_PERMS);
     s.st_nlink = 0;
     s.st_uid = uid;
     s.st_gid = gid;
@@ -1946,8 +1948,10 @@ do_setattr(void *args)
         s.st_blocks -= numdelpg * BLOCKS_PER_PG;
     }
 
-    if (to_set & REQUEST_SET_ATTR_MODE)
-        s.st_mode = (s.st_mode & ~ALLPERMS) | (opargs->attr.st_mode & ALLPERMS);
+    if (to_set & REQUEST_SET_ATTR_MODE) {
+        s.st_mode = (s.st_mode & ~ALL_PERMS)
+                    | (opargs->attr.st_mode & ALL_PERMS);
+    }
 
     if (to_set & REQUEST_SET_ATTR_UID)
         s.st_uid = opargs->attr.st_uid;
