@@ -22,6 +22,7 @@
 #include <arithmetic.h>
 #include <avl_tree.h>
 #include <fifo.h>
+#include <packing.h>
 #include <strings_ext.h>
 
 #include <files/acc_ctl.h>
@@ -358,6 +359,7 @@ db_key_cmp(const void *k1, const void *k2, void *key_ctx)
     const struct db_key *key1 = k1;
     const struct db_key *key2 = k2;
     int cmp;
+    uint32_t type;
 
     if (key_ctx != NULL) {
         struct db_key_ctx *ctx = key_ctx;
@@ -366,27 +368,32 @@ db_key_cmp(const void *k1, const void *k2, void *key_ctx)
         ctx->last_key_valid = 1;
     }
 
-    cmp = uint64_cmp(key1->type, key2->type);
-    if (cmp != 0 || key1->type == TYPE_HEADER)
+    type = unpack_u32(db_key, key1, type);
+
+    cmp = uint64_cmp(type, unpack_u32(db_key, key2, type));
+    if (cmp != 0 || type == TYPE_HEADER)
         return cmp;
 
-    cmp = uint64_cmp(key1->ino, key2->ino);
+    cmp = uint64_cmp(unpack_u64(db_key, key1, ino),
+                     unpack_u64(db_key, key2, ino));
     if (cmp != 0)
         return cmp;
 
-    switch (key1->type) {
+    switch (type) {
     case TYPE_DIRENT:
     case TYPE_XATTR:
-        cmp = strcmp((const char *)key1->name, (const char *)key2->name);
+        cmp = strcmp(packed_memb_addr(db_key, key1, name),
+                     packed_memb_addr(db_key, key2, name));
         break;
     case TYPE_PAGE:
-        cmp = uint64_cmp(key1->pgno, key2->pgno);
+        cmp = uint64_cmp(unpack_u64(db_key, key1, pgno),
+                         unpack_u64(db_key, key2, pgno));
     case TYPE_FREE_INO:
     case TYPE_STAT:
     case TYPE_ULINKED_INODE:
         break;
     default:
-        errmsgf("Unrecognized object type %d in %s()\n", key1->type, __func__);
+        errmsgf("Unrecognized object type %d in %s()\n", type, __func__);
         abort();
     }
 
@@ -504,14 +511,20 @@ dump_db_obj(FILE *f, const void *key, const void *data, size_t datasize,
         struct db_obj_header    hdr;
         struct db_obj_stat      s;
     } *d;
+    uint32_t type;
+    uint64_t ino;
 
     (void)ctx;
 
     fputs(prefix, f);
 
+    type = unpack_u32(db_key, k, type);
+    if (type != TYPE_HEADER)
+        ino = unpack_u64(db_key, k, ino);
+
     d = data;
 
-    switch (k->type) {
+    switch (type) {
     case TYPE_HEADER:
         assert(datasize == sizeof(d->hdr));
 
@@ -520,36 +533,37 @@ dump_db_obj(FILE *f, const void *key, const void *data, size_t datasize,
     case TYPE_FREE_INO:
         fprintf(f, "Free I-node number information: number %" PRIu64 " to %"
                    PRIu64 "\n",
-                (uint64_t)k->ino, (uint64_t)k->ino + FREE_INO_RANGE_SZ - 1);
+                ino, ino + FREE_INO_RANGE_SZ - 1);
         break;
     case TYPE_DIRENT:
         assert(datasize == sizeof(d->de));
 
         fprintf(f, "Directory entry: directory %" PRIu64 ", name %s -> node %"
                    PRIu64 "\n",
-                (uint64_t)k->ino, k->name, (uint64_t)d->de.ino);
+                ino, (char *)packed_memb_addr(db_key, k, name),
+                (uint64_t)d->de.ino);
         break;
     case TYPE_STAT:
         assert(datasize == sizeof(d->s));
 
         fprintf(f, "I-node entry: node %" PRIu64 " -> st_ino %" PRIu64 "\n",
-                (uint64_t)k->ino, (uint64_t)d->s.st_ino);
+                ino, (uint64_t)d->s.st_ino);
         break;
     case TYPE_PAGE:
         fprintf(f, "Page: node %" PRIu64 ", page %" PRIu64 ", size %zu\n",
-                (uint64_t)k->ino, (uint64_t)k->pgno, datasize);
+                ino, unpack_u64(db_key, k, pgno), datasize);
         break;
     case TYPE_XATTR:
         fprintf(f, "Extended attribute entry: node %" PRIu64 ", name %s, "
                    "size %zu\n",
-                (uint64_t)k->ino, k->name, datasize);
+                ino, (char *)packed_memb_addr(db_key, k, name), datasize);
         break;
     case TYPE_ULINKED_INODE:
         fprintf(f, "Unlinked I-node entry: node %" PRIu64 "\n",
-                (uint64_t)k->ino);
+                ino);
         break;
     default:
-        errmsgf("Unrecognized object type %" PRIu32 " in %s()\n", k->type,
+        errmsgf("Unrecognized object type %" PRIu32 " in %s()\n", type,
                 __func__);
         abort();
     }
@@ -663,13 +677,14 @@ get_ino(struct back_end *be, inum_t *ino)
     struct db_obj_free_ino freeino;
     struct db_obj_header hdr;
     struct db_obj_stat s;
+    uint64_t k_ino;
 
     res = back_end_iter_new(&iter, be);
     if (res != 0)
         return res;
 
-    k.type = TYPE_FREE_INO;
-    k.ino = 0;
+    pack_u32(db_key, &k, type, TYPE_FREE_INO);
+    pack_u64(db_key, &k, ino, 0);
     res = back_end_iter_search(iter, &k);
     if (res < 0) {
         back_end_iter_free(iter);
@@ -680,33 +695,36 @@ get_ino(struct back_end *be, inum_t *ino)
     back_end_iter_free(iter);
     if (res != 0)
         return res == -EADDRNOTAVAIL ? -ENOSPC : res;
-    if (k.type != TYPE_FREE_INO)
+    if (unpack_u32(db_key, &k, type) != TYPE_FREE_INO)
         return -ENOSPC;
 
-    ret = free_ino_find(freeino.used_ino, k.ino);
+    k_ino = unpack_u64(db_key, &k, ino);
+
+    ret = free_ino_find(freeino.used_ino, k_ino);
     if (ret == 0) {
         if (!(freeino.flags & FREE_INO_LAST_USED))
             return -EILSEQ;
-        if (ULONG_MAX - k.ino < FREE_INO_RANGE_SZ)
+        if (ULONG_MAX - k_ino < FREE_INO_RANGE_SZ)
             return -ENOSPC;
 
         res = back_end_delete(be, &k);
         if (res != 0)
             return res;
 
-        k.ino += FREE_INO_RANGE_SZ;
+        k_ino += FREE_INO_RANGE_SZ;
+        pack_u64(db_key, &k, ino, k_ino);
         memset(freeino.used_ino, 0, sizeof(freeino.used_ino));
-        used_ino_set(freeino.used_ino, k.ino, k.ino, 1);
+        used_ino_set(freeino.used_ino, k_ino, k_ino, 1);
         freeino.flags = FREE_INO_LAST_USED;
         res = back_end_insert(be, &k, &freeino, sizeof(freeino));
         if (res != 0)
             return res;
 
-        *ino = k.ino;
+        *ino = k_ino;
         return 0;
     }
 
-    used_ino_set(freeino.used_ino, k.ino, ret, 1);
+    used_ino_set(freeino.used_ino, k_ino, ret, 1);
     res = memcchr(freeino.used_ino, 0xff, sizeof(freeino.used_ino)) == NULL
           && !(freeino.flags & FREE_INO_LAST_USED)
           ? back_end_delete(be, &k)
@@ -714,13 +732,13 @@ get_ino(struct back_end *be, inum_t *ino)
     if (res != 0)
         return res;
 
-    k.type = TYPE_STAT;
-    k.ino = ret;
+    pack_u32(db_key, &k, type, TYPE_STAT);
+    pack_u64(db_key, &k, ino, ret);
     res = back_end_look_up(be, &k, NULL, &s, NULL, 0);
     if (res != 0)
         return res == 1 ? -EIO : res;
 
-    k.type = TYPE_HEADER;
+    pack_u32(db_key, &k, type, TYPE_HEADER);
     res = back_end_look_up(be, &k, NULL, &hdr, NULL, 0);
     if (res != 1)
         return res == 0 ? -EILSEQ : res;
@@ -741,9 +759,12 @@ release_ino(struct back_end *be, inum_t root_id, inum_t ino)
     struct db_key k;
     struct db_obj_free_ino freeino;
     struct db_obj_header hdr;
+    uint64_t k_ino;
 
-    k.type = TYPE_FREE_INO;
-    k.ino = (ino - root_id) / FREE_INO_RANGE_SZ * FREE_INO_RANGE_SZ + root_id;
+    k_ino = (ino - root_id) / FREE_INO_RANGE_SZ * FREE_INO_RANGE_SZ + root_id;
+
+    pack_u32(db_key, &k, type, TYPE_FREE_INO);
+    pack_u64(db_key, &k, ino, k_ino);
     res = back_end_look_up(be, &k, &k, &freeino, NULL, 0);
     if (res != 1) {
         if (res != 0)
@@ -751,19 +772,19 @@ release_ino(struct back_end *be, inum_t root_id, inum_t ino)
 
         /* insert new free I-node number information object */
         memset(freeino.used_ino, 0xff, sizeof(freeino.used_ino));
-        used_ino_set(freeino.used_ino, k.ino, ino, 0);
+        used_ino_set(freeino.used_ino, k_ino, ino, 0);
         freeino.flags = 0;
         res = back_end_insert(be, &k, &freeino, sizeof(freeino));
         if (res != 0)
             return res;
     } else {
-        used_ino_set(freeino.used_ino, k.ino, ino, 0);
+        used_ino_set(freeino.used_ino, k_ino, ino, 0);
         res = back_end_replace(be, &k, &freeino, sizeof(freeino));
         if (res != 0)
             return res;
     }
 
-    k.type = TYPE_HEADER;
+    pack_u32(db_key, &k, type, TYPE_HEADER);
     res = back_end_look_up(be, &k, NULL, &hdr, NULL, 0);
     if (res != 1)
         return res == 0 ? -EILSEQ : res;
@@ -796,8 +817,8 @@ unref_inode(struct back_end *be, inum_t root_id, struct ref_inodes *ref_inodes,
     uint64_t nlinkp, refcntp, nlookupp;
 
     if (nlink != 0) {
-        k.type = TYPE_STAT;
-        k.ino = ino->ino;
+        pack_u32(db_key, &k, type, TYPE_STAT);
+        pack_u64(db_key, &k, ino, ino->ino);
         ret = back_end_look_up(be, &k, NULL, &s, NULL, 0);
         if (ret != 1)
             return ret == 0 ? -ENOENT : ret;
@@ -820,7 +841,7 @@ unref_inode(struct back_end *be, inum_t root_id, struct ref_inodes *ref_inodes,
         ASSERT_UNDER_TRANS(be);
 
         s.st_nlink = (uint32_t)nlinkp;
-        assert(s.st_ino == k.ino);
+        assert(s.st_ino == unpack_u64(db_key, &k, ino));
         ret = back_end_replace(be, &k, &s, sizeof(s));
         if (ret != 0)
             return ret;
@@ -909,8 +930,8 @@ inc_refcnt(struct back_end *be, struct ref_inodes *ref_inodes, inum_t ino,
             goto err1;
         }
 
-        k.type = TYPE_STAT;
-        k.ino = ino;
+        pack_u32(db_key, &k, type, TYPE_STAT);
+        pack_u64(db_key, &k, ino, ino);
         ret = back_end_look_up(be, &k, NULL, &s, NULL, 0);
         if (ret != 1) {
             if (ret == 0)
@@ -1012,13 +1033,14 @@ remove_ulinked_nodes(struct back_end *be, inum_t root_id)
     for (;;) {
         struct db_key k;
         struct space_alloc_ctx sctx;
+        uint64_t k_ino;
 
         ret = back_end_iter_new(&iter, be);
         if (ret != 0)
             return ret;
 
-        k.type = TYPE_ULINKED_INODE;
-        k.ino = 0;
+        pack_u32(db_key, &k, type, TYPE_ULINKED_INODE);
+        pack_u64(db_key, &k, ino, 0);
 
         ret = back_end_iter_search(iter, &k);
         if (ret < 0) {
@@ -1036,7 +1058,7 @@ remove_ulinked_nodes(struct back_end *be, inum_t root_id)
             break;
         }
 
-        if (k.type != TYPE_ULINKED_INODE)
+        if (unpack_u32(db_key, &k, type) != TYPE_ULINKED_INODE)
             break;
 
         ret = back_end_trans_new(be);
@@ -1047,10 +1069,11 @@ remove_ulinked_nodes(struct back_end *be, inum_t root_id)
         if (ret != 0)
             goto err1;
 
-        infomsgf("Warning: Removing I-node %" PRIu64 " with no links\n",
-                 (uint64_t)k.ino);
+        k_ino = unpack_u64(db_key, &k, ino);
 
-        ret = delete_file(be, root_id, k.ino);
+        infomsgf("Warning: Removing I-node %" PRIu64 " with no links\n", k_ino);
+
+        ret = delete_file(be, root_id, k_ino);
         if (ret != 0)
             goto err2;
 
@@ -1188,13 +1211,13 @@ truncate_file(struct back_end *be, inum_t ino, off_t oldsize, off_t newsize,
     in
         newnumpg = (addos64s64(newsize, PG_SIZE) - 1) / PG_SIZE;
 
-    k.type = TYPE_PAGE;
-    k.ino = ino;
+    pack_u32(db_key, &k, type, TYPE_PAGE);
+    pack_u64(db_key, &k, ino, ino);
 
     for (i = oldnumpg - 1; i > newnumpg; i--) {
         /* FIXME: use iterator to improve efficiency */
 
-        k.pgno = i;
+        pack_u64(db_key, &k, pgno, i);
 
         ret = back_end_delete(be, &k);
         if (ret == 0)
@@ -1204,7 +1227,7 @@ truncate_file(struct back_end *be, inum_t ino, off_t oldsize, off_t newsize,
     }
 
     if (oldnumpg > newnumpg) {
-        k.pgno = newnumpg;
+        pack_u64(db_key, &k, pgno, newnumpg);
 
         ret = back_end_delete(be, &k);
         if (ret == 0)
@@ -1217,7 +1240,7 @@ truncate_file(struct back_end *be, inum_t ino, off_t oldsize, off_t newsize,
     if (lastpgsz > 0) {
         char buf[PG_SIZE];
 
-        k.pgno = newnumpg - 1;
+        pack_u64(db_key, &k, pgno, newnumpg - 1);
 
         ret = back_end_look_up(be, &k, NULL, buf, NULL, 0);
         if (ret != 1)
@@ -1246,8 +1269,8 @@ delete_file(struct back_end *be, inum_t root_id, inum_t ino)
 
     ASSERT_UNDER_TRANS(be);
 
-    k.type = TYPE_STAT;
-    k.ino = ino;
+    pack_u32(db_key, &k, type, TYPE_STAT);
+    pack_u64(db_key, &k, ino, ino);
 
     ret = back_end_look_up(be, &k, NULL, &s, NULL, 0);
     if (ret != 1)
@@ -1266,11 +1289,12 @@ delete_file(struct back_end *be, inum_t root_id, inum_t ino)
         in
             numpg = (addos64s64(size, PG_SIZE) - 1) / PG_SIZE;
 
-        k.type = TYPE_PAGE;
+        pack_u32(db_key, &k, type, TYPE_PAGE);
 
         i = numpg;
         while (i > 0) {
-            k.pgno = --i;
+            --i;
+            pack_u64(db_key, &k, pgno, i);
 
             ret = back_end_delete(be, &k);
             if (ret != 0 && ret != -EADDRNOTAVAIL) /* file may be sparse */
@@ -1278,13 +1302,13 @@ delete_file(struct back_end *be, inum_t root_id, inum_t ino)
         }
     }
 
-    k.type = TYPE_STAT;
+    pack_u32(db_key, &k, type, TYPE_STAT);
 
     ret = back_end_delete(be, &k);
     if (ret != 0)
         return ret;
 
-    k.type = TYPE_ULINKED_INODE;
+    pack_u32(db_key, &k, type, TYPE_ULINKED_INODE);
 
     ret = back_end_delete(be, &k);
     if (ret != 0)
@@ -1333,8 +1357,8 @@ new_node(struct back_end *be, struct ref_inodes *ref_inodes, inum_t parent,
     if (ret != 0)
         goto err1;
 
-    k.type = TYPE_STAT;
-    k.ino = ino;
+    pack_u32(db_key, &k, type, TYPE_STAT);
+    pack_u64(db_key, &k, ino, ino);
 
     s.st_dev = 64 * 1024;
     s.st_ino = ino;
@@ -1361,7 +1385,7 @@ new_node(struct back_end *be, struct ref_inodes *ref_inodes, inum_t parent,
     if (ret != 0)
         goto err2;
 
-    k.ino = parent;
+    pack_u64(db_key, &k, ino, parent);
 
     ret = back_end_look_up(be, &k, NULL, &ps, NULL, 0);
     if (ret != 1) {
@@ -1372,7 +1396,7 @@ new_node(struct back_end *be, struct ref_inodes *ref_inodes, inum_t parent,
 
     ++ps.num_ents;
 
-    assert(ps.st_ino == k.ino);
+    assert(ps.st_ino == unpack_u64(db_key, &k, ino));
     ret = back_end_replace(be, &k, &ps, sizeof(ps));
     if (ret != 0)
         goto err3;
@@ -1420,9 +1444,10 @@ new_node_link(struct back_end *be, struct ref_inodes *ref_inodes, inum_t ino,
 
     ASSERT_UNDER_TRANS(be);
 
-    k.type = TYPE_DIRENT;
-    k.ino = newparent;
-    strlcpy((char *)k.name, newname, sizeof(k.name));
+    pack_u32(db_key, &k, type, TYPE_DIRENT);
+    pack_u64(db_key, &k, ino, newparent);
+    strlcpy(packed_memb_addr(db_key, &k, name), newname,
+            packed_memb_size(db_key, name));
 
     de.ino = ino;
 
@@ -1430,8 +1455,8 @@ new_node_link(struct back_end *be, struct ref_inodes *ref_inodes, inum_t ino,
     if (ret != 0)
         return ret;
 
-    k.type = TYPE_STAT;
-    k.ino = ino;
+    pack_u32(db_key, &k, type, TYPE_STAT);
+    pack_u64(db_key, &k, ino, ino);
 
     ret = back_end_look_up(be, &k, NULL, &s, NULL, 0);
     if (ret != 1)
@@ -1439,7 +1464,7 @@ new_node_link(struct back_end *be, struct ref_inodes *ref_inodes, inum_t ino,
 
     ++s.st_nlink;
 
-    assert(s.st_ino == k.ino);
+    assert(s.st_ino == unpack_u64(db_key, &k, ino));
     ret = back_end_replace(be, &k, &s, sizeof(s));
     if (ret != 0)
         return ret;
@@ -1484,8 +1509,8 @@ new_dir(struct back_end *be, inum_t root_id, struct ref_inodes *ref_inodes,
             goto err1;
     }
 
-    k.type = TYPE_STAT;
-    k.ino = ino;
+    pack_u32(db_key, &k, type, TYPE_STAT);
+    pack_u64(db_key, &k, ino, ino);
 
     s.st_dev = 64 * 1024;
     s.st_ino = ino;
@@ -1525,7 +1550,7 @@ new_dir(struct back_end *be, inum_t root_id, struct ref_inodes *ref_inodes,
     if (!rootdir) {
         struct db_obj_stat ps;
 
-        k.ino = parent;
+        pack_u64(db_key, &k, ino, parent);
 
         ret = back_end_look_up(be, &k, NULL, &ps, NULL, 0);
         if (ret != 1) {
@@ -1536,7 +1561,7 @@ new_dir(struct back_end *be, inum_t root_id, struct ref_inodes *ref_inodes,
 
         ++ps.num_ents;
 
-        assert(ps.st_ino == k.ino);
+        assert(ps.st_ino == unpack_u64(db_key, &k, ino));
         ret = back_end_replace(be, &k, &ps, sizeof(ps));
         if (ret != 0)
             goto err5;
@@ -1585,15 +1610,15 @@ rem_dir(struct back_end *be, inum_t root_id, struct ref_inodes *ref_inodes,
     struct db_obj_stat s;
     struct ref_ino *refinop[3];
 
-    k.type = TYPE_STAT;
-    k.ino = ino;
+    pack_u32(db_key, &k, type, TYPE_STAT);
+    pack_u64(db_key, &k, ino, ino);
     ret = back_end_look_up(be, &k, NULL, &s, NULL, 0);
     if (ret != 1)
         return ret == 0 ? -ENOENT : ret;
     if (s.num_ents != 0)
         return -ENOTEMPTY;
 
-    k.ino = parent;
+    pack_u64(db_key, &k, ino, parent);
     ret = back_end_look_up(be, &k, NULL, &s, NULL, 0);
     if (ret != 1)
         return ret == 0 ? -ENOENT : ret;
@@ -1675,9 +1700,10 @@ new_dir_link(struct back_end *be, struct ref_inodes *ref_inodes, inum_t ino,
 
     ASSERT_UNDER_TRANS(be);
 
-    k.type = TYPE_DIRENT;
-    k.ino = newparent;
-    strlcpy((char *)k.name, newname, sizeof(k.name));
+    pack_u32(db_key, &k, type, TYPE_DIRENT);
+    pack_u64(db_key, &k, ino, newparent);
+    strlcpy(packed_memb_addr(db_key, &k, name), newname,
+            packed_memb_size(db_key, name));
 
     de.ino = ino;
 
@@ -1685,8 +1711,8 @@ new_dir_link(struct back_end *be, struct ref_inodes *ref_inodes, inum_t ino,
     if (ret != 0)
         return ret;
 
-    k.type = TYPE_STAT;
-    k.ino = ino;
+    pack_u32(db_key, &k, type, TYPE_STAT);
+    pack_u64(db_key, &k, ino, ino);
 
     ret = back_end_look_up(be, &k, NULL, &s, NULL, 0);
     if (ret != 1)
@@ -1694,7 +1720,7 @@ new_dir_link(struct back_end *be, struct ref_inodes *ref_inodes, inum_t ino,
 
     ++s.st_nlink;
 
-    assert(s.st_ino == k.ino);
+    assert(s.st_ino == unpack_u64(db_key, &k, ino));
     ret = back_end_replace(be, &k, &s, sizeof(s));
     if (ret != 0)
         return ret;
@@ -1725,9 +1751,10 @@ rem_node_link(struct back_end *be, inum_t root_id,
 
     ASSERT_UNDER_TRANS(be);
 
-    k.type = TYPE_DIRENT;
-    k.ino = parent;
-    strlcpy((char *)k.name, name, sizeof(k.name));
+    pack_u32(db_key, &k, type, TYPE_DIRENT);
+    pack_u64(db_key, &k, ino, parent);
+    strlcpy(packed_memb_addr(db_key, &k, name), name,
+            packed_memb_size(db_key, name));
 
     ret = back_end_delete(be, &k);
     if (ret != 0)
@@ -1767,16 +1794,17 @@ rem_dir_link(struct back_end *be, inum_t root_id, struct ref_inodes *ref_inodes,
 
     ASSERT_UNDER_TRANS(be);
 
-    k.type = TYPE_DIRENT;
-    k.ino = parent;
-    strlcpy((char *)k.name, name, sizeof(k.name));
+    pack_u32(db_key, &k, type, TYPE_DIRENT);
+    pack_u64(db_key, &k, ino, parent);
+    strlcpy(packed_memb_addr(db_key, &k, name), name,
+            packed_memb_size(db_key, name));
 
     ret = back_end_delete(be, &k);
     if (ret != 0)
         return ret;
 
-    k.type = TYPE_STAT;
-    k.ino = ino;
+    pack_u32(db_key, &k, type, TYPE_STAT);
+    pack_u64(db_key, &k, ino, ino);
 
     ret = back_end_look_up(be, &k, NULL, &s, NULL, 0);
     if (ret != 1)
@@ -1854,7 +1882,7 @@ space_alloc_finish_op(struct space_alloc_ctx *ctx, struct back_end *be)
        results in any nonzero overall space allocation delta, to guarantee
        accuracy of the usedbytes field */
 
-    k.type = TYPE_HEADER;
+    pack_u32(db_key, &k, type, TYPE_HEADER);
 
     ret = back_end_look_up(be, &k, NULL, &hdr, NULL, 0);
     if (ret != 1)
@@ -1873,14 +1901,14 @@ do_look_up(void *args)
     struct db_obj_dirent de;
     struct op_args *opargs = args;
 
-    switch (opargs->k.type) {
+    switch (unpack_u32(db_key, &opargs->k, type)) {
     case TYPE_DIRENT:
         ret = back_end_look_up(opargs->be, &opargs->k, NULL, &de, NULL, 0);
         if (ret != 1)
             return ret;
 
-        k.type = TYPE_STAT;
-        k.ino = de.ino;
+        pack_u32(db_key, &k, type, TYPE_STAT);
+        pack_u64(db_key, &k, ino, de.ino);
         ret = back_end_look_up(opargs->be, &k, NULL, &opargs->s, NULL, 0);
         if (ret != 1)
             return ret;
@@ -1917,8 +1945,8 @@ do_setattr(void *args)
     struct op_args *opargs = args;
     struct space_alloc_ctx sctx;
 
-    k.type = TYPE_STAT;
-    k.ino = opargs->ino;
+    pack_u32(db_key, &k, type, TYPE_STAT);
+    pack_u64(db_key, &k, ino, opargs->ino);
 
     ret = back_end_look_up(opargs->be, &k, NULL, &s, NULL, 0);
     if (ret != 1)
@@ -2041,9 +2069,9 @@ do_read_symlink(void *args)
     struct db_key k;
     struct op_args *opargs = args;
 
-    k.type = TYPE_PAGE;
-    k.ino = opargs->ino;
-    k.pgno = 0;
+    pack_u32(db_key, &k, type, TYPE_PAGE);
+    pack_u64(db_key, &k, ino, opargs->ino);
+    pack_u64(db_key, &k, pgno, 0);
 
     ret = back_end_look_up(opargs->be, &k, NULL, NULL, &buflen, 0);
     if (ret != 1)
@@ -2175,8 +2203,8 @@ do_create_node(void *args)
     if (ret != 0)
         goto err2;
 
-    k.type = TYPE_STAT;
-    k.ino = opargs->ino;
+    pack_u32(db_key, &k, type, TYPE_STAT);
+    pack_u64(db_key, &k, ino, opargs->ino);
 
     ret = back_end_look_up(opargs->be, &k, NULL, &ps, NULL, 0);
     if (ret != 1) {
@@ -2256,8 +2284,8 @@ do_create_dir(void *args)
 
     rootdir = opargs->ino == 0;
 
-    k.type = TYPE_STAT;
-    k.ino = opargs->ino;
+    pack_u32(db_key, &k, type, TYPE_STAT);
+    pack_u64(db_key, &k, ino, opargs->ino);
 
     ret = back_end_look_up(opargs->be, &k, NULL, &ps, NULL, 0);
     if (ret != 1) {
@@ -2325,8 +2353,8 @@ do_remove_node_link(void *args)
     parent = opargs->op_data.link_data.parent;
     name = opargs->op_data.link_data.name;
 
-    k.type = TYPE_STAT;
-    k.ino = parent;
+    pack_u32(db_key, &k, type, TYPE_STAT);
+    pack_u64(db_key, &k, ino, parent);
 
     ret = back_end_look_up(opargs->be, &k, NULL, &s, NULL, 0);
     if (ret != 1) {
@@ -2356,7 +2384,7 @@ do_remove_node_link(void *args)
     if (ret != 0)
         goto err4;
 
-    k.ino = opargs->ino;
+    pack_u64(db_key, &k, ino, opargs->ino);
 
     ret = back_end_look_up(opargs->be, &k, NULL, &s, NULL, 0);
     if (ret != 1) {
@@ -2377,7 +2405,7 @@ do_remove_node_link(void *args)
     }
 
     if (s.st_nlink == 0) {
-        k.type = TYPE_ULINKED_INODE;
+        pack_u32(db_key, &k, type, TYPE_ULINKED_INODE);
 
         ret = back_end_insert(opargs->be, &k, NULL, 0);
         if (ret != 0)
@@ -2422,8 +2450,8 @@ do_remove_dir(void *args)
     struct op_args *opargs = args;
     struct space_alloc_ctx sctx;
 
-    k.type = TYPE_STAT;
-    k.ino = opargs->ino;
+    pack_u32(db_key, &k, type, TYPE_STAT);
+    pack_u64(db_key, &k, ino, opargs->ino);
 
     ret = back_end_look_up(opargs->be, &k, NULL, &s, NULL, 0);
     if (ret != 1)
@@ -2452,7 +2480,7 @@ do_remove_dir(void *args)
     if (ret != 0)
         goto err3;
 
-    k.ino = parent;
+    pack_u64(db_key, &k, ino, parent);
 
     ret = back_end_look_up(opargs->be, &k, NULL, &s, NULL, 0);
     if (ret != 1) {
@@ -2471,7 +2499,7 @@ do_remove_dir(void *args)
     if (ret != 0)
         goto err4;
 
-    k.ino = opargs->ino;
+    pack_u64(db_key, &k, ino, opargs->ino);
 
     ret = back_end_look_up(opargs->be, &k, NULL, &s, NULL, 0);
     if (ret != 1) {
@@ -2481,7 +2509,7 @@ do_remove_dir(void *args)
     }
 
     if (s.st_nlink == 0) {
-        k.type = TYPE_ULINKED_INODE;
+        pack_u32(db_key, &k, type, TYPE_ULINKED_INODE);
 
         ret = back_end_insert(opargs->be, &k, NULL, 0);
         if (ret != 0)
@@ -2561,16 +2589,16 @@ do_create_symlink(void *args)
     if (ret != 0)
         goto err2;
 
-    k.type = TYPE_PAGE;
-    k.ino = opargs->attr.st_ino;
-    k.pgno = 0;
+    pack_u32(db_key, &k, type, TYPE_PAGE);
+    pack_u64(db_key, &k, ino, opargs->attr.st_ino);
+    pack_u64(db_key, &k, pgno, 0);
 
     ret = back_end_insert(opargs->be, &k, link, len + 1);
     if (ret != 0)
         goto err3;
 
-    k.type = TYPE_STAT;
-    k.ino = parent;
+    pack_u32(db_key, &k, type, TYPE_STAT);
+    pack_u64(db_key, &k, ino, parent);
 
     ret = back_end_look_up(opargs->be, &k, NULL, &ps, NULL, 0);
     if (ret != 1) {
@@ -2629,16 +2657,17 @@ do_rename(void *args)
     newparent = opargs->op_data.link_data.newparent;
     newname = opargs->op_data.link_data.newname;
 
-    k.type = TYPE_DIRENT;
-    k.ino = parent;
-    strlcpy((char *)k.name, name, sizeof(k.name));
+    pack_u32(db_key, &k, type, TYPE_DIRENT);
+    pack_u64(db_key, &k, ino, parent);
+    strlcpy(packed_memb_addr(db_key, &k, name), name,
+            packed_memb_size(db_key, name));
 
     ret = back_end_look_up(opargs->be, &k, NULL, &sde, NULL, 0);
     if (ret != 1)
         return ret == 0 ? -ENOENT : ret;
 
-    k.type = TYPE_STAT;
-    k.ino = sde.ino;
+    pack_u32(db_key, &k, type, TYPE_STAT);
+    pack_u64(db_key, &k, ino, sde.ino);
 
     ret = back_end_look_up(opargs->be, &k, NULL, &ss, NULL, 0);
     if (ret != 1)
@@ -2657,9 +2686,10 @@ do_rename(void *args)
     if (ret != 0)
         goto err2;
 
-    k.type = TYPE_DIRENT;
-    k.ino = newparent;
-    strlcpy((char *)k.name, newname, sizeof(k.name));
+    pack_u32(db_key, &k, type, TYPE_DIRENT);
+    pack_u64(db_key, &k, ino, newparent);
+    strlcpy(packed_memb_addr(db_key, &k, name), newname,
+            packed_memb_size(db_key, name));
 
     ret = back_end_look_up(opargs->be, &k, NULL, &dde, NULL, 0);
     if (ret != 0) {
@@ -2678,8 +2708,8 @@ do_rename(void *args)
             goto err3;
         }
 
-        k.type = TYPE_STAT;
-        k.ino = dde.ino;
+        pack_u32(db_key, &k, type, TYPE_STAT);
+        pack_u64(db_key, &k, ino, dde.ino);
 
         ret = back_end_look_up(opargs->be, &k, NULL, &ds, NULL, 0);
         if (ret != 1) {
@@ -2726,7 +2756,7 @@ do_rename(void *args)
         }
 
         if (ds.st_nlink == 0) {
-            k.type = TYPE_ULINKED_INODE;
+            pack_u32(db_key, &k, type, TYPE_ULINKED_INODE);
 
             ret = back_end_insert(opargs->be, &k, NULL, 0);
             if (ret != 0)
@@ -2755,8 +2785,8 @@ do_rename(void *args)
     if (ret != 0)
         goto err5;
 
-    k.type = TYPE_STAT;
-    k.ino = newparent;
+    pack_u32(db_key, &k, type, TYPE_STAT);
+    pack_u64(db_key, &k, ino, newparent);
 
     ret = back_end_look_up(opargs->be, &k, NULL, &ps, NULL, 0);
     if (ret != 1) {
@@ -2773,12 +2803,12 @@ do_rename(void *args)
     if (!existing)
         ++ps.num_ents;
 
-    assert(ps.st_ino == k.ino);
+    assert(ps.st_ino == unpack_u64(db_key, &k, ino));
     ret = back_end_replace(opargs->be, &k, &ps, sizeof(ps));
     if (ret != 0)
         goto err6;
 
-    k.ino = parent;
+    pack_u64(db_key, &k, ino, parent);
 
     ret = back_end_look_up(opargs->be, &k, NULL, &ps, NULL, 0);
     if (ret != 1) {
@@ -2792,7 +2822,7 @@ do_rename(void *args)
     set_ts(NULL, &ps.st_mtim, &ps.st_ctim);
     --ps.num_ents;
 
-    assert(ps.st_ino == k.ino);
+    assert(ps.st_ino == unpack_u64(db_key, &k, ino));
     ret = back_end_replace(opargs->be, &k, &ps, sizeof(ps));
     if (ret != 0)
         goto err6;
@@ -2870,8 +2900,8 @@ do_create_node_link(void *args)
     if (ret != 0)
         goto err2;
 
-    k.type = TYPE_STAT;
-    k.ino = opargs->ino;
+    pack_u32(db_key, &k, type, TYPE_STAT);
+    pack_u64(db_key, &k, ino, opargs->ino);
 
     ret = back_end_look_up(opargs->be, &k, NULL, &opargs->s, NULL, 0);
     if (ret != 1) {
@@ -2889,7 +2919,7 @@ do_create_node_link(void *args)
     if (ret != 0)
         goto err3;
 
-    k.ino = newparent;
+    pack_u64(db_key, &k, ino, newparent);
 
     ret = back_end_look_up(opargs->be, &k, NULL, &ps, NULL, 0);
     if (ret != 1) {
@@ -2905,7 +2935,7 @@ do_create_node_link(void *args)
     set_ts(NULL, &ps.st_mtim, &ps.st_ctim);
     ++ps.num_ents;
 
-    assert(ps.st_ino == k.ino);
+    assert(ps.st_ino == unpack_u64(db_key, &k, ino));
     ret = back_end_replace(opargs->be, &k, &ps, sizeof(ps));
     if (ret != 0)
         goto err3;
@@ -2957,9 +2987,10 @@ do_read_entries(void *args)
 
     odir = opargs->op_data.readdir_data.odir;
 
-    k.type = TYPE_DIRENT;
-    k.ino = odir->ino;
-    strlcpy((char *)k.name, odir->cur_name, sizeof(k.name));
+    pack_u32(db_key, &k, type, TYPE_DIRENT);
+    pack_u64(db_key, &k, ino, odir->ino);
+    strlcpy(packed_memb_addr(db_key, &k, name), odir->cur_name,
+            packed_memb_size(db_key, name));
 
     off = odir->off;
     buflen = 0;
@@ -2975,6 +3006,7 @@ do_read_entries(void *args)
     readdir_buf = opargs->op_data.readdir_data.buf;
 
     while (buflen <= bufsize) {
+        const char *name;
         size_t remsize;
         struct stat s;
         union {
@@ -2989,17 +3021,20 @@ do_read_entries(void *args)
             break;
         }
 
-        if (k.ino != odir->ino || k.type != TYPE_DIRENT)
+        if (unpack_u64(db_key, &k, ino) != odir->ino
+            || unpack_u32(db_key, &k, type) != TYPE_DIRENT)
             break;
 
-        strlcpy(odir->cur_name, (const char *)k.name, sizeof(odir->cur_name));
+        name = packed_memb_addr(db_key, &k, name);
+
+        strlcpy(odir->cur_name, name, sizeof(odir->cur_name));
 
         omemset(&s, 0);
         s.st_ino = buf.de.ino;
 
         remsize = bufsize - buflen;
-        entsize = add_direntry(opargs->req, readdir_buf + buflen, remsize,
-                               (const char *)k.name, &s, off + 1);
+        entsize = add_direntry(opargs->req, readdir_buf + buflen, remsize, name,
+                               &s, off + 1);
         if (entsize > remsize)
             goto end1;
 
@@ -3035,8 +3070,8 @@ do_open(void *args)
     struct db_obj_stat s;
     struct op_args *opargs = args;
 
-    k.type = TYPE_STAT;
-    k.ino = opargs->ino;
+    pack_u32(db_key, &k, type, TYPE_STAT);
+    pack_u64(db_key, &k, ino, opargs->ino);
 
     ret = back_end_look_up(opargs->be, &k, NULL, &s, NULL, 0);
     if (ret != 1)
@@ -3060,8 +3095,8 @@ do_read_data(void *args)
     struct op_args *opargs = args;
     uint64_t firstpgidx, lastpgidx;
 
-    k.type = TYPE_STAT;
-    k.ino = opargs->ino;
+    pack_u32(db_key, &k, type, TYPE_STAT);
+    pack_u64(db_key, &k, ino, opargs->ino);
 
     ret = back_end_look_up(opargs->be, &k, NULL, &s, NULL, 0);
     if (ret != 1)
@@ -3089,19 +3124,22 @@ do_read_data(void *args)
     if (oecalloc(&iov, count) == NULL)
         return MINUS_ERRNO;
 
-    k.type = TYPE_PAGE;
+    pack_u32(db_key, &k, type, TYPE_PAGE);
 
     iovsz = 0;
     for (i = 0; i < count; i++) {
         char buf[PG_SIZE];
         size_t pgoff;
         size_t sz;
+        uint64_t k_pgno;
 
-        k.pgno = off / PG_SIZE;
+        k_pgno = off / PG_SIZE;
 
-        pgoff = off - k.pgno * PG_SIZE;
+        pack_u64(db_key, &k, pgno, k_pgno);
 
-        sz = MIN((off_t)((k.pgno + 1) * PG_SIZE), s.st_size) - off;
+        pgoff = off - k_pgno * PG_SIZE;
+
+        sz = MIN((off_t)((k_pgno + 1) * PG_SIZE), s.st_size) - off;
         if (sz > size)
             sz = size;
 
@@ -3149,8 +3187,8 @@ do_write_data(void *args)
     struct space_alloc_ctx sctx;
     uint64_t newpages;
 
-    k.type = TYPE_STAT;
-    k.ino = opargs->ino;
+    pack_u32(db_key, &k, type, TYPE_STAT);
+    pack_u64(db_key, &k, ino, opargs->ino);
 
     ret = back_end_look_up(opargs->be, &k, NULL, &s, NULL, 0);
     if (ret != 1)
@@ -3164,7 +3202,7 @@ do_write_data(void *args)
     if (ret != 0)
         goto err1;
 
-    k.type = TYPE_PAGE;
+    pack_u32(db_key, &k, type, TYPE_PAGE);
 
     write_buf = opargs->op_data.rdwr_data.a_wr;
     off = opargs->op_data.rdwr_data.off;
@@ -3175,12 +3213,15 @@ do_write_data(void *args)
         const char *bufp;
         size_t pgoff;
         size_t sz;
+        uint64_t k_pgno;
 
-        k.pgno = off / PG_SIZE;
+        k_pgno = off / PG_SIZE;
 
-        pgoff = off - k.pgno * PG_SIZE;
+        pack_u64(db_key, &k, pgno, k_pgno);
 
-        sz = (k.pgno + 1) * PG_SIZE - off;
+        pgoff = off - k_pgno * PG_SIZE;
+
+        sz = (k_pgno + 1) * PG_SIZE - off;
         if (sz > size)
             sz = size;
 
@@ -3233,7 +3274,7 @@ do_write_data(void *args)
      * timestamps of the file... */
     set_ts(NULL, &s.st_mtim, &s.st_ctim);
 
-    k.type = TYPE_STAT;
+    pack_u32(db_key, &k, type, TYPE_STAT);
 
     ret = back_end_replace(opargs->be, &k, &s, sizeof(s));
     if (ret != 0)
@@ -3335,7 +3376,7 @@ do_read_header(void *args)
     struct db_key k;
     struct op_args *opargs = args;
 
-    k.type = TYPE_HEADER;
+    pack_u32(db_key, &k, type, TYPE_HEADER);
     ret = back_end_look_up(opargs->be, &k, NULL, &opargs->hdr, NULL, 0);
     if (ret != 1)
         return ret == 0 ? -EILSEQ : ret;
@@ -3364,9 +3405,10 @@ do_setxattr(void *args)
 
     flags = opargs->op_data.xattr_data.flags;
 
-    k.type = TYPE_XATTR;
-    k.ino = opargs->ino;
-    strlcpy((char *)k.name, opargs->op_data.xattr_data.name, sizeof(k.name));
+    pack_u32(db_key, &k, type, TYPE_XATTR);
+    pack_u64(db_key, &k, ino, opargs->ino);
+    strlcpy(packed_memb_addr(db_key, &k, name), opargs->op_data.xattr_data.name,
+            packed_memb_size(db_key, name));
 
     value = opargs->op_data.xattr_data.value_a_wr;
     size = opargs->op_data.xattr_data.size;
@@ -3416,9 +3458,10 @@ do_getxattr(void *args)
 
     size = opargs->op_data.xattr_data.size;
 
-    k.type = TYPE_XATTR;
-    k.ino = opargs->ino;
-    strlcpy((char *)k.name, opargs->op_data.xattr_data.name, sizeof(k.name));
+    pack_u32(db_key, &k, type, TYPE_XATTR);
+    pack_u64(db_key, &k, ino, opargs->ino);
+    strlcpy(packed_memb_addr(db_key, &k, name), opargs->op_data.xattr_data.name,
+            packed_memb_size(db_key, name));
 
     ret = back_end_look_up(opargs->be, &k, NULL, NULL, &valsize, 0);
     if (ret != 1)
@@ -3450,6 +3493,7 @@ end:
 static int
 do_listxattr(void *args)
 {
+    char *k_name;
     char *value;
     int ret;
     size_t bufsize;
@@ -3462,9 +3506,11 @@ do_listxattr(void *args)
     if (ret != 0)
         return ret;
 
-    k.type = TYPE_XATTR;
-    k.ino = opargs->ino;
-    k.name[0] = '\0';
+    k_name = packed_memb_addr(db_key, &k, name);
+
+    pack_u32(db_key, &k, type, TYPE_XATTR);
+    pack_u64(db_key, &k, ino, opargs->ino);
+    k_name[0] = '\0';
 
     value = NULL;
     len = size = 0;
@@ -3484,10 +3530,11 @@ do_listxattr(void *args)
             break;
         }
 
-        if (k.ino != opargs->ino || k.type != TYPE_XATTR)
+        if (unpack_u64(db_key, &k, ino) != opargs->ino
+            || unpack_u32(db_key, &k, type) != TYPE_XATTR)
             break;
 
-        ret = add_xattr_name(&value, &len, &size, (const char *)k.name);
+        ret = add_xattr_name(&value, &len, &size, k_name);
         if (ret != 0)
             goto err2;
 
@@ -3534,9 +3581,10 @@ do_removexattr(void *args)
     struct op_args *opargs = args;
     struct space_alloc_ctx sctx;
 
-    k.type = TYPE_XATTR;
-    k.ino = opargs->ino;
-    strlcpy((char *)k.name, opargs->op_data.xattr_data.name, sizeof(k.name));
+    pack_u32(db_key, &k, type, TYPE_XATTR);
+    pack_u64(db_key, &k, ino, opargs->ino);
+    strlcpy(packed_memb_addr(db_key, &k, name), opargs->op_data.xattr_data.name,
+            packed_memb_size(db_key, name));
 
     ret = back_end_look_up(opargs->be, &k, NULL, NULL, NULL, 0);
     if (ret != 1)
@@ -3580,8 +3628,8 @@ do_access(void *args)
     struct op_args *opargs = args;
 
     if (opargs->op_data.mask & F_OK) {
-        k.type = TYPE_STAT;
-        k.ino = opargs->ino;
+        pack_u32(db_key, &k, type, TYPE_STAT);
+        pack_u64(db_key, &k, ino, opargs->ino);
 
         ret = back_end_look_up(opargs->be, &k, NULL, &s, NULL, 0);
         if (ret != 1)
@@ -3626,8 +3674,8 @@ do_create(void *args)
     if (ret != 0)
         goto err2;
 
-    k.type = TYPE_STAT;
-    k.ino = parent;
+    pack_u32(db_key, &k, type, TYPE_STAT);
+    pack_u64(db_key, &k, ino, parent);
 
     ret = back_end_look_up(opargs->be, &k, NULL, &ps, NULL, 0);
     if (ret != 1) {
@@ -3774,17 +3822,17 @@ simplefs_init_prepare(void *rctx, struct session *sess, inum_t root_id)
         if (ret != 0)
             goto err6;
 
-        k.type = TYPE_HEADER;
+        pack_u32(db_key, &k, type, TYPE_HEADER);
         hdr.version = FMT_VERSION;
         hdr.numinodes = 1;
         ret = back_end_insert(priv->be, &k, &hdr, sizeof(hdr));
         if (ret != 0)
             goto err7;
 
-        k.type = TYPE_FREE_INO;
-        k.ino = root_id;
+        pack_u32(db_key, &k, type, TYPE_FREE_INO);
+        pack_u64(db_key, &k, ino, root_id);
         memset(freeino.used_ino, 0, sizeof(freeino.used_ino));
-        used_ino_set(freeino.used_ino, k.ino, root_id, 1);
+        used_ino_set(freeino.used_ino, root_id, root_id, 1);
         freeino.flags = FREE_INO_LAST_USED;
         ret = back_end_insert(priv->be, &k, &freeino, sizeof(freeino));
         if (ret != 0)
@@ -3804,7 +3852,7 @@ simplefs_init_prepare(void *rctx, struct session *sess, inum_t root_id)
         if (ret != 0)
             goto err6;
     } else {
-        k.type = TYPE_HEADER;
+        pack_u32(db_key, &k, type, TYPE_HEADER);
 
         ret = back_end_look_up(priv->be, &k, NULL, &hdr, NULL, 0);
         if (ret != 1) {
@@ -3940,9 +3988,10 @@ simplefs_lookup(void *req, inum_t parent, const char *name)
     opargs.be = priv->be;
     opargs.ref_inodes = &priv->ref_inodes;
 
-    opargs.k.type = TYPE_DIRENT;
-    opargs.k.ino = parent;
-    strlcpy((char *)opargs.k.name, name, sizeof(opargs.k.name));
+    pack_u32(db_key, &opargs.k, type, TYPE_DIRENT);
+    pack_u64(db_key, &opargs.k, ino, parent);
+    strlcpy(packed_memb_addr(db_key, &opargs.k, name), name,
+            packed_memb_size(db_key, name));
 
     opargs.op_data.inc_lookup_cnt = 1;
 
@@ -4017,8 +4066,8 @@ simplefs_getattr(void *req, inum_t ino, struct file_info *fi)
 
     opargs.be = priv->be;
 
-    opargs.k.type = TYPE_STAT;
-    opargs.k.ino = ino;
+    pack_u32(db_key, &opargs.k, type, TYPE_STAT);
+    pack_u64(db_key, &opargs.k, ino, ino);
 
     opargs.op_data.inc_lookup_cnt = 0;
 
@@ -4213,9 +4262,10 @@ simplefs_unlink(void *req, inum_t parent, const char *name)
     opargs.root_id = priv->root_id;
     opargs.ref_inodes = &priv->ref_inodes;
 
-    opargs.k.type = TYPE_DIRENT;
-    opargs.k.ino = parent;
-    strlcpy((char *)opargs.k.name, name, sizeof(opargs.k.name));
+    pack_u32(db_key, &opargs.k, type, TYPE_DIRENT);
+    pack_u64(db_key, &opargs.k, ino, parent);
+    strlcpy(packed_memb_addr(db_key, &opargs.k, name), name,
+            packed_memb_size(db_key, name));
 
     opargs.op_data.inc_lookup_cnt = 0;
 
@@ -4264,9 +4314,10 @@ simplefs_rmdir(void *req, inum_t parent, const char *name)
     opargs.root_id = priv->root_id;
     opargs.ref_inodes = &priv->ref_inodes;
 
-    opargs.k.type = TYPE_DIRENT;
-    opargs.k.ino = parent;
-    strlcpy((char *)opargs.k.name, name, sizeof(opargs.k.name));
+    pack_u32(db_key, &opargs.k, type, TYPE_DIRENT);
+    pack_u64(db_key, &opargs.k, ino, parent);
+    strlcpy(packed_memb_addr(db_key, &opargs.k, name), name,
+            packed_memb_size(db_key, name));
 
     opargs.op_data.inc_lookup_cnt = 0;
 

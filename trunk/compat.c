@@ -11,6 +11,7 @@
 #include "common.h"
 #undef NO_ASSERT
 
+#include <packing.h>
 #include <strings_ext.h>
 
 #include <fuse_lowlevel.h>
@@ -89,6 +90,7 @@ init_ver_2_to_3(struct back_end *be, size_t hdrlen, size_t jlen, int ro,
     struct db_obj_free_ino freeino;
     struct db_obj_header hdr;
     uint64_t numinodes, tot_numinodes;
+    uint64_t sk_ino;
 
     (void)hdrlen;
     (void)jlen;
@@ -99,10 +101,10 @@ init_ver_2_to_3(struct back_end *be, size_t hdrlen, size_t jlen, int ro,
     if (res != 0)
         return res;
 
-    sk.type = TYPE_STAT;
-    sk.ino = 0;
+    pack_u32(db_key, &sk, type, TYPE_STAT);
+    pack_u64(db_key, &sk, ino, 0);
 
-    k.type = TYPE_FREE_INO;
+    pack_u32(db_key, &k, type, TYPE_FREE_INO);
 
     tot_numinodes = 0;
     end = 0;
@@ -122,7 +124,7 @@ init_ver_2_to_3(struct back_end *be, size_t hdrlen, size_t jlen, int ro,
         if (res != 0)
             goto err2;
 
-        if (sk.type != TYPE_STAT) {
+        if (unpack_u32(db_key, &sk, type) != TYPE_STAT) {
             if (tot_numinodes < 1) {
                 res = -EILSEQ;
                 goto err2;
@@ -131,17 +133,17 @@ init_ver_2_to_3(struct back_end *be, size_t hdrlen, size_t jlen, int ro,
             break;
         }
 
-        cur_rng = (sk.ino - FUSE_ROOT_ID) / FREE_INO_RANGE_SZ;
-        base = sk.ino;
+        base = sk_ino = unpack_u64(db_key, &sk, ino);
+        cur_rng = (sk_ino - FUSE_ROOT_ID) / FREE_INO_RANGE_SZ;
         memset(freeino.used_ino, 0, sizeof(freeino.used_ino));
         for (numinodes = 1;; numinodes++) {
             uint32_t rng;
 
             assert(numinodes <= FREE_INO_RANGE_SZ);
 
-            infomsgf("Found I-node %" PRIu64 "\n", (uint64_t)sk.ino);
+            infomsgf("Found I-node %" PRIu64 "\n", sk_ino);
 
-            used_ino_set(freeino.used_ino, base, sk.ino, 1);
+            used_ino_set(freeino.used_ino, base, sk_ino, 1);
 
             res = back_end_iter_next(iter);
             if (res != 0) {
@@ -155,12 +157,13 @@ init_ver_2_to_3(struct back_end *be, size_t hdrlen, size_t jlen, int ro,
             if (res != 0)
                 goto err2;
 
-            if (sk.type != TYPE_STAT) {
+            if (unpack_u32(db_key, &sk, type) != TYPE_STAT) {
                 end = 1;
                 break;
             }
 
-            rng = (sk.ino - FUSE_ROOT_ID) / FREE_INO_RANGE_SZ;
+            sk_ino = unpack_u64(db_key, &sk, ino);
+            rng = (sk_ino - FUSE_ROOT_ID) / FREE_INO_RANGE_SZ;
             if (rng != cur_rng)
                 break;
         }
@@ -169,7 +172,7 @@ init_ver_2_to_3(struct back_end *be, size_t hdrlen, size_t jlen, int ro,
 
         tot_numinodes += numinodes;
 
-        k.ino = base;
+        pack_u64(db_key, &k, ino, base);
 
         if (numinodes < FREE_INO_RANGE_SZ) {
             res = back_end_insert(be, &k, &freeino, sizeof(freeino));
@@ -197,7 +200,7 @@ init_ver_2_to_3(struct back_end *be, size_t hdrlen, size_t jlen, int ro,
         goto err1;
     }
 
-    k.type = TYPE_HEADER;
+    pack_u32(db_key, &k, type, TYPE_HEADER);
 
     hdr.version = 3;
     hdr.numinodes = tot_numinodes;
@@ -247,7 +250,7 @@ init_ver_3_to_4(struct back_end *be, size_t hdrlen, size_t jlen, int ro,
     (void)ro;
     (void)fmtconv;
 
-    k.type = TYPE_HEADER;
+    pack_u32(db_key, &k, type, TYPE_HEADER);
 
     res = back_end_look_up(be, &k, NULL, &hdr, NULL, 0);
     if (res != 1)
@@ -288,7 +291,7 @@ init_ver_4_to_5(struct back_end *be, size_t hdrlen, size_t jlen, int ro,
     (void)ro;
     (void)fmtconv;
 
-    k.type = TYPE_HEADER;
+    pack_u32(db_key, &k, type, TYPE_HEADER);
 
     res = back_end_look_up(be, &k, NULL, &hdr, NULL, 0);
     if (res != 1)
@@ -334,7 +337,7 @@ init_ver_5_to_6(struct back_end *be, size_t hdrlen, size_t jlen, int ro,
     if (res != 0)
         return res;
 
-    for (k.ino = 0;; k.ino = ino + 1) {
+    for (pack_u64(db_key, &k, ino, 0);; pack_u64(db_key, &k, ino, ino + 1)) {
         blkcnt_t n;
         int end = 0;
 
@@ -342,7 +345,7 @@ init_ver_5_to_6(struct back_end *be, size_t hdrlen, size_t jlen, int ro,
         if (res != 0)
             goto err1;
 
-        k.type = TYPE_PAGE;
+        pack_u32(db_key, &k, type, TYPE_PAGE);
 
         res = back_end_iter_search(iter, &k);
         if (res < 0)
@@ -352,11 +355,11 @@ init_ver_5_to_6(struct back_end *be, size_t hdrlen, size_t jlen, int ro,
         if (res != 0)
             goto err2;
 
-        if (k.type != TYPE_PAGE) {
+        if (unpack_u32(db_key, &k, type) != TYPE_PAGE) {
             back_end_iter_free(iter);
             break;
         }
-        ino = k.ino;
+        ino = unpack_u64(db_key, &k, ino);
 
         for (n = 1;; n++) {
             res = back_end_iter_next(iter);
@@ -371,18 +374,18 @@ init_ver_5_to_6(struct back_end *be, size_t hdrlen, size_t jlen, int ro,
             if (res != 0)
                 goto err2;
 
-            if (k.type != TYPE_PAGE) {
+            if (unpack_u32(db_key, &k, type) != TYPE_PAGE) {
                 end = 1;
                 break;
             }
-            if (k.ino != ino)
+            if (unpack_u64(db_key, &k, ino) != ino)
                 break;
         }
 
         back_end_iter_free(iter);
 
-        k.type = TYPE_STAT;
-        k.ino = ino;
+        pack_u32(db_key, &k, type, TYPE_STAT);
+        pack_u64(db_key, &k, ino, ino);
 
         res = back_end_look_up(be, &k, NULL, &s, NULL, 0);
         if (res != 1) {
@@ -394,7 +397,7 @@ init_ver_5_to_6(struct back_end *be, size_t hdrlen, size_t jlen, int ro,
         s.st_blocks = n * BLOCKS_PER_PG;
 
         infomsgf("Updating st_blocks for I-node %" PRIu64 " to %" PRIi64 "\n",
-                 k.ino, (int64_t)s.st_blocks);
+                 unpack_u64(db_key, &k, ino), (int64_t)s.st_blocks);
 
         res = back_end_replace(be, &k, &s, sizeof(s));
         if (res != 0)
@@ -404,7 +407,7 @@ init_ver_5_to_6(struct back_end *be, size_t hdrlen, size_t jlen, int ro,
             break;
     }
 
-    k.type = TYPE_HEADER;
+    pack_u32(db_key, &k, type, TYPE_HEADER);
 
     res = back_end_look_up(be, &k, NULL, &hdr, NULL, 0);
     if (res != 1) {

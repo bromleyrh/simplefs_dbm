@@ -12,6 +12,7 @@
 #include "util.h"
 
 #include <dbm_high_level.h>
+#include <packing.h>
 #include <strings_ext.h>
 
 #include <files/acc_ctl.h>
@@ -178,24 +179,30 @@ db_key_cmp(const void *k1, const void *k2, void *key_ctx)
     const struct db_key *key1 = k1;
     const struct db_key *key2 = k2;
     int cmp;
+    uint32_t type;
 
     (void)key_ctx;
 
-    cmp = uint64_cmp(key1->type, key2->type);
-    if (cmp != 0 || key1->type == TYPE_HEADER)
+    type = unpack_u32(db_key, key1, type);
+
+    cmp = uint64_cmp(type, unpack_u32(db_key, key2, type));
+    if (cmp != 0 || type == TYPE_HEADER)
         return cmp;
 
-    cmp = uint64_cmp(key1->ino, key2->ino);
+    cmp = uint64_cmp(unpack_u64(db_key, key1, ino),
+                     unpack_u64(db_key, key2, ino));
     if (cmp != 0)
         return cmp;
 
-    switch (key1->type) {
+    switch (type) {
     case TYPE_DIRENT:
     case TYPE_XATTR:
-        cmp = strcmp((const char *)key1->name, (const char *)key2->name);
+        cmp = strcmp(packed_memb_addr(db_key, key1, name),
+                     packed_memb_addr(db_key, key2, name));
         break;
     case TYPE_PAGE:
-        cmp = uint64_cmp(key1->pgno, key2->pgno);
+        cmp = uint64_cmp(unpack_u64(db_key, key1, pgno),
+                         unpack_u64(db_key, key2, pgno));
     case TYPE_FREE_INO:
     case TYPE_STAT:
     case TYPE_ULINKED_INODE:
@@ -236,7 +243,7 @@ get_key_ino(struct db_key *k)
     if (arg == NULL)
         return 2;
 
-    k->ino = strtoumax(arg, NULL, 10);
+    pack_u64(db_key, k, ino, strtoumax(arg, NULL, 10));
 
     free(arg);
 
@@ -257,7 +264,8 @@ get_key_ino_name(struct db_key *k)
     if (arg == NULL)
         return 2;
 
-    strlcpy((char *)k->name, arg, sizeof(k->name));
+    strlcpy(packed_memb_addr(db_key, k, name), arg,
+            packed_memb_size(db_key, name));
 
     free(arg);
 
@@ -278,7 +286,7 @@ get_key_ino_pgno(struct db_key *k)
     if (arg == NULL)
         return 2;
 
-    k->pgno = strtoumax(arg, NULL, 10);
+    pack_u64(db_key, k, pgno, strtoumax(arg, NULL, 10));
 
     free(arg);
 
@@ -555,11 +563,15 @@ static void
 disp_free_ino(FILE *f, const struct db_key *key, const void *data,
               size_t datasize)
 {
+    uint64_t ino;
+
     (void)data;
     (void)datasize;
 
-    fprintf(f, "number %" PRIu64 " to %" PRIu64,
-            key->ino, key->ino + FREE_INO_RANGE_SZ - 1);
+    ino = unpack_u64(db_key, key, ino);
+
+    fprintf(f, "number %" PRIu64 " to %" PRIu64, ino,
+            ino + FREE_INO_RANGE_SZ - 1);
 }
 
 #define OUTPUT_WIDTH 64
@@ -571,9 +583,12 @@ disp_free_ino_full(FILE *f, const struct db_key *key, const void *data,
 {
     const struct db_obj_free_ino *freeino = data;
     int i;
+    uint64_t ino;
 
     disp_free_ino(f, key, data, datasize);
     fputc('\n', f);
+
+    ino = unpack_u64(db_key, key, ino);
 
     for (i = 0;; i++) {
         if (i == FREE_INO_RANGE_SZ) {
@@ -582,9 +597,7 @@ disp_free_ino_full(FILE *f, const struct db_key *key, const void *data,
         }
         if (i > 0 && i % OUTPUT_WIDTH == 0)
             fputc('\n', f);
-        fputc(used_ino_get(freeino->used_ino, key->ino, key->ino + i)
-              ? '1' : '0',
-              f);
+        fputc(used_ino_get(freeino->used_ino, ino, ino + i) ? '1' : '0', f);
     }
 
     fprintf(f, "Last: %s", freeino->flags & FREE_INO_LAST_USED ? "1" : "0");
@@ -602,7 +615,8 @@ disp_dirent(FILE *f, const struct db_key *key, const void *data,
     (void)datasize;
 
     fprintf(f, "directory %" PRIu64 ", name %s -> node %" PRIu64,
-            key->ino, key->name, de->ino);
+            unpack_u64(db_key, key, ino),
+            (char *)packed_memb_addr(db_key, key, name), de->ino);
 }
 
 static void
@@ -612,7 +626,8 @@ disp_stat(FILE *f, const struct db_key *key, const void *data, size_t datasize)
 
     (void)datasize;
 
-    fprintf(f, "node %" PRIu64 " -> st_ino %" PRIu64, key->ino, s->st_ino);
+    fprintf(f, "node %" PRIu64 " -> st_ino %" PRIu64,
+            unpack_u64(db_key, key, ino), s->st_ino);
 }
 
 static void
@@ -645,7 +660,7 @@ disp_stat_full(FILE *f, const struct db_key *key, const void *data,
             "    st_mtim    %s"
             "    st_ctim    %s"
             "    num_ents   %" PRIu32,
-            key->ino,
+            unpack_u64(db_key, key, ino),
             s->st_dev,
             s->st_ino,
             s->st_mode,
@@ -668,7 +683,8 @@ disp_page(FILE *f, const struct db_key *key, const void *data, size_t datasize)
     (void)data;
 
     fprintf(f, "node %" PRIu64 ", page %" PRIu64 ", size %zu",
-            key->ino, key->pgno, datasize);
+            unpack_u64(db_key, key, ino), unpack_u64(db_key, key, pgno),
+            datasize);
 }
 
 static void
@@ -677,7 +693,8 @@ disp_xattr(FILE *f, const struct db_key *key, const void *data, size_t datasize)
     (void)data;
 
     fprintf(f, "node %" PRIu64 ", name %s, size %zu",
-            key->ino, key->name, datasize);
+            unpack_u64(db_key, key, ino),
+            (char *)packed_memb_addr(db_key, key, name), datasize);
 }
 
 static void
@@ -687,7 +704,7 @@ disp_ulinked_inode(FILE *f, const struct db_key *key, const void *data,
     (void)data;
     (void)datasize;
 
-    fprintf(f, "node %" PRIu64, key->ino);
+    fprintf(f, "node %" PRIu64, unpack_u64(db_key, key, ino));
 }
 
 static int
@@ -708,6 +725,7 @@ dump_db_obj(FILE *f, const void *key, const void *data, size_t datasize,
             const char *prefix, void *ctx)
 {
     const struct db_key *k = key;
+    uint32_t type;
 
     static const struct ent {
         const char  *dispstr;
@@ -734,10 +752,12 @@ dump_db_obj(FILE *f, const void *key, const void *data, size_t datasize,
 
     (void)ctx;
 
-    if (k->type >= ARRAY_SIZE(objinfo))
+    type = unpack_u32(db_key, k, type);
+
+    if (type >= ARRAY_SIZE(objinfo))
         goto type_err;
 
-    objinfop = &objinfo[k->type];
+    objinfop = &objinfo[type];
     if (objinfop->disp_data == NULL)
         goto type_err;
 
@@ -754,7 +774,7 @@ dump_db_obj(FILE *f, const void *key, const void *data, size_t datasize,
     return 0;
 
 type_err:
-    error(0, 0, "Invalid object type %d", k->type);
+    error(0, 0, "Invalid object type %d", type);
     return -EILSEQ;
 }
 
@@ -918,7 +938,7 @@ cmd_find(struct dbh *dbh)
         if (res != 0)
             return res;
     }
-    k.type = type;
+    pack_u32(db_key, &k, type, type);
 
     if (typep->datasize == 0) {
         res = db_hl_search(dbh, &k, NULL, NULL, &datasize);
@@ -1056,7 +1076,7 @@ cmd_insert(struct dbh *dbh)
         if (res != 0)
             return res;
     }
-    k.type = type;
+    pack_u32(db_key, &k, type, type);
 
     if (typep->datasize == 0) {
         d = NULL;
@@ -1160,7 +1180,7 @@ cmd_remove(struct dbh *dbh)
         if (ret != 0)
             return ret;
     }
-    k.type = type;
+    pack_u32(db_key, &k, type, type);
 
     ret = db_hl_trans_new(dbh);
     if (ret != 0)
@@ -1263,7 +1283,7 @@ cmd_update(struct dbh *dbh)
         if (res != 0)
             return res;
     }
-    k.type = type;
+    pack_u32(db_key, &k, type, type);
 
     if (typep->datasize == 0) {
         res = db_hl_search(dbh, &k, NULL, NULL, &datasize);
