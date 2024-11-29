@@ -1,5 +1,5 @@
 /*
- * obj.h
+ * obj.idl
  */
 
 #ifndef _OBJ_H
@@ -13,6 +13,20 @@
 #include <stdint.h>
 
 #include <sys/stat.h>
+
+#define MAGIC 0x53464d53
+
+/*
+ * off      data area offset
+ * joff     journal offset
+ * blkdevsz total device size
+ */
+PACKED_STRUCT(`disk_header',
+    `uint32_t', `magic',    `1',
+    `uint64_t', `off',      `1',
+    `uint64_t', `joff',     `1',
+    `uint64_t', `blkdevsz', `1',
+    `uint8_t',  `padding',  `4096 - sizeof(uint32_t) - 3 * sizeof(uint64_t)')
 
 enum db_obj_type {
     TYPE_HEADER = 1,
@@ -110,4 +124,4 @@ struct db_obj_stat {
 
 #endif
 
-/* vi: set expandtab sw=4 ts=4: */
+/* vi: set expandtab filetype=c sw=4 ts=4: */

@@ -8,9 +8,11 @@
 
 #include "blkdev.h"
 #include "common.h"
+#include "obj.h"
 #include "util.h"
 
 #include <io_ext.h>
+#include <packing.h>
 #include <strings_ext.h>
 
 #include <errno.h>
@@ -43,16 +45,6 @@
 #include <sys/vfs.h>
 #endif
 
-#define MAGIC 0x53464d53
-
-struct disk_header {
-    uint32_t    magic;
-    uint64_t    off;        /* data area offset */
-    uint64_t    joff;       /* journal offset */
-    uint64_t    blkdevsz;   /* total device size */
-    uint8_t     padding[4096 - sizeof(uint32_t) - 3 * sizeof(uint64_t)];
-} __attribute__((packed));
-
 /* The disk header size must be a multiple of 4096 */
 STATIC_ASSERT(sizeof(struct disk_header) == 4096);
 
@@ -61,7 +53,7 @@ STATIC_ASSERT(sizeof(struct disk_header) == 4096);
 #define FILE_LOCK_NB 4
 #define FILE_LOCK_UN 8
 
-#define BLKDEV_OPEN(bctx) ((bctx)->hdr.blkdevsz > 0)
+#define BLKDEV_OPEN(bctx) (unpack_u64(disk_header, &(bctx)->hdr, blkdevsz) > 0)
 
 #define BCTX_FD(bctx, n) ((bctx)->fd[n])
 
@@ -143,7 +135,8 @@ static int fs_blkdev_fstatfs(void *ctx, int fd, struct statfs *buf);
 
 /* These sizes must be a multiple of 4096 */
 #define DATA_MIN_SIZE (2 * 1024 * 1024)
-#define DATA_SIZE(bctx) ((bctx)->hdr.joff - sizeof(struct disk_header))
+#define DATA_SIZE(bctx) \
+    (unpack_u64(disk_header, &(bctx)->hdr, joff) - sizeof(struct disk_header))
 #define JOURNAL_SIZE (256 * 1024 * 1024)
 
 #define BLKDEV_MIN_SIZE \
@@ -257,9 +250,9 @@ get_blkdev_size(int fd, uint64_t *sz)
 static void
 init_header(struct disk_header *hdr, uint64_t blkdevsz)
 {
-    hdr->off = sizeof(*hdr);
-    hdr->joff = (blkdevsz - JOURNAL_SIZE) / 4096 * 4096;
-    hdr->blkdevsz = blkdevsz;
+    pack_u64(disk_header, hdr, off, sizeof(*hdr));
+    pack_u64(disk_header, hdr, joff, (blkdevsz - JOURNAL_SIZE) / 4096 * 4096);
+    pack_u64(disk_header, hdr, blkdevsz, blkdevsz);
 }
 
 static int
@@ -281,7 +274,8 @@ open_blkdev(int fd, int create, int ro, int *initialized,
             struct blkdev_ctx *bctx)
 {
     int err;
-    uint64_t blkdevsz;
+    uint32_t hdr_magic;
+    uint64_t blkdevsz, hdr_blkdevsz;
 
     err = get_blkdev_size(fd, &blkdevsz);
     if (err)
@@ -292,11 +286,13 @@ open_blkdev(int fd, int create, int ro, int *initialized,
     err = read_header(fd, &bctx->hdr);
     if (err)
         return err;
-    if (bctx->hdr.magic != MAGIC) { /* not formatted */
+    hdr_magic = unpack_u32(disk_header, &bctx->hdr, magic);
+    if (hdr_magic != MAGIC) { /* not formatted */
         errmsg("Device not formatted\n");
         return -EILSEQ;
     }
-    if (bctx->hdr.blkdevsz == 0) { /* not initialized */
+    hdr_blkdevsz = unpack_u64(disk_header, &bctx->hdr, blkdevsz);
+    if (hdr_blkdevsz == 0) { /* not initialized */
         if (ro)
             return -EROFS;
         if (!create)
@@ -310,9 +306,9 @@ open_blkdev(int fd, int create, int ro, int *initialized,
         *initialized = 1;
         return 0;
     }
-    if (bctx->hdr.blkdevsz != blkdevsz) {
+    if (hdr_blkdevsz != blkdevsz) {
         /* device size changed after initialization */
-        errmsgf("Device size changed from %" PRIu64 "\n", bctx->hdr.blkdevsz);
+        errmsgf("Device size changed from %" PRIu64 "\n", hdr_blkdevsz);
         return -EILSEQ;
     }
 
@@ -347,10 +343,10 @@ do_blkdev_io(struct blkdev_ctx *bctx, int fd, void *buf, size_t count,
 
     if (fd == JFD(bctx)) {
         maxreloff = JOURNAL_SIZE;
-        off = bctx->hdr.joff;
+        off = unpack_u64(disk_header, &bctx->hdr, joff);
     } else {
         maxreloff = DATA_SIZE(bctx);
-        off = bctx->hdr.off;
+        off = unpack_u64(disk_header, &bctx->hdr, off);
     }
     off += offset;
 
@@ -439,7 +435,7 @@ fs_blkdev_openfs(void **ctx, void *args)
 
     ret->args = args;
 
-    ret->hdr.blkdevsz = 0;
+    pack_u64(disk_header, &ret->hdr, blkdevsz, 0);
 
     for (i = 0; i < ARRAY_SIZE(ret->fd); i++)
         ret->fd[i] = -1;
@@ -566,7 +562,7 @@ fs_blkdev_openat(void *ctx, int dfd, const char *pathname, int flags,
         goto err;
     }
 
-    bctx->args->blkdevsz = bctx->hdr.blkdevsz;
+    bctx->args->blkdevsz = unpack_u64(disk_header, &bctx->hdr, blkdevsz);
 
 end:
     *bfd = ret;
@@ -644,7 +640,8 @@ fs_blkdev_mmap(void *ctx, void *addr, size_t length, int prot, int flags,
     if (fd != FD(bctx) || offset != 0)
         return err_to_errno_p(EINVAL);
 
-    ret = mmap(addr, length, prot, flags, fd, bctx->hdr.off + offset);
+    ret = mmap(addr, length, prot, flags, fd,
+               unpack_u64(disk_header, &bctx->hdr, off) + offset);
     if (ret != NULL)
         bctx->mmap_addr = ret;
 

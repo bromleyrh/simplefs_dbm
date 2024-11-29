@@ -3,8 +3,10 @@
  */
 
 #include "common.h"
+#include "obj.h"
 #include "util.h"
 
+#include <packing.h>
 #include <strings_ext.h>
 
 #include <readline/history.h>
@@ -23,16 +25,6 @@
 
 #include <sys/stat.h>
 #include <sys/types.h>
-
-#define MAGIC 0x53464d53
-
-struct disk_header {
-    uint32_t    magic;
-    uint64_t    off;        /* data area offset */
-    uint64_t    joff;       /* journal offset */
-    uint64_t    blkdevsz;   /* total device size */
-    uint8_t     padding[4096 - sizeof(uint32_t) - 3 * sizeof(uint64_t)];
-} __attribute__((packed));
 
 static void print_usage(const char *);
 
@@ -116,7 +108,7 @@ init_header(int fd)
     struct disk_header hdr;
 
     omemset(&hdr, 0);
-    hdr.magic = MAGIC;
+    pack_u32(disk_header, &hdr, magic, MAGIC);
 
     return do_ppwrite(fd, &hdr, sizeof(hdr), 0, 4096, NULL) == sizeof(hdr)
            ? 0 : -EIO;
@@ -247,4 +239,4 @@ main(int argc, char **argv)
     return format_device(dev, force) == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }
 
-/* vi: set expandtab sw=4 ts=4: */
+/* vi: set expandtab filetype=c sw=4 ts=4: */

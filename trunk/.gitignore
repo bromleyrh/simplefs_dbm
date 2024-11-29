@@ -21,6 +21,8 @@ Makefile.in
 *.stamp
 stamp-h1
 
+obj.h
+
 .libs
 
 *.la
