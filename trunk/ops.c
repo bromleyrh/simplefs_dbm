@@ -549,7 +549,8 @@ dump_db_obj(FILE *f, const void *key, const void *data, size_t datasize,
                 (uint64_t)k->ino);
         break;
     default:
-        errmsgf("Unrecognized object type %d in %s()\n", k->type, __func__);
+        errmsgf("Unrecognized object type %" PRIu32 " in %s()\n", k->type,
+                __func__);
         abort();
     }
 }
