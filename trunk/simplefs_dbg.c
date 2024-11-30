@@ -367,7 +367,7 @@ set_header(const struct db_key *key, void **data, size_t *datasize)
     char *arg;
     int ret;
     size_t i;
-    struct db_obj_header *hdr = *(struct db_obj_header **)data;
+    struct db_obj_header *hdr = *data;
 
     static const struct ent {
         const char  *nm;
@@ -441,7 +441,7 @@ set_stat(const struct db_key *key, void **data, size_t *datasize)
     char *arg;
     int ret;
     size_t i;
-    struct db_obj_stat *s = *(struct db_obj_stat **)data;
+    struct db_obj_stat *s = *data;
 
     static const struct ent {
         const char  *nm;
