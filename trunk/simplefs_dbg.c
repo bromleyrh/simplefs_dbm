@@ -621,8 +621,13 @@ disp_stat_full(FILE *f, const struct db_key *key, const void *data,
 {
     char atim[26], ctim[26], mtim[26];
     const struct db_obj_stat *s = data;
+    time_t atim_sec, ctim_sec, mtim_sec;
 
     (void)datasize;
+
+    atim_sec = s->st_atim.tv_sec;
+    mtim_sec = s->st_mtim.tv_sec;
+    ctim_sec = s->st_ctim.tv_sec;
 
     fprintf(f,
             "node %" PRIu64 " ->\n"
@@ -651,9 +656,9 @@ disp_stat_full(FILE *f, const struct db_key *key, const void *data,
             s->st_size,
             s->st_blksize,
             s->st_blocks,
-            ctime_r((const time_t *)&s->st_atim, atim),
-            ctime_r((const time_t *)&s->st_mtim, mtim),
-            ctime_r((const time_t *)&s->st_ctim, ctim),
+            ctime_r(&atim_sec, atim),
+            ctime_r(&mtim_sec, mtim),
+            ctime_r(&ctim_sec, ctim),
             s->num_ents);
 }
 
