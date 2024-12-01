@@ -585,12 +585,15 @@ disp_free_ino_full(FILE *f, const struct db_key *key, const void *data,
 {
     const struct db_obj_free_ino *freeino = data;
     int i;
+    uint64_t *freeino_used_ino;
     uint64_t ino;
 
     disp_free_ino(f, key, data, datasize);
     fputc('\n', f);
 
     ino = unpack_u64(db_key, key, ino);
+    freeino_used_ino = (uint64_t *)packed_memb_addr(db_obj_free_ino, freeino,
+                                                    used_ino);
 
     for (i = 0;; i++) {
         if (i == FREE_INO_RANGE_SZ) {
@@ -599,10 +602,12 @@ disp_free_ino_full(FILE *f, const struct db_key *key, const void *data,
         }
         if (i > 0 && i % OUTPUT_WIDTH == 0)
             fputc('\n', f);
-        fputc(used_ino_get(freeino->used_ino, ino, ino + i) ? '1' : '0', f);
+        fputc(used_ino_get(freeino_used_ino, ino, ino + i) ? '1' : '0', f);
     }
 
-    fprintf(f, "Last: %s", freeino->flags & FREE_INO_LAST_USED ? "1" : "0");
+    fprintf(f, "Last: %s",
+            unpack_u8(db_obj_free_ino, freeino, flags) & FREE_INO_LAST_USED
+            ? "1" : "0");
 }
 
 #undef OUTPUT_WIDTH

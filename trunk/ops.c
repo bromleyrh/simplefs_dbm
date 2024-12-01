@@ -678,6 +678,7 @@ get_ino(struct back_end *be, inum_t *ino)
     struct db_obj_free_ino freeino;
     struct db_obj_header hdr;
     struct db_obj_stat s;
+    uint64_t *freeino_used_ino;
     uint64_t k_ino;
 
     res = back_end_iter_new(&iter, be);
@@ -700,10 +701,12 @@ get_ino(struct back_end *be, inum_t *ino)
         return -ENOSPC;
 
     k_ino = unpack_u64(db_key, &k, ino);
+    freeino_used_ino = (uint64_t *)packed_memb_addr(db_obj_free_ino, &freeino,
+                                                    used_ino);
 
-    ret = free_ino_find(freeino.used_ino, k_ino);
+    ret = free_ino_find(freeino_used_ino, k_ino);
     if (ret == 0) {
-        if (!(freeino.flags & FREE_INO_LAST_USED))
+        if (!(unpack_u8(db_obj_free_ino, &freeino, flags) & FREE_INO_LAST_USED))
             return -EILSEQ;
         if (ULONG_MAX - k_ino < FREE_INO_RANGE_SZ)
             return -ENOSPC;
@@ -714,9 +717,10 @@ get_ino(struct back_end *be, inum_t *ino)
 
         k_ino += FREE_INO_RANGE_SZ;
         pack_u64(db_key, &k, ino, k_ino);
-        memset(freeino.used_ino, 0, sizeof(freeino.used_ino));
-        used_ino_set(freeino.used_ino, k_ino, k_ino, 1);
-        freeino.flags = FREE_INO_LAST_USED;
+        memset(freeino_used_ino, 0,
+               packed_memb_size(db_obj_free_ino, used_ino));
+        used_ino_set(freeino_used_ino, k_ino, k_ino, 1);
+        pack_u8(db_obj_free_ino, &freeino, flags, FREE_INO_LAST_USED);
         res = back_end_insert(be, &k, &freeino, sizeof(freeino));
         if (res != 0)
             return res;
@@ -725,9 +729,11 @@ get_ino(struct back_end *be, inum_t *ino)
         return 0;
     }
 
-    used_ino_set(freeino.used_ino, k_ino, ret, 1);
-    res = memcchr(freeino.used_ino, 0xff, sizeof(freeino.used_ino)) == NULL
-          && !(freeino.flags & FREE_INO_LAST_USED)
+    used_ino_set(freeino_used_ino, k_ino, ret, 1);
+    res = memcchr(freeino_used_ino, 0xff,
+                  packed_memb_size(db_obj_free_ino, used_ino))
+          == NULL
+          && !(unpack_u8(db_obj_free_ino, &freeino, flags) & FREE_INO_LAST_USED)
           ? back_end_delete(be, &k)
           : back_end_replace(be, &k, &freeino, sizeof(freeino));
     if (res != 0)
@@ -761,9 +767,12 @@ release_ino(struct back_end *be, inum_t root_id, inum_t ino)
     struct db_key k;
     struct db_obj_free_ino freeino;
     struct db_obj_header hdr;
+    uint64_t *freeino_used_ino;
     uint64_t k_ino;
 
     k_ino = (ino - root_id) / FREE_INO_RANGE_SZ * FREE_INO_RANGE_SZ + root_id;
+    freeino_used_ino = (uint64_t *)packed_memb_addr(db_obj_free_ino, &freeino,
+                                                    used_ino);
 
     pack_u32(db_key, &k, type, TYPE_FREE_INO);
     pack_u64(db_key, &k, ino, k_ino);
@@ -773,14 +782,15 @@ release_ino(struct back_end *be, inum_t root_id, inum_t ino)
             return res;
 
         /* insert new free I-node number information object */
-        memset(freeino.used_ino, 0xff, sizeof(freeino.used_ino));
-        used_ino_set(freeino.used_ino, k_ino, ino, 0);
-        freeino.flags = 0;
+        memset(freeino_used_ino, 0xff,
+               packed_memb_size(db_obj_free_ino, used_ino));
+        used_ino_set(freeino_used_ino, k_ino, ino, 0);
+        pack_u8(db_obj_free_ino, &freeino, flags, 0);
         res = back_end_insert(be, &k, &freeino, sizeof(freeino));
         if (res != 0)
             return res;
     } else {
-        used_ino_set(freeino.used_ino, k_ino, ino, 0);
+        used_ino_set(freeino_used_ino, k_ino, ino, 0);
         res = back_end_replace(be, &k, &freeino, sizeof(freeino));
         if (res != 0)
             return res;
@@ -3798,6 +3808,7 @@ simplefs_init_prepare(void *rctx, struct session *sess, inum_t root_id)
     if (ret != 0) {
         size_t db_hdrlen;
         struct space_alloc_ctx sctx;
+        uint64_t *freeino_used_ino;
 
         if (ret != -ENOENT)
             goto err5;
@@ -3834,11 +3845,15 @@ simplefs_init_prepare(void *rctx, struct session *sess, inum_t root_id)
         if (ret != 0)
             goto err7;
 
+        freeino_used_ino = (uint64_t *)packed_memb_addr(db_obj_free_ino,
+                                                        &freeino, used_ino);
+
         pack_u32(db_key, &k, type, TYPE_FREE_INO);
         pack_u64(db_key, &k, ino, root_id);
-        memset(freeino.used_ino, 0, sizeof(freeino.used_ino));
-        used_ino_set(freeino.used_ino, root_id, root_id, 1);
-        freeino.flags = FREE_INO_LAST_USED;
+        memset(freeino_used_ino, 0,
+               packed_memb_size(db_obj_free_ino, used_ino));
+        used_ino_set(freeino_used_ino, root_id, root_id, 1);
+        pack_u8(db_obj_free_ino, &freeino, flags, FREE_INO_LAST_USED);
         ret = back_end_insert(priv->be, &k, &freeino, sizeof(freeino));
         if (ret != 0)
             goto err7;

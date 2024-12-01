@@ -135,7 +135,8 @@ init_ver_2_to_3(struct back_end *be, size_t hdrlen, size_t jlen, int ro,
 
         base = sk_ino = unpack_u64(db_key, &sk, ino);
         cur_rng = (sk_ino - FUSE_ROOT_ID) / FREE_INO_RANGE_SZ;
-        memset(freeino.used_ino, 0, sizeof(freeino.used_ino));
+        memset(packed_memb_addr(db_obj_free_ino, &freeino, used_ino), 0,
+               packed_memb_size(db_obj_free_ino, used_ino));
         for (numinodes = 1;; numinodes++) {
             uint32_t rng;
 
@@ -143,7 +144,9 @@ init_ver_2_to_3(struct back_end *be, size_t hdrlen, size_t jlen, int ro,
 
             infomsgf("Found I-node %" PRIu64 "\n", sk_ino);
 
-            used_ino_set(freeino.used_ino, base, sk_ino, 1);
+            used_ino_set((uint64_t *)packed_memb_addr(db_obj_free_ino, &freeino,
+                                                      used_ino),
+                         base, sk_ino, 1);
 
             res = back_end_iter_next(iter);
             if (res != 0) {
@@ -184,7 +187,7 @@ init_ver_2_to_3(struct back_end *be, size_t hdrlen, size_t jlen, int ro,
             break;
     }
 
-    freeino.flags = FREE_INO_LAST_USED;
+    pack_u8(db_obj_free_ino, &freeino, flags, FREE_INO_LAST_USED);
 
     if (numinodes < FREE_INO_RANGE_SZ)
         res = back_end_replace(be, &k, &freeino, sizeof(freeino));

@@ -80,10 +80,9 @@ PACKED_STRUCT(`db_obj_header',
 
 #define FREE_INO_LAST_USED 1 /* values in all following ranges are free */
 
-struct db_obj_free_ino {
-    uint64_t    used_ino[FREE_INO_RANGE_SZ/NBWD];
-    uint8_t     flags;
-} __attribute__((packed));
+PACKED_STRUCT(`db_obj_free_ino',
+    `uint64_t', `used_ino', `FREE_INO_RANGE_SZ / NBWD',
+    `uint8_t',  `flags',    `1')
 
 struct db_obj_dirent {
     uint64_t ino;
