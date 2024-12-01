@@ -206,6 +206,11 @@ static const char null_data[PG_SIZE];
 
 #define ASSERT_UNDER_TRANS(be) (assert(back_end_trans_new(be) == -EBUSY))
 
+#define _packed_st_tim(s, which) \
+    (struct disk_timespec *)packed_memb_addr(db_obj_stat, s, which)
+
+#define packed_st_tim(s, which) _packed_st_tim(s, st_##which##tim)
+
 static int uint64_cmp(uint64_t, uint64_t);
 
 static int db_key_cmp(const void *, const void *, void *);
@@ -548,7 +553,7 @@ dump_db_obj(FILE *f, const void *key, const void *data, size_t datasize,
         assert(datasize == sizeof(d->s));
 
         fprintf(f, "I-node entry: node %" PRIu64 " -> st_ino %" PRIu64 "\n",
-                ino, (uint64_t)d->s.st_ino);
+                ino, unpack_u64(db_obj_stat, &d->s, st_ino));
         break;
     case TYPE_PAGE:
         fprintf(f, "Page: node %" PRIu64 ", page %" PRIu64 ", size %zu\n",
@@ -853,8 +858,9 @@ unref_inode(struct back_end *be, inum_t root_id, struct ref_inodes *ref_inodes,
     if (nlink != 0) {
         ASSERT_UNDER_TRANS(be);
 
-        s.st_nlink = (uint32_t)nlinkp;
-        assert(s.st_ino == unpack_u64(db_key, &k, ino));
+        pack_u32(db_obj_stat, &s, st_nlink, nlinkp);
+        assert(unpack_u64(db_obj_stat, &s, st_ino)
+               == unpack_u64(db_key, &k, ino));
         ret = back_end_replace(be, &k, &s, sizeof(s));
         if (ret != 0)
             return ret;
@@ -953,7 +959,7 @@ inc_refcnt(struct back_end *be, struct ref_inodes *ref_inodes, inum_t ino,
         }
 
         refinop->ino = ino;
-        refinop->nlink = s.st_nlink;
+        refinop->nlink = unpack_u32(db_obj_stat, &s, st_nlink);
         refinop->refcnt = nref;
         refinop->nlookup = nlookup;
         refinop->nodelete = 0;
@@ -1147,19 +1153,19 @@ deserialize_ts(struct timespec *ts, struct disk_timespec *disk_ts)
 static void
 deserialize_stat(struct stat *s, struct db_obj_stat *ds)
 {
-    s->st_dev = ds->st_dev;
-    s->st_ino = ds->st_ino;
-    s->st_mode = ds->st_mode;
-    s->st_nlink = ds->st_nlink;
-    s->st_uid = ds->st_uid;
-    s->st_gid = ds->st_gid;
-    s->st_rdev = ds->st_rdev;
-    s->st_size = ds->st_size;
-    s->st_blksize = ds->st_blksize;
-    s->st_blocks = ds->st_blocks;
-    deserialize_ts(&s->st_atim, &ds->st_atim);
-    deserialize_ts(&s->st_mtim, &ds->st_mtim);
-    deserialize_ts(&s->st_ctim, &ds->st_ctim);
+    s->st_dev = unpack_u64(db_obj_stat, ds, st_dev);
+    s->st_ino = unpack_u64(db_obj_stat, ds, st_ino);
+    s->st_mode = unpack_u32(db_obj_stat, ds, st_mode);
+    s->st_nlink = unpack_u32(db_obj_stat, ds, st_nlink);
+    s->st_uid = unpack_u32(db_obj_stat, ds, st_uid);
+    s->st_gid = unpack_u32(db_obj_stat, ds, st_gid);
+    s->st_rdev = unpack_u64(db_obj_stat, ds, st_rdev);
+    s->st_size = unpack_i64(db_obj_stat, ds, st_size);
+    s->st_blksize = unpack_i64(db_obj_stat, ds, st_blksize);
+    s->st_blocks = unpack_i64(db_obj_stat, ds, st_blocks);
+    deserialize_ts(&s->st_atim, packed_st_tim(ds, a));
+    deserialize_ts(&s->st_mtim, packed_st_tim(ds, m));
+    deserialize_ts(&s->st_ctim, packed_st_tim(ds, c));
 }
 
 static int
@@ -1279,6 +1285,7 @@ delete_file(struct back_end *be, inum_t root_id, inum_t ino)
     int ret;
     struct db_key k;
     struct db_obj_stat s;
+    uint32_t s_st_mode;
 
     ASSERT_UNDER_TRANS(be);
 
@@ -1289,12 +1296,14 @@ delete_file(struct back_end *be, inum_t root_id, inum_t ino)
     if (ret != 1)
         return ret == 0 ? -ENOENT : ret;
 
-    if (S_ISREG(s.st_mode) || S_ISLNK(s.st_mode)) {
+    s_st_mode = unpack_u32(db_obj_stat, &s, st_mode);
+
+    if (S_ISREG(s_st_mode) || S_ISLNK(s_st_mode)) {
         off_t size;
         uint64_t i, numpg;
 
-        size = s.st_size;
-        if (S_ISLNK(s.st_mode)) /* size does not include null terminator */
+        size = unpack_i64(db_obj_stat, &s, st_size);
+        if (S_ISLNK(s_st_mode)) /* size does not include null terminator */
             ++size;
 
         trap
@@ -1373,18 +1382,18 @@ new_node(struct back_end *be, struct ref_inodes *ref_inodes, inum_t parent,
     pack_u32(db_key, &k, type, TYPE_STAT);
     pack_u64(db_key, &k, ino, ino);
 
-    s.st_dev = 64 * 1024;
-    s.st_ino = ino;
-    s.st_mode = mode & (S_IFMT | ALL_PERMS);
-    s.st_nlink = 0;
-    s.st_uid = uid;
-    s.st_gid = gid;
-    s.st_rdev = rdev;
-    s.st_size = size;
-    s.st_blksize = PG_SIZE;
-    s.st_blocks = 0;
-    set_ts(&s.st_atim, &s.st_mtim, &s.st_ctim);
-    s.num_ents = 0;
+    pack_u64(db_obj_stat, &s, st_dev, 64 * 1024);
+    pack_u64(db_obj_stat, &s, st_ino, ino);
+    pack_u32(db_obj_stat, &s, st_mode, mode & (S_IFMT | ALL_PERMS));
+    pack_u32(db_obj_stat, &s, st_nlink, 0);
+    pack_u32(db_obj_stat, &s, st_uid, uid);
+    pack_u32(db_obj_stat, &s, st_gid, gid);
+    pack_u64(db_obj_stat, &s, st_rdev, rdev);
+    pack_i64(db_obj_stat, &s, st_size, size);
+    pack_i64(db_obj_stat, &s, st_blksize, PG_SIZE);
+    pack_i64(db_obj_stat, &s, st_blocks, 0);
+    set_ts(packed_st_tim(&s, a), packed_st_tim(&s, m), packed_st_tim(&s, c));
+    pack_u32(db_obj_stat, &s, num_ents, 0);
 
     ret = back_end_insert(be, &k, &s, sizeof(s));
     if (ret != 0)
@@ -1407,9 +1416,10 @@ new_node(struct back_end *be, struct ref_inodes *ref_inodes, inum_t parent,
         goto err3;
     }
 
-    ++ps.num_ents;
+    pack_u32(db_obj_stat, &ps, num_ents,
+             unpack_u32(db_obj_stat, &ps, num_ents) + 1);
 
-    assert(ps.st_ino == unpack_u64(db_key, &k, ino));
+    assert(unpack_u64(db_obj_stat, &ps, st_ino) == unpack_u64(db_key, &k, ino));
     ret = back_end_replace(be, &k, &ps, sizeof(ps));
     if (ret != 0)
         goto err3;
@@ -1475,9 +1485,10 @@ new_node_link(struct back_end *be, struct ref_inodes *ref_inodes, inum_t ino,
     if (ret != 1)
         return ret == 0 ? -ENOENT : ret;
 
-    ++s.st_nlink;
+    pack_u32(db_obj_stat, &s, st_nlink,
+             unpack_u32(db_obj_stat, &s, st_nlink) + 1);
 
-    assert(s.st_ino == unpack_u64(db_key, &k, ino));
+    assert(unpack_u64(db_obj_stat, &s, st_ino) == unpack_u64(db_key, &k, ino));
     ret = back_end_replace(be, &k, &s, sizeof(s));
     if (ret != 0)
         return ret;
@@ -1525,18 +1536,18 @@ new_dir(struct back_end *be, inum_t root_id, struct ref_inodes *ref_inodes,
     pack_u32(db_key, &k, type, TYPE_STAT);
     pack_u64(db_key, &k, ino, ino);
 
-    s.st_dev = 64 * 1024;
-    s.st_ino = ino;
-    s.st_mode = S_IFDIR | (mode & ALL_PERMS);
-    s.st_nlink = 0;
-    s.st_uid = uid;
-    s.st_gid = gid;
-    s.st_rdev = 0;
-    s.st_size = 0;
-    s.st_blksize = PG_SIZE;
-    s.st_blocks = 0;
-    set_ts(&s.st_atim, &s.st_mtim, &s.st_ctim);
-    s.num_ents = 0;
+    pack_u64(db_obj_stat, &s, st_dev, 64 * 1024);
+    pack_u64(db_obj_stat, &s, st_ino, ino);
+    pack_u32(db_obj_stat, &s, st_mode, S_IFDIR | (mode & ALL_PERMS));
+    pack_u32(db_obj_stat, &s, st_nlink, 0);
+    pack_u32(db_obj_stat, &s, st_uid, uid);
+    pack_u32(db_obj_stat, &s, st_gid, gid);
+    pack_u64(db_obj_stat, &s, st_rdev, 0);
+    pack_i64(db_obj_stat, &s, st_size, 0);
+    pack_i64(db_obj_stat, &s, st_blksize, PG_SIZE);
+    pack_i64(db_obj_stat, &s, st_blocks, 0);
+    set_ts(packed_st_tim(&s, a), packed_st_tim(&s, m), packed_st_tim(&s, c));
+    pack_u32(db_obj_stat, &s, num_ents, 0);
 
     ret = back_end_insert(be, &k, &s, sizeof(s));
     if (ret != 0)
@@ -1572,9 +1583,11 @@ new_dir(struct back_end *be, inum_t root_id, struct ref_inodes *ref_inodes,
             goto err5;
         }
 
-        ++ps.num_ents;
+        pack_u32(db_obj_stat, &ps, num_ents,
+                 unpack_u32(db_obj_stat, &ps, num_ents) + 1);
 
-        assert(ps.st_ino == unpack_u64(db_key, &k, ino));
+        assert(unpack_u64(db_obj_stat, &ps, st_ino)
+               == unpack_u64(db_key, &k, ino));
         ret = back_end_replace(be, &k, &ps, sizeof(ps));
         if (ret != 0)
             goto err5;
@@ -1628,7 +1641,7 @@ rem_dir(struct back_end *be, inum_t root_id, struct ref_inodes *ref_inodes,
     ret = back_end_look_up(be, &k, NULL, &s, NULL, 0);
     if (ret != 1)
         return ret == 0 ? -ENOENT : ret;
-    if (s.num_ents != 0)
+    if (unpack_u32(db_obj_stat, &s, num_ents) != 0)
         return -ENOTEMPTY;
 
     pack_u64(db_key, &k, ino, parent);
@@ -1663,7 +1676,8 @@ rem_dir(struct back_end *be, inum_t root_id, struct ref_inodes *ref_inodes,
     if (ret != 0)
         goto err4;
 
-    --s.num_ents;
+    pack_u32(db_obj_stat, &s, num_ents,
+             unpack_u32(db_obj_stat, &s, num_ents) - 1);
     ret = back_end_replace(be, &k, &s, sizeof(s));
     if (ret != 0)
         goto err5;
@@ -1731,9 +1745,10 @@ new_dir_link(struct back_end *be, struct ref_inodes *ref_inodes, inum_t ino,
     if (ret != 1)
         return ret == 0 ? -ENOENT : ret;
 
-    ++s.st_nlink;
+    pack_u32(db_obj_stat, &s, st_nlink,
+             unpack_u32(db_obj_stat, &s, st_nlink) + 1);
 
-    assert(s.st_ino == unpack_u64(db_key, &k, ino));
+    assert(unpack_u64(db_obj_stat, &s, st_ino) == unpack_u64(db_key, &k, ino));
     ret = back_end_replace(be, &k, &s, sizeof(s));
     if (ret != 0)
         return ret;
@@ -1940,8 +1955,9 @@ do_look_up(void *args)
     }
 
     if (opargs->op_data.inc_lookup_cnt) {
-        ret = inc_refcnt(opargs->be, opargs->ref_inodes, opargs->s.st_ino, 0,
-                         0, 1, opargs->refinop);
+        ret = inc_refcnt(opargs->be, opargs->ref_inodes,
+                         unpack_u64(db_obj_stat, &opargs->s, st_ino), 0, 0, 1,
+                         opargs->refinop);
         if (ret != 0)
             return ret;
     }
@@ -1972,7 +1988,7 @@ do_setattr(void *args)
     if (trunc) {
         uint64_t numdelpg;
 
-        if (!S_ISREG(s.st_mode))
+        if (!S_ISREG(unpack_u32(db_obj_stat, &s, st_mode)))
             return -EINVAL;
 
         ret = back_end_trans_new(opargs->be);
@@ -1983,23 +1999,27 @@ do_setattr(void *args)
         if (ret != 0)
             goto err1;
 
-        ret = truncate_file(opargs->be, opargs->ino, s.st_size,
+        ret = truncate_file(opargs->be, opargs->ino,
+                            unpack_i64(db_obj_stat, &s, st_size),
                             opargs->attr.st_size, &numdelpg);
         if (ret != 0)
             goto err2;
-        s.st_size = opargs->attr.st_size;
-        s.st_blocks -= numdelpg * BLOCKS_PER_PG;
+        pack_i64(db_obj_stat, &s, st_size, opargs->attr.st_size);
+        pack_i64(db_obj_stat, &s, st_blocks,
+                 unpack_i64(db_obj_stat, &s, st_blocks)
+                 - numdelpg * BLOCKS_PER_PG);
     }
 
     if (to_set & REQUEST_SET_ATTR_MODE) {
-        s.st_mode = (s.st_mode & ~ALL_PERMS)
-                    | (opargs->attr.st_mode & ALL_PERMS);
+        pack_u32(db_obj_stat, &s, st_mode,
+                 (unpack_u32(db_obj_stat, &s, st_mode) & ~ALL_PERMS)
+                 | (opargs->attr.st_mode & ALL_PERMS));
     }
 
     if (to_set & REQUEST_SET_ATTR_UID)
-        s.st_uid = opargs->attr.st_uid;
+        pack_u32(db_obj_stat, &s, st_uid, opargs->attr.st_uid);
     if (to_set & REQUEST_SET_ATTR_GID)
-        s.st_gid = opargs->attr.st_gid;
+        pack_u32(db_obj_stat, &s, st_gid, opargs->attr.st_gid);
 
     if ((to_set & (REQUEST_SET_ATTR_MTIME_NOW | REQUEST_SET_ATTR_MTIME)) == 0) {
         /* POSIX-1.2008, ftruncate, para. 3:
@@ -2012,18 +2032,18 @@ do_setattr(void *args)
          * completion, open() shall mark for update the last data modification
          * and last file status change timestamps of the file. */
         if (trunc)
-            do_set_ts(&s.st_mtim, NULL);
+            do_set_ts(packed_st_tim(&s, m), NULL);
     } else {
         if (to_set & REQUEST_SET_ATTR_MTIME_NOW)
-            do_set_ts(&s.st_mtim, NULL);
+            do_set_ts(packed_st_tim(&s, m), NULL);
         if (to_set & REQUEST_SET_ATTR_MTIME)
-            do_set_ts(&s.st_mtim, &opargs->attr.st_mtim);
+            do_set_ts(packed_st_tim(&s, m), &opargs->attr.st_mtim);
     }
 
     if (to_set & REQUEST_SET_ATTR_ATIME_NOW)
-        do_set_ts(&s.st_atim, NULL);
+        do_set_ts(packed_st_tim(&s, a), NULL);
     if (to_set & REQUEST_SET_ATTR_ATIME)
-        do_set_ts(&s.st_atim, &opargs->attr.st_atim);
+        do_set_ts(packed_st_tim(&s, a), &opargs->attr.st_atim);
 
     /* ", ftruncate, para. 3:
      * "
@@ -2042,7 +2062,7 @@ do_setattr(void *args)
      * ", futimens, para. 8:
      * Upon completion, futimens() and utimensat() shall mark the last file
      * status change timestamp for update. */
-    do_set_ts(&s.st_ctim, NULL);
+    do_set_ts(packed_st_tim(&s, c), NULL);
 
     ret = back_end_replace(opargs->be, &k, &s, sizeof(s));
     if (ret != 0) {
@@ -2063,7 +2083,7 @@ do_setattr(void *args)
 
     deserialize_stat(&opargs->attr, &s);
     if (S_ISDIR(opargs->attr.st_mode))
-        opargs->attr.st_size = s.num_ents;
+        opargs->attr.st_size = unpack_u32(db_obj_stat, &s, num_ents);
 
     return 0;
 
@@ -2236,7 +2256,7 @@ do_create_node(void *args)
      * Also, the last data modification and last file status change timestamps
      * of the directory that contains the new entry shall be marked for
      * update. */
-    set_ts(NULL, &ps.st_mtim, &ps.st_ctim);
+    set_ts(NULL, packed_st_tim(&ps, m), packed_st_tim(&ps, c));
 
     ret = back_end_replace(opargs->be, &k, &ps, sizeof(ps));
     if (ret != 0)
@@ -2312,7 +2332,7 @@ do_create_dir(void *args)
      * Also, the last data modification and last file status change timestamps
      * of the directory that contains the new entry shall be marked for
      * update. */
-    set_ts(NULL, &ps.st_mtim, &ps.st_ctim);
+    set_ts(NULL, packed_st_tim(&ps, m), packed_st_tim(&ps, c));
 
     ret = back_end_replace(opargs->be, &k, &ps, sizeof(ps));
     if (ret != 0)
@@ -2391,8 +2411,9 @@ do_remove_node_link(void *args)
      * Upon successful completion, unlink() shall mark for update the last data
      * modification and last file status change timestamps of the parent
      * directory. */
-    set_ts(NULL, &s.st_mtim, &s.st_ctim);
-    --s.num_ents;
+    set_ts(NULL, packed_st_tim(&s, m), packed_st_tim(&s, c));
+    pack_u32(db_obj_stat, &s, num_ents,
+             unpack_u32(db_obj_stat, &s, num_ents) - 1);
 
     ret = back_end_replace(opargs->be, &k, &s, sizeof(s));
     if (ret != 0)
@@ -2411,14 +2432,14 @@ do_remove_node_link(void *args)
         /* ", unlink, para. 4:
          * Also, if the file's link count is not 0, the last file status change
          * timestamp of the file shall be marked for update. */
-        do_set_ts(&s.st_ctim, NULL);
+        do_set_ts(packed_st_tim(&s, c), NULL);
 
         ret = back_end_replace(opargs->be, &k, &s, sizeof(s));
         if (ret != 0)
             goto err4;
     }
 
-    if (s.st_nlink == 0) {
+    if (unpack_u32(db_obj_stat, &s, st_nlink) == 0) {
         pack_u32(db_key, &k, type, TYPE_ULINKED_INODE);
 
         ret = back_end_insert(opargs->be, &k, NULL, 0);
@@ -2470,7 +2491,7 @@ do_remove_dir(void *args)
     ret = back_end_look_up(opargs->be, &k, NULL, &s, NULL, 0);
     if (ret != 1)
         return ret == 0 ? -ENOENT : ret;
-    if (s.num_ents != 0)
+    if (unpack_u32(db_obj_stat, &s, num_ents) != 0)
         return -ENOTEMPTY;
 
     ret = back_end_trans_new(opargs->be);
@@ -2507,7 +2528,7 @@ do_remove_dir(void *args)
      * Upon successful completion, rmdir() shall mark for update the last data
      * modification and last file status change timestamps of the parent
      * directory. */
-    set_ts(NULL, &s.st_mtim, &s.st_ctim);
+    set_ts(NULL, packed_st_tim(&s, m), packed_st_tim(&s, c));
 
     ret = back_end_replace(opargs->be, &k, &s, sizeof(s));
     if (ret != 0)
@@ -2522,7 +2543,7 @@ do_remove_dir(void *args)
         goto err4;
     }
 
-    if (s.st_nlink == 0) {
+    if (unpack_u32(db_obj_stat, &s, st_nlink) == 0) {
         pack_u32(db_key, &k, type, TYPE_ULINKED_INODE);
 
         ret = back_end_insert(opargs->be, &k, NULL, 0);
@@ -2625,7 +2646,7 @@ do_create_symlink(void *args)
      * Also, the last data modification and last file status change timestamps
      * of the directory that contains the new entry shall be marked for
      * update. */
-    set_ts(NULL, &ps.st_mtim, &ps.st_ctim);
+    set_ts(NULL, packed_st_tim(&ps, m), packed_st_tim(&ps, c));
 
     ret = back_end_replace(opargs->be, &k, &ps, sizeof(ps));
     if (ret != 0)
@@ -2665,6 +2686,8 @@ do_rename(void *args)
     struct op_args *opargs = args;
     struct ref_ino *refinop[3];
     struct space_alloc_ctx sctx;
+    uint32_t ds_st_mode, ss_st_mode;
+    uint64_t ds_st_ino, ss_st_ino;
     uint64_t dde_ino, sde_ino;
 
     parent = opargs->op_data.link_data.parent;
@@ -2699,9 +2722,12 @@ do_rename(void *args)
         goto err1;
 
     ret = set_ref_inode_nodelete(opargs->be, opargs->root_id,
-                                 opargs->ref_inodes, ss.st_ino, 1);
+                                 opargs->ref_inodes,
+                                 unpack_u64(db_obj_stat, &ss, st_ino), 1);
     if (ret != 0)
         goto err2;
+
+    ss_st_mode = unpack_u32(db_obj_stat, &ss, st_mode);
 
     pack_u32(db_key, &k, type, TYPE_DIRENT);
     pack_u64(db_key, &k, ino, newparent);
@@ -2737,31 +2763,34 @@ do_rename(void *args)
             goto err3;
         }
 
-        if (!S_ISDIR(ss.st_mode) && S_ISDIR(ds.st_mode)) {
+        ds_st_ino = unpack_u64(db_obj_stat, &ds, st_ino);
+        ds_st_mode = unpack_u32(db_obj_stat, &ds, st_mode);
+
+        if (!S_ISDIR(ss_st_mode) && S_ISDIR(ds_st_mode)) {
             ret = -EISDIR;
             goto err3;
         }
-        if (S_ISDIR(ss.st_mode) && !S_ISDIR(ds.st_mode)) {
+        if (S_ISDIR(ss_st_mode) && !S_ISDIR(ds_st_mode)) {
             ret = -ENOTDIR;
             goto err3;
         }
 
         ret = set_ref_inode_nodelete(opargs->be, opargs->root_id,
-                                     opargs->ref_inodes, ds.st_ino, 1);
+                                     opargs->ref_inodes, ds_st_ino, 1);
         if (ret != 0)
             goto err3;
 
-        if (S_ISDIR(ds.st_mode)) {
+        if (S_ISDIR(ds_st_mode)) {
             ret = rem_dir(opargs->be, opargs->root_id, opargs->ref_inodes,
-                          ds.st_ino, newparent, newname, 1, 1);
+                          ds_st_ino, newparent, newname, 1, 1);
         } else {
             ret = rem_node_link(opargs->be, opargs->root_id, opargs->ref_inodes,
-                                ds.st_ino, newparent, newname, NULL,
+                                ds_st_ino, newparent, newname, NULL,
                                 &refinop[0]);
         }
         if (ret != 0) {
             set_ref_inode_nodelete(opargs->be, opargs->root_id,
-                                   opargs->ref_inodes, ds.st_ino, 0);
+                                   opargs->ref_inodes, ds_st_ino, 0);
             goto err3;
         }
 
@@ -2774,7 +2803,7 @@ do_rename(void *args)
             goto err4;
         }
 
-        if (ds.st_nlink == 0) {
+        if (unpack_u32(db_obj_stat, &ds, st_nlink) == 0) {
             pack_u32(db_key, &k, type, TYPE_ULINKED_INODE);
 
             ret = back_end_insert(opargs->be, &k, NULL, 0);
@@ -2784,22 +2813,24 @@ do_rename(void *args)
     } else
         existing = 0;
 
-    if (S_ISDIR(ss.st_mode)) {
-        ret = new_dir_link(opargs->be, opargs->ref_inodes, ss.st_ino, newparent,
+    ss_st_ino = unpack_u64(db_obj_stat, &ss, st_ino);
+
+    if (S_ISDIR(ss_st_mode)) {
+        ret = new_dir_link(opargs->be, opargs->ref_inodes, ss_st_ino, newparent,
                            newname, &refinop[1]);
         if (ret != 0)
             goto err4;
 
         ret = rem_dir_link(opargs->be, opargs->root_id, opargs->ref_inodes,
-                           ss.st_ino, parent, name, &refinop[2]);
+                           ss_st_ino, parent, name, &refinop[2]);
     } else {
-        ret = new_node_link(opargs->be, opargs->ref_inodes, ss.st_ino,
+        ret = new_node_link(opargs->be, opargs->ref_inodes, ss_st_ino,
                             newparent, newname, &refinop[1]);
         if (ret != 0)
             goto err4;
 
         ret = rem_node_link(opargs->be, opargs->root_id, opargs->ref_inodes,
-                            ss.st_ino, parent, name, NULL, &refinop[2]);
+                            ss_st_ino, parent, name, NULL, &refinop[2]);
     }
     if (ret != 0)
         goto err5;
@@ -2818,11 +2849,13 @@ do_rename(void *args)
      * Upon successful completion, rename() shall mark for update the last data
      * modification and last file status change timestamps of the parent
      * directory of each file. */
-    set_ts(NULL, &ps.st_mtim, &ps.st_ctim);
-    if (!existing)
-        ++ps.num_ents;
+    set_ts(NULL, packed_st_tim(&ps, m), packed_st_tim(&ps, c));
+    if (!existing) {
+        pack_u32(db_obj_stat, &ps, num_ents,
+                 unpack_u32(db_obj_stat, &ps, num_ents) + 1);
+    }
 
-    assert(ps.st_ino == unpack_u64(db_key, &k, ino));
+    assert(unpack_u64(db_obj_stat, &ps, st_ino) == unpack_u64(db_key, &k, ino));
     ret = back_end_replace(opargs->be, &k, &ps, sizeof(ps));
     if (ret != 0)
         goto err6;
@@ -2838,10 +2871,11 @@ do_rename(void *args)
 
     /* ", rename, para. 10:
      * " */
-    set_ts(NULL, &ps.st_mtim, &ps.st_ctim);
-    --ps.num_ents;
+    set_ts(NULL, packed_st_tim(&ps, m), packed_st_tim(&ps, c));
+    pack_u32(db_obj_stat, &ps, num_ents,
+             unpack_u32(db_obj_stat, &ps, num_ents) - 1);
 
-    assert(ps.st_ino == unpack_u64(db_key, &k, ino));
+    assert(unpack_u64(db_obj_stat, &ps, st_ino) == unpack_u64(db_key, &k, ino));
     ret = back_end_replace(opargs->be, &k, &ps, sizeof(ps));
     if (ret != 0)
         goto err6;
@@ -2856,34 +2890,34 @@ do_rename(void *args)
 
     if (existing) {
         set_ref_inode_nodelete(opargs->be, opargs->root_id, opargs->ref_inodes,
-                               ds.st_ino, 0);
+                               ds_st_ino, 0);
     }
     set_ref_inode_nodelete(opargs->be, opargs->root_id, opargs->ref_inodes,
-                           ss.st_ino, 0);
+                           ss_st_ino, 0);
 
     return 0;
 
 err6:
-    inc_refcnt(opargs->be, opargs->ref_inodes, ss.st_ino, 1, 0, 0, refinop);
+    inc_refcnt(opargs->be, opargs->ref_inodes, ss_st_ino, 1, 0, 0, refinop);
 err5:
     dec_refcnt(opargs->ref_inodes, -1, 0, 0, refinop[1]);
 err4:
     if (existing) {
-        if (S_ISDIR(ds.st_mode)) {
-            inc_refcnt(opargs->be, opargs->ref_inodes, ds.st_ino, 2, 0, 0,
+        if (S_ISDIR(ds_st_mode)) {
+            inc_refcnt(opargs->be, opargs->ref_inodes, ds_st_ino, 2, 0, 0,
                        refinop);
             inc_refcnt(opargs->be, opargs->ref_inodes, newparent, 1, 0, 0,
                        refinop);
         } else {
-            inc_refcnt(opargs->be, opargs->ref_inodes, ds.st_ino, 1, 0, 0,
+            inc_refcnt(opargs->be, opargs->ref_inodes, ds_st_ino, 1, 0, 0,
                        refinop);
         }
         set_ref_inode_nodelete(opargs->be, opargs->root_id, opargs->ref_inodes,
-                               ds.st_ino, 0);
+                               ds_st_ino, 0);
     }
 err3:
     set_ref_inode_nodelete(opargs->be, opargs->root_id, opargs->ref_inodes,
-                           ss.st_ino, 0);
+                           ss_st_ino, 0);
 err2:
     space_alloc_abort_op(opargs->be);
 err1:
@@ -2932,7 +2966,7 @@ do_create_node_link(void *args)
     /* POSIX-1.2008, link, para. 5:
      * Upon successful completion, link() shall mark for update the last file
      * status change timestamp of the file. */
-    do_set_ts(&opargs->s.st_ctim, NULL);
+    do_set_ts(packed_st_tim(&opargs->s, c), NULL);
 
     ret = back_end_replace(opargs->be, &k, &opargs->s, sizeof(opargs->s));
     if (ret != 0)
@@ -2951,10 +2985,11 @@ do_create_node_link(void *args)
      * Also, the last data modification and last file status change timestamps
      * of the directory that contains the new entry shall be marked for
      * update. */
-    set_ts(NULL, &ps.st_mtim, &ps.st_ctim);
-    ++ps.num_ents;
+    set_ts(NULL, packed_st_tim(&ps, m), packed_st_tim(&ps, c));
+    pack_u32(db_obj_stat, &ps, num_ents,
+             unpack_u32(db_obj_stat, &ps, num_ents) + 1);
 
-    assert(ps.st_ino == unpack_u64(db_key, &k, ino));
+    assert(unpack_u64(db_obj_stat, &ps, st_ino) == unpack_u64(db_key, &k, ino));
     ret = back_end_replace(opargs->be, &k, &ps, sizeof(ps));
     if (ret != 0)
         goto err3;
@@ -3106,6 +3141,7 @@ do_read_data(void *args)
     int count, iovsz;
     int i;
     int ret;
+    int64_t s_st_size;
     off_t off;
     size_t size;
     struct db_key k;
@@ -3123,7 +3159,9 @@ do_read_data(void *args)
 
     off = opargs->op_data.rdwr_data.off;
 
-    if (off >= s.st_size) {
+    s_st_size = unpack_i64(db_obj_stat, &s, st_size);
+
+    if (off >= s_st_size) {
         opargs->op_data.rdwr_data.iov = NULL;
         opargs->op_data.rdwr_data.count = 0;
         return 0;
@@ -3135,7 +3173,7 @@ do_read_data(void *args)
     trap
         lastpgidx = OFF_MAX / PG_SIZE;
     in {
-        lastpgidx = (MIN(addos64s64(off, (off_t)size), s.st_size) - 1)
+        lastpgidx = (MIN(addos64s64(off, (off_t)size), s_st_size) - 1)
                     / PG_SIZE;
     }
     count = lastpgidx - firstpgidx + 1;
@@ -3158,7 +3196,7 @@ do_read_data(void *args)
 
         pgoff = off - k_pgno * PG_SIZE;
 
-        sz = MIN((off_t)((k_pgno + 1) * PG_SIZE), s.st_size) - off;
+        sz = MIN((off_t)((k_pgno + 1) * PG_SIZE), s_st_size) - off;
         if (sz > size)
             sz = size;
 
@@ -3284,14 +3322,15 @@ do_write_data(void *args)
         size -= sz;
     }
 
-    if (off > s.st_size)
-        s.st_size = off;
-    s.st_blocks += newpages * BLOCKS_PER_PG;
+    if (off > unpack_i64(db_obj_stat, &s, st_size))
+        pack_i64(db_obj_stat, &s, st_size, off);
+    pack_i64(db_obj_stat, &s, st_blocks,
+             unpack_i64(db_obj_stat, &s, st_blocks) + newpages * BLOCKS_PER_PG);
     /* POSIX-1.2008, write, para. 14:
      * Upon successful completion, where nbyte is greater than 0, write() shall
      * mark for update the last data modification and last file status change
      * timestamps of the file... */
-    set_ts(NULL, &s.st_mtim, &s.st_ctim);
+    set_ts(NULL, packed_st_tim(&s, m), packed_st_tim(&s, c));
 
     pack_u32(db_key, &k, type, TYPE_STAT);
 
@@ -3707,7 +3746,7 @@ do_create(void *args)
      * If O_CREAT is set and the file did not previously exist, upon successful
      * completion, open() shall mark for update...the last data modification and
      * last file status change timestamps of the parent directory. */
-    set_ts(NULL, &ps.st_mtim, &ps.st_ctim);
+    set_ts(NULL, packed_st_tim(&ps, m), packed_st_tim(&ps, c));
 
     ret = back_end_replace(opargs->be, &k, &ps, sizeof(ps));
     if (ret != 0)
@@ -4026,10 +4065,10 @@ simplefs_lookup(void *req, inum_t parent, const char *name)
         goto err;
     omemset(&e, 0);
     if (ret == 1) {
-        e.ino = opargs.s.st_ino;
+        e.ino = unpack_u64(db_obj_stat, &opargs.s, st_ino);
         deserialize_stat(&e.attr, &opargs.s);
         if (S_ISDIR(e.attr.st_mode))
-            e.attr.st_size = opargs.s.num_ents;
+            e.attr.st_size = unpack_u32(db_obj_stat, &opargs.s, num_ents);
     }
     e.generation = 1;
     e.attr_timeout = e.entry_timeout = CACHE_TIMEOUT;
@@ -4106,7 +4145,7 @@ simplefs_getattr(void *req, inum_t ino, struct file_info *fi)
 
     deserialize_stat(&attr, &opargs.s);
     if (S_ISDIR(attr.st_mode))
-        attr.st_size = opargs.s.num_ents;
+        attr.st_size = unpack_u32(db_obj_stat, &opargs.s, num_ents);
 
     ret = reply_attr(req, &attr, CACHE_TIMEOUT);
     if (ret != 0 && ret != -ENOENT)
@@ -4302,7 +4341,7 @@ simplefs_unlink(void *req, inum_t parent, const char *name)
         goto err;
     }
 
-    opargs.ino = opargs.s.st_ino;
+    opargs.ino = unpack_u64(db_obj_stat, &opargs.s, st_ino);
 
     opargs.op_data.link_data.parent = parent;
     opargs.op_data.link_data.name = name;
@@ -4354,12 +4393,12 @@ simplefs_rmdir(void *req, inum_t parent, const char *name)
         goto err;
     }
 
-    if (opargs.s.st_ino == priv->root_id) {
+    opargs.ino = unpack_u64(db_obj_stat, &opargs.s, st_ino);
+
+    if (opargs.ino == priv->root_id) {
         ret = -EBUSY;
         goto err;
     }
-
-    opargs.ino = opargs.s.st_ino;
 
     opargs.op_data.link_data.parent = parent;
     opargs.op_data.link_data.name = name;
@@ -4484,11 +4523,11 @@ simplefs_link(void *req, inum_t ino, inum_t newparent, const char *newname)
         goto err;
 
     omemset(&e, 0);
-    e.ino = opargs.s.st_ino;
+    e.ino = unpack_u64(db_obj_stat, &opargs.s, st_ino);
     e.generation = 1;
     deserialize_stat(&e.attr, &opargs.s);
     if (S_ISDIR(e.attr.st_mode))
-        e.attr.st_size = opargs.s.num_ents;
+        e.attr.st_size = unpack_u32(db_obj_stat, &opargs.s, num_ents);
     e.attr_timeout = e.entry_timeout = CACHE_TIMEOUT;
 
     ret = reply_entry(req, &e);

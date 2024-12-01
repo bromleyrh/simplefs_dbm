@@ -53,6 +53,11 @@ static volatile sig_atomic_t quit;
 
 #define OBJSZ(obj) sizeof(struct db_obj_##obj)
 
+#define _packed_st_tim(s, which) \
+    (struct disk_timespec *)packed_memb_addr(db_obj_stat, s, which)
+
+#define packed_st_tim(s, which) _packed_st_tim(s, st_##which##tim)
+
 static void print_usage(const char *);
 static int parse_cmdline(int, char **, enum op *, const char **, int *);
 
@@ -441,7 +446,7 @@ set_dirent(const struct db_key *key, void **data, size_t *datasize)
     return 0;
 }
 
-#define STATOFF(field) offsetof(struct db_obj_stat, field)
+#define STATOFF(field) packed_memb_offset(db_obj_stat, field)
 
 static int
 set_stat(const struct db_key *key, void **data, size_t *datasize)
@@ -635,7 +640,7 @@ disp_stat(FILE *f, const struct db_key *key, const void *data, size_t datasize)
     (void)datasize;
 
     fprintf(f, "node %" PRIu64 " -> st_ino %" PRIu64,
-            unpack_u64(db_key, key, ino), s->st_ino);
+            unpack_u64(db_key, key, ino), unpack_u64(db_obj_stat, s, st_ino));
 }
 
 static void
@@ -648,9 +653,9 @@ disp_stat_full(FILE *f, const struct db_key *key, const void *data,
 
     (void)datasize;
 
-    atim_sec = unpack_i32(disk_timespec, &s->st_atim, tv_sec);
-    mtim_sec = unpack_i32(disk_timespec, &s->st_mtim, tv_sec);
-    ctim_sec = unpack_i32(disk_timespec, &s->st_ctim, tv_sec);
+    atim_sec = unpack_i32(disk_timespec, packed_st_tim(s, a), tv_sec);
+    mtim_sec = unpack_i32(disk_timespec, packed_st_tim(s, m), tv_sec);
+    ctim_sec = unpack_i32(disk_timespec, packed_st_tim(s, c), tv_sec);
 
     fprintf(f,
             "node %" PRIu64 " ->\n"
@@ -669,20 +674,20 @@ disp_stat_full(FILE *f, const struct db_key *key, const void *data,
             "    st_ctim    %s"
             "    num_ents   %" PRIu32,
             unpack_u64(db_key, key, ino),
-            s->st_dev,
-            s->st_ino,
-            s->st_mode,
-            s->st_nlink,
-            s->st_uid,
-            s->st_gid,
-            s->st_rdev,
-            s->st_size,
-            s->st_blksize,
-            s->st_blocks,
+            unpack_u64(db_obj_stat, s, st_dev),
+            unpack_u64(db_obj_stat, s, st_ino),
+            unpack_u32(db_obj_stat, s, st_mode),
+            unpack_u32(db_obj_stat, s, st_nlink),
+            unpack_u32(db_obj_stat, s, st_uid),
+            unpack_u32(db_obj_stat, s, st_gid),
+            unpack_u64(db_obj_stat, s, st_rdev),
+            unpack_i64(db_obj_stat, s, st_size),
+            unpack_i64(db_obj_stat, s, st_blksize),
+            unpack_i64(db_obj_stat, s, st_blocks),
             ctime_r(&atim_sec, atim),
             ctime_r(&mtim_sec, mtim),
             ctime_r(&ctim_sec, ctim),
-            s->num_ents);
+            unpack_u32(db_obj_stat, s, num_ents));
 }
 
 static void

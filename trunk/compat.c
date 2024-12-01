@@ -351,6 +351,7 @@ init_ver_5_to_6(struct back_end *be, size_t hdrlen, size_t jlen, int ro,
     for (pack_u64(db_key, &k, ino, 0);; pack_u64(db_key, &k, ino, ino + 1)) {
         blkcnt_t n;
         int end = 0;
+        int64_t s_st_blocks;
 
         res = back_end_iter_new(&iter, be);
         if (res != 0)
@@ -405,10 +406,12 @@ init_ver_5_to_6(struct back_end *be, size_t hdrlen, size_t jlen, int ro,
             goto err1;
         }
 
-        s.st_blocks = n * BLOCKS_PER_PG;
+        s_st_blocks = n * BLOCKS_PER_PG;
+
+        pack_i64(db_obj_stat, &s, st_blocks, s_st_blocks);
 
         infomsgf("Updating st_blocks for I-node %" PRIu64 " to %" PRIi64 "\n",
-                 unpack_u64(db_key, &k, ino), (int64_t)s.st_blocks);
+                 unpack_u64(db_key, &k, ino), s_st_blocks);
 
         res = back_end_replace(be, &k, &s, sizeof(s));
         if (res != 0)

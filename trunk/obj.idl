@@ -86,28 +86,39 @@ PACKED_STRUCT(`db_obj_free_ino',
 PACKED_STRUCT(`db_obj_dirent',
     `uint64_t', `ino', `1')
 
-struct db_obj_stat {
-    uint64_t                st_dev;
-    uint64_t                st_ino;
-    uint32_t                st_mode;
-    uint32_t                st_nlink;
-    uint32_t                st_uid;
-    uint32_t                st_gid;
-    uint64_t                st_rdev;
-    int64_t                 st_size;
-    int64_t                 st_blksize;
-    int64_t                 st_blocks;
 #ifdef HAVE_STRUCT_STAT_ST_MTIMESPEC
-    struct disk_timespec    st_atimespec;
-    struct disk_timespec    st_mtimespec;
-    struct disk_timespec    st_ctimespec;
+PACKED_STRUCT(`db_obj_stat',
+    `uint64_t',             `st_dev',       `1',
+    `uint64_t',             `st_ino',       `1',
+    `uint32_t',             `st_mode',      `1',
+    `uint32_t',             `st_nlink',     `1',
+    `uint32_t',             `st_uid',       `1',
+    `uint32_t',             `st_gid',       `1',
+    `uint64_t',             `st_rdev',      `1',
+    `int64_t',              `st_size',      `1',
+    `int64_t',              `st_blksize',   `1',
+    `int64_t',              `st_blocks',    `1',
+    `struct disk_timespec', `st_atimespec', `1',
+    `struct disk_timespec', `st_mtimespec', `1',
+    `struct disk_timespec', `st_ctimespec', `1',
+    `uint32_t',             `num_ents',     `1')
 #else
-    struct disk_timespec    st_atim;
-    struct disk_timespec    st_mtim;
-    struct disk_timespec    st_ctim;
+PACKED_STRUCT(`db_obj_stat',
+    `uint64_t',             `st_dev',       `1',
+    `uint64_t',             `st_ino',       `1',
+    `uint32_t',             `st_mode',      `1',
+    `uint32_t',             `st_nlink',     `1',
+    `uint32_t',             `st_uid',       `1',
+    `uint32_t',             `st_gid',       `1',
+    `uint64_t',             `st_rdev',      `1',
+    `int64_t',              `st_size',      `1',
+    `int64_t',              `st_blksize',   `1',
+    `int64_t',              `st_blocks',    `1',
+    `struct disk_timespec', `st_atim',      `1',
+    `struct disk_timespec', `st_mtim',      `1',
+    `struct disk_timespec', `st_ctim',      `1',
+    `uint32_t',             `num_ents',     `1')
 #endif
-    uint32_t                num_ents;
-} __attribute__((packed));
 
 #ifndef DEV_BSIZE
 #define DEV_BSIZE 512
