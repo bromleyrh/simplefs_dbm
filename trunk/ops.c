@@ -528,7 +528,8 @@ dump_db_obj(FILE *f, const void *key, const void *data, size_t datasize,
     case TYPE_HEADER:
         assert(datasize == sizeof(d->hdr));
 
-        fprintf(f, "Header: I-node count %" PRIu64 "\n", d->hdr.numinodes);
+        fprintf(f, "Header: I-node count %" PRIu64 "\n",
+                unpack_u64(db_obj_header, &d->hdr, numinodes));
         break;
     case TYPE_FREE_INO:
         fprintf(f, "Free I-node number information: number %" PRIu64 " to %"
@@ -743,7 +744,8 @@ get_ino(struct back_end *be, inum_t *ino)
     if (res != 1)
         return res == 0 ? -EILSEQ : res;
 
-    ++hdr.numinodes;
+    pack_u64(db_obj_header, &hdr, numinodes,
+             unpack_u64(db_obj_header, &hdr, numinodes) + 1);
     res = back_end_replace(be, &k, &hdr, sizeof(hdr));
     if (res != 0)
         return res;
@@ -789,7 +791,8 @@ release_ino(struct back_end *be, inum_t root_id, inum_t ino)
     if (res != 1)
         return res == 0 ? -EILSEQ : res;
 
-    --hdr.numinodes;
+    pack_u64(db_obj_header, &hdr, numinodes,
+             unpack_u64(db_obj_header, &hdr, numinodes) - 1);
     return back_end_replace(be, &k, &hdr, sizeof(hdr));
 }
 
@@ -1888,7 +1891,8 @@ space_alloc_finish_op(struct space_alloc_ctx *ctx, struct back_end *be)
     if (ret != 1)
         return ret == 0 ? -EILSEQ : ret;
 
-    hdr.usedbytes += ctx->delta;
+    pack_u64(db_obj_header, &hdr, usedbytes,
+             unpack_u64(db_obj_header, &hdr, usedbytes) + ctx->delta);
 
     return back_end_replace(be, &k, &hdr, sizeof(hdr));
 }
@@ -3816,15 +3820,16 @@ simplefs_init_prepare(void *rctx, struct session *sess, inum_t root_id)
         ret = back_end_ctl(priv->be, BACK_END_DBM_OP_GET_HDR_LEN, &db_hdrlen);
         if (ret != 0)
             goto err6;
-        hdr.usedbytes = dbargs.hdrlen + db_hdrlen + sctx.delta + dbargs.jlen;
+        pack_u64(db_obj_header, &hdr, usedbytes,
+                 dbargs.hdrlen + db_hdrlen + sctx.delta + dbargs.jlen);
 
         ret = space_alloc_init_op(&sctx, priv->be);
         if (ret != 0)
             goto err6;
 
         pack_u32(db_key, &k, type, TYPE_HEADER);
-        hdr.version = FMT_VERSION;
-        hdr.numinodes = 1;
+        pack_u64(db_obj_header, &hdr, version, FMT_VERSION);
+        pack_u64(db_obj_header, &hdr, numinodes, 1);
         ret = back_end_insert(priv->be, &k, &hdr, sizeof(hdr));
         if (ret != 0)
             goto err7;
@@ -3863,8 +3868,9 @@ simplefs_init_prepare(void *rctx, struct session *sess, inum_t root_id)
 
         /* Note: Any space allocation changes must be handled by the format
            updating code as necessary */
-        ret = compat_init(priv->be, hdr.version, FMT_VERSION, dbargs.hdrlen,
-                          dbargs.jlen, md->ro, md->fmtconv);
+        ret = compat_init(priv->be, unpack_u64(db_obj_header, &hdr, version),
+                          FMT_VERSION, dbargs.hdrlen, dbargs.jlen, md->ro,
+                          md->fmtconv);
         if (ret != 0)
             goto err6;
 
@@ -4890,7 +4896,9 @@ simplefs_statfs(void *req, inum_t ino)
     if (priv->blkdev) {
         stbuf.f_blocks = priv->blkdevsz / PG_SIZE;
         stbuf.f_bfree = stbuf.f_bavail
-            = (priv->blkdevsz - opargs.hdr.usedbytes) / PG_SIZE;
+            = (priv->blkdevsz
+               - unpack_u64(db_obj_header, &opargs.hdr, usedbytes))
+              / PG_SIZE;
     } else {
         if (statvfs(".", &stbuf) == -1) {
             ret = -errno;
@@ -4906,8 +4914,9 @@ simplefs_statfs(void *req, inum_t ino)
     stbuf.f_frsize = PG_SIZE;
 
     stbuf.f_files = (fsfilcnt_t)ULONG_MAX;
-    stbuf.f_ffree = stbuf.f_favail = (fsfilcnt_t)(stbuf.f_files
-                                                  - opargs.hdr.numinodes);
+    stbuf.f_ffree = stbuf.f_favail
+        = (fsfilcnt_t)(stbuf.f_files - unpack_u64(db_obj_header, &opargs.hdr,
+                                                  numinodes));
 
     stbuf.f_fsid = 0;
 

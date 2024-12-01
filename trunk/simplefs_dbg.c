@@ -367,7 +367,7 @@ scan_time(char *str, void *data, size_t off, int is_signed, int width, int base)
     return 0;
 }
 
-#define HDROFF(field) offsetof(struct db_obj_header, field)
+#define HDROFF(field) packed_memb_offset(db_obj_header, field)
 
 static int
 set_header(const struct db_key *key, void **data, size_t *datasize)
@@ -546,7 +546,8 @@ disp_header(FILE *f, const struct db_key *key, const void *data,
     (void)key;
     (void)datasize;
 
-    fprintf(f, "I-node count %" PRIu64, hdr->numinodes);
+    fprintf(f, "I-node count %" PRIu64,
+            unpack_u64(db_obj_header, hdr, numinodes));
 }
 
 static void
@@ -555,7 +556,8 @@ disp_header_full(FILE *f, const struct db_key *key, const void *data,
 {
     const struct db_obj_header *hdr = data;
 
-    fprintf(f, "     Version %" PRIu64 "\n", hdr->version);
+    fprintf(f, "     Version %" PRIu64 "\n",
+            unpack_u64(db_obj_header, hdr, version));
     disp_header(f, key, data, datasize);
 }
 

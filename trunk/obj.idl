@@ -70,12 +70,11 @@ struct disk_timespec {
  */
 #define FMT_VERSION 6
 
-struct db_obj_header {
-    uint64_t    version;
-    uint64_t    numinodes;
-    uint64_t    usedbytes;
-    uint8_t     reserved[104];
-} __attribute__((packed));
+PACKED_STRUCT(`db_obj_header',
+    `uint64_t', `version',   `1',
+    `uint64_t', `numinodes', `1',
+    `uint64_t', `usedbytes', `1',
+    `uint8_t',  `reserved',  `104')
 
 #define FREE_INO_RANGE_SZ 2048
 

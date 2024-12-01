@@ -202,8 +202,8 @@ init_ver_2_to_3(struct back_end *be, size_t hdrlen, size_t jlen, int ro,
 
     pack_u32(db_key, &k, type, TYPE_HEADER);
 
-    hdr.version = 3;
-    hdr.numinodes = tot_numinodes;
+    pack_u64(db_obj_header, &hdr, version, 3);
+    pack_u64(db_obj_header, &hdr, numinodes, tot_numinodes);
 
     res = back_end_replace(be, &k, &hdr, sizeof(hdr));
     if (res != 0)
@@ -245,6 +245,7 @@ init_ver_3_to_4(struct back_end *be, size_t hdrlen, size_t jlen, int ro,
     struct db_key k;
     struct db_obj_header hdr;
     struct foreach_alloc_ctx actx;
+    uint64_t usedbytes;
 
     (void)jlen;
     (void)ro;
@@ -270,11 +271,13 @@ init_ver_3_to_4(struct back_end *be, size_t hdrlen, size_t jlen, int ro,
     if (res != 0 && res != -ENOSPC)
         return res;
 
-    hdr.usedbytes = hdrlen + db_hdrlen + actx.tot_sz;
+    usedbytes = hdrlen + db_hdrlen + actx.tot_sz;
 
-    infomsgf("Total allocated space: %" PRIu64 " bytes\n", hdr.usedbytes);
+    pack_u64(db_obj_header, &hdr, usedbytes, usedbytes);
 
-    hdr.version = 4;
+    infomsgf("Total allocated space: %" PRIu64 " bytes\n", usedbytes);
+
+    pack_u64(db_obj_header, &hdr, version, 4);
 
     return back_end_replace(be, &k, &hdr, sizeof(hdr));
 }
@@ -286,6 +289,7 @@ init_ver_4_to_5(struct back_end *be, size_t hdrlen, size_t jlen, int ro,
     int res;
     struct db_key k;
     struct db_obj_header hdr;
+    uint64_t usedbytes;
 
     (void)hdrlen;
     (void)ro;
@@ -297,13 +301,17 @@ init_ver_4_to_5(struct back_end *be, size_t hdrlen, size_t jlen, int ro,
     if (res != 1)
         return res == 0 ? -EILSEQ : res;
 
-    hdr.usedbytes += jlen;
+    usedbytes = unpack_u64(db_obj_header, &hdr, usedbytes);
+
+    usedbytes += jlen;
+
+    pack_u64(db_obj_header, &hdr, usedbytes, usedbytes);
 
     infomsgf("Journal area size: %zu bytes\n"
              "Total allocated space: %" PRIu64 " bytes\n",
-             jlen, hdr.usedbytes);
+             jlen, usedbytes);
 
-    hdr.version = 5;
+    pack_u64(db_obj_header, &hdr, version, 5);
 
     return back_end_replace(be, &k, &hdr, sizeof(hdr));
 }
@@ -416,7 +424,7 @@ init_ver_5_to_6(struct back_end *be, size_t hdrlen, size_t jlen, int ro,
         goto err1;
     }
 
-    hdr.version = 6;
+    pack_u64(db_obj_header, &hdr, version, 6);
 
     res = back_end_replace(be, &k, &hdr, sizeof(hdr));
     if (res != 0)
