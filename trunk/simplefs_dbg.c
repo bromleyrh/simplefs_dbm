@@ -361,8 +361,8 @@ scan_time(char *str, void *data, size_t off, int is_signed, int width, int base)
     tm.tm_isdst = -1;
 
     ts = (struct disk_timespec *)((char *)data + off);
-    ts->tv_sec = mktime(&tm);
-    ts->tv_nsec = 0;
+    pack_i32(disk_timespec, ts, tv_sec, mktime(&tm));
+    pack_i32(disk_timespec, ts, tv_nsec, 0);
 
     return 0;
 }
@@ -648,9 +648,9 @@ disp_stat_full(FILE *f, const struct db_key *key, const void *data,
 
     (void)datasize;
 
-    atim_sec = s->st_atim.tv_sec;
-    mtim_sec = s->st_mtim.tv_sec;
-    ctim_sec = s->st_ctim.tv_sec;
+    atim_sec = unpack_i32(disk_timespec, &s->st_atim, tv_sec);
+    mtim_sec = unpack_i32(disk_timespec, &s->st_mtim, tv_sec);
+    ctim_sec = unpack_i32(disk_timespec, &s->st_ctim, tv_sec);
 
     fprintf(f,
             "node %" PRIu64 " ->\n"

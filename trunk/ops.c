@@ -1121,8 +1121,8 @@ do_set_ts(struct disk_timespec *ts, struct timespec *srcts)
         }
     }
 
-    ts->tv_sec = srcts->tv_sec;
-    ts->tv_nsec = srcts->tv_nsec;
+    pack_i32(disk_timespec, ts, tv_sec, srcts->tv_sec);
+    pack_i32(disk_timespec, ts, tv_nsec, srcts->tv_nsec);
 }
 
 static void
@@ -1140,8 +1140,8 @@ set_ts(struct disk_timespec *atim, struct disk_timespec *mtim,
 static void
 deserialize_ts(struct timespec *ts, struct disk_timespec *disk_ts)
 {
-    ts->tv_sec = disk_ts->tv_sec;
-    ts->tv_nsec = disk_ts->tv_nsec;
+    ts->tv_sec = unpack_i32(disk_timespec, disk_ts, tv_sec);
+    ts->tv_nsec = unpack_i32(disk_timespec, disk_ts, tv_nsec);
 }
 
 static void

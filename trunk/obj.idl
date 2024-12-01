@@ -46,10 +46,9 @@ PACKED_STRUCT(`db_key',
     `uint64_t', `pgno', `1',
     `uint8_t',  `name', `MAX_NAME')
 
-struct disk_timespec {
-    int32_t tv_sec;
-    int32_t tv_nsec;
-} __attribute__((packed));
+PACKED_STRUCT(`disk_timespec',
+    `int32_t', `tv_sec',  `1',
+    `int32_t', `tv_nsec', `1')
 
 /*
  * Format history:
