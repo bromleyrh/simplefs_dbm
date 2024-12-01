@@ -84,9 +84,8 @@ PACKED_STRUCT(`db_obj_free_ino',
     `uint64_t', `used_ino', `FREE_INO_RANGE_SZ / NBWD',
     `uint8_t',  `flags',    `1')
 
-struct db_obj_dirent {
-    uint64_t ino;
-} __attribute__((packed));
+PACKED_STRUCT(`db_obj_dirent',
+    `uint64_t', `ino', `1')
 
 struct db_obj_stat {
     uint64_t                st_dev;

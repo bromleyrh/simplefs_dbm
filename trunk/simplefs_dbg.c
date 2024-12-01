@@ -623,7 +623,8 @@ disp_dirent(FILE *f, const struct db_key *key, const void *data,
 
     fprintf(f, "directory %" PRIu64 ", name %s -> node %" PRIu64,
             unpack_u64(db_key, key, ino),
-            (char *)packed_memb_addr(db_key, key, name), de->ino);
+            (char *)packed_memb_addr(db_key, key, name),
+            unpack_u64(db_obj_dirent, de, ino));
 }
 
 static void

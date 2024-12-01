@@ -542,7 +542,7 @@ dump_db_obj(FILE *f, const void *key, const void *data, size_t datasize,
         fprintf(f, "Directory entry: directory %" PRIu64 ", name %s -> node %"
                    PRIu64 "\n",
                 ino, (char *)packed_memb_addr(db_key, k, name),
-                (uint64_t)d->de.ino);
+                unpack_u64(db_obj_dirent, &d->de, ino));
         break;
     case TYPE_STAT:
         assert(datasize == sizeof(d->s));
@@ -1462,7 +1462,7 @@ new_node_link(struct back_end *be, struct ref_inodes *ref_inodes, inum_t ino,
     strlcpy(packed_memb_addr(db_key, &k, name), newname,
             packed_memb_size(db_key, name));
 
-    de.ino = ino;
+    pack_u64(db_obj_dirent, &de, ino, ino);
 
     ret = back_end_insert(be, &k, &de, sizeof(de));
     if (ret != 0)
@@ -1718,7 +1718,7 @@ new_dir_link(struct back_end *be, struct ref_inodes *ref_inodes, inum_t ino,
     strlcpy(packed_memb_addr(db_key, &k, name), newname,
             packed_memb_size(db_key, name));
 
-    de.ino = ino;
+    pack_u64(db_obj_dirent, &de, ino, ino);
 
     ret = back_end_insert(be, &k, &de, sizeof(de));
     if (ret != 0)
@@ -1922,7 +1922,7 @@ do_look_up(void *args)
             return ret;
 
         pack_u32(db_key, &k, type, TYPE_STAT);
-        pack_u64(db_key, &k, ino, de.ino);
+        pack_u64(db_key, &k, ino, unpack_u64(db_obj_dirent, &de, ino));
         ret = back_end_look_up(opargs->be, &k, NULL, &opargs->s, NULL, 0);
         if (ret != 1)
             return ret;
@@ -2665,6 +2665,7 @@ do_rename(void *args)
     struct op_args *opargs = args;
     struct ref_ino *refinop[3];
     struct space_alloc_ctx sctx;
+    uint64_t dde_ino, sde_ino;
 
     parent = opargs->op_data.link_data.parent;
     name = opargs->op_data.link_data.name;
@@ -2680,8 +2681,10 @@ do_rename(void *args)
     if (ret != 1)
         return ret == 0 ? -ENOENT : ret;
 
+    sde_ino = unpack_u64(db_obj_dirent, &sde, ino);
+
     pack_u32(db_key, &k, type, TYPE_STAT);
-    pack_u64(db_key, &k, ino, sde.ino);
+    pack_u64(db_key, &k, ino, sde_ino);
 
     ret = back_end_look_up(opargs->be, &k, NULL, &ss, NULL, 0);
     if (ret != 1)
@@ -2712,7 +2715,9 @@ do_rename(void *args)
 
         /* delete existing link or directory */
 
-        if (sde.ino == dde.ino) {
+        dde_ino = unpack_u64(db_obj_dirent, &dde, ino);
+
+        if (sde_ino == dde_ino) {
             /* POSIX-1.2008, rename, para. 3:
              * If the old argument and the new argument resolve to either the
              * same existing directory entry or different directory entries for
@@ -2723,7 +2728,7 @@ do_rename(void *args)
         }
 
         pack_u32(db_key, &k, type, TYPE_STAT);
-        pack_u64(db_key, &k, ino, dde.ino);
+        pack_u64(db_key, &k, ino, dde_ino);
 
         ret = back_end_look_up(opargs->be, &k, NULL, &ds, NULL, 0);
         if (ret != 1) {
@@ -3044,7 +3049,7 @@ do_read_entries(void *args)
         strlcpy(odir->cur_name, name, sizeof(odir->cur_name));
 
         omemset(&s, 0);
-        s.st_ino = buf.de.ino;
+        s.st_ino = unpack_u64(db_obj_dirent, &buf.de, ino);
 
         remsize = bufsize - buflen;
         entsize = add_direntry(opargs->req, readdir_buf + buflen, remsize, name,
