@@ -398,7 +398,8 @@ db_key_cmp(const void *k1, const void *k2, void *key_ctx)
     case TYPE_ULINKED_INODE:
         break;
     default:
-        errmsgf("Unrecognized object type %d in %s()\n", type, __func__);
+        errmsgf("Unrecognized object type %" PRIu32 " in %s()\n", type,
+                __func__);
         abort();
     }
 
