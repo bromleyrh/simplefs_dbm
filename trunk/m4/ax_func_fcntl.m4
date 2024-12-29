@@ -34,7 +34,7 @@ if (ret == -1)
 close(fd);
 unlink(template);
 
-return (ret == 0 || ret == EAGAIN) ? EXIT_SUCCESS : EXIT_FAILURE;
+return ret == 0 || ret == EAGAIN ? EXIT_SUCCESS : EXIT_FAILURE;
 ]            )
             ],
             [ax_cv_have_fcntl_f_ofd_locks=yes],
