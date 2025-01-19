@@ -49,7 +49,7 @@ std_cflags = @std_flags@
 
 AM_CPPFLAGS = $(defines) $(std_cppflags)
 AM_CFLAGS = $(coverage_analysis_cflags) $(std_cflags) -pipe -Wall -Wextra \
-	@warnings@
+	@warnings@ @strict_aliasing@
 
 if SANITIZERS
 AM_CPPFLAGS += $(debug_cppflags_debug)
