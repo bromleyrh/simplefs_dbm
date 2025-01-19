@@ -49,6 +49,16 @@ AM_CONDITIONAL([GCC], [test "x$CC" = "xgcc"])
 AX_CHECK_COMPILE_FLAG([-std=c11], [std_flags="-std=c11"], [std_flags=])
 AC_SUBST([std_flags])
 
+warnings=
+
+AX_CHECK_COMPILE_FLAG(
+    [-Werror -Wgnu-include-next -Wnewline-eof -Wnullability-extension],
+    [warnings="$warnings -Wpedantic -Wno-gnu-include-next -Wno-newline-eof"
+     warnings="$warnings -Wno-nullability-extension"]
+)
+
+AC_SUBST([warnings])
+
 AX_CHECK_COMPILE_FLAG([-Werror -fstack-protector-all],
     [stack_protector="-fstack-protector-all"],
     [stack_protector=]
