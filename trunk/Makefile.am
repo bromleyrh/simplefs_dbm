@@ -44,9 +44,10 @@ debug_cflags_ndebug = -ggdb3 -O0
 coverage_analysis_cflags =
 endif
 
+std_cppflags = -D_XOPEN_SOURCE=700
 std_cflags = @std_flags@
 
-AM_CPPFLAGS = $(defines)
+AM_CPPFLAGS = $(defines) $(std_cppflags)
 AM_CFLAGS = $(coverage_analysis_cflags) $(std_cflags) -pipe -Wall -Wextra
 
 if SANITIZERS
