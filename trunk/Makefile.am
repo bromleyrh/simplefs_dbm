@@ -44,18 +44,21 @@ debug_cflags_ndebug = -ggdb3 -O0
 coverage_analysis_cflags =
 endif
 
+std_cflags = @std_flags@
+
+AM_CPPFLAGS = $(defines)
+AM_CFLAGS = $(coverage_analysis_cflags) $(std_cflags) -pipe -Wall -Wextra
+
 if SANITIZERS
-AM_CPPFLAGS = $(defines) $(debug_cppflags_debug)
-AM_CFLAGS = $(debug_cflags_debug) $(coverage_analysis_cflags) @sanitizer@ \
-	-pipe -Wall -Wextra
+AM_CPPFLAGS += $(debug_cppflags_debug)
+AM_CFLAGS += $(debug_cflags_debug) @sanitizer@
 else
 if DEBUG
-AM_CPPFLAGS = $(defines) $(debug_cppflags_debug)
-AM_CFLAGS = $(debug_cflags_debug) $(coverage_analysis_cflags) -pipe -Wall \
-	-Wextra
+AM_CPPFLAGS += $(debug_cppflags_debug)
+AM_CFLAGS += $(debug_cflags_debug)
 else
-AM_CPPFLAGS = $(defines) $(debug_cppflags_ndebug)
-AM_CFLAGS = $(debug_cflags_ndebug) -pipe -Wall -Wextra
+AM_CPPFLAGS += $(debug_cppflags_ndebug)
+AM_CFLAGS += $(debug_cflags_ndebug)
 endif
 endif
 

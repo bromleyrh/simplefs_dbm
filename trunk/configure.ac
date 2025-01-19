@@ -46,6 +46,9 @@ AC_CHECK_PROGS([pkgcfg], [pkg-config pkgconf])
 AM_CONDITIONAL([CLANG], [test "x$CC" = "xclang"])
 AM_CONDITIONAL([GCC], [test "x$CC" = "xgcc"])
 
+AX_CHECK_COMPILE_FLAG([-std=c11], [std_flags="-std=c11"], [std_flags=])
+AC_SUBST([std_flags])
+
 AX_CHECK_COMPILE_FLAG([-Werror -fstack-protector-all],
     [stack_protector="-fstack-protector-all"],
     [stack_protector=]
