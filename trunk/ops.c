@@ -12,6 +12,7 @@
 #include "back_end_dbm.h"
 #include "common.h"
 #include "compat.h"
+#include "file_tab.h"
 #include "fuse_cache.h"
 #include "obj.h"
 #include "ops.h"
@@ -61,6 +62,7 @@ struct fspriv {
     int                 blkdev;
     uint64_t            blkdevsz;
     inum_t              root_id;
+    struct file_tab     *ftab;
     struct ref_inodes   ref_inodes;
     int                 wb_err;
 };
@@ -3836,13 +3838,17 @@ simplefs_init_prepare(void *rctx, struct session *sess, inum_t root_id)
     args.sync_ctx = priv;
     args.args = &dbargs;
 
+    ret = file_tab_init(&priv->ftab);
+    if (ret != 0)
+        goto err3;
+
     ret = avl_tree_new(&priv->ref_inodes.ref_inodes, sizeof(struct ref_ino *),
                        &ref_inode_cmp, 0, NULL, NULL, NULL);
     if (ret != 0)
-        goto err3;
+        goto err4;
     ret = -pthread_mutex_init(&priv->ref_inodes.ref_inodes_mtx, NULL);
     if (ret != 0)
-        goto err4;
+        goto err5;
 
     /* Note: The following calls to back_end_open() and back_end_create()
        prevent simultaneous mounts of the same block device or file by other
@@ -3856,7 +3862,7 @@ simplefs_init_prepare(void *rctx, struct session *sess, inum_t root_id)
         uint64_t *freeino_used_ino;
 
         if (ret != -ENOENT)
-            goto err5;
+            goto err6;
 
         if (dbargs.ro) {
             infomsg("Warning: Ignoring read-only mount flag (creating file "
@@ -3871,24 +3877,24 @@ simplefs_init_prepare(void *rctx, struct session *sess, inum_t root_id)
         ret = back_end_create(&priv->be, sizeof(struct db_key),
                               BACK_END_FUSE_CACHE, &db_key_cmp, &args);
         if (ret != 0)
-            goto err5;
+            goto err6;
 
         ret = back_end_ctl(priv->be, BACK_END_DBM_OP_GET_HDR_LEN, &db_hdrlen);
         if (ret != 0)
-            goto err6;
+            goto err7;
         pack_u64(db_obj_header, &hdr, usedbytes,
                  dbargs.hdrlen + db_hdrlen + sctx.delta + dbargs.jlen);
 
         ret = space_alloc_init_op(&sctx, priv->be);
         if (ret != 0)
-            goto err6;
+            goto err7;
 
         pack_u32(db_key, &k, type, TYPE_HEADER);
         pack_u64(db_obj_header, &hdr, version, FMT_VERSION);
         pack_u64(db_obj_header, &hdr, numinodes, 1);
         ret = back_end_insert(priv->be, &k, &hdr, sizeof(hdr));
         if (ret != 0)
-            goto err7;
+            goto err8;
 
         freeino_used_ino = (uint64_t *)packed_memb_addr(db_obj_free_ino,
                                                         &freeino, used_ino);
@@ -3901,21 +3907,21 @@ simplefs_init_prepare(void *rctx, struct session *sess, inum_t root_id)
         pack_u8(db_obj_free_ino, &freeino, flags, FREE_INO_LAST_USED);
         ret = back_end_insert(priv->be, &k, &freeino, sizeof(freeino));
         if (ret != 0)
-            goto err7;
+            goto err8;
 
         /* create root directory */
         ret = new_dir(priv->be, root_id, &priv->ref_inodes, 0, NULL, getuid(),
                       getgid(), ROOT_DIR_INIT_PERMS, NULL, refinop, 0);
         if (ret != 0)
-            goto err7;
+            goto err8;
 
         ret = space_alloc_finish_op(&sctx, priv->be);
         if (ret != 0)
-            goto err6;
+            goto err7;
 
         ret = back_end_sync(priv->be);
         if (ret != 0)
-            goto err6;
+            goto err7;
     } else {
         pack_u32(db_key, &k, type, TYPE_HEADER);
 
@@ -3923,7 +3929,7 @@ simplefs_init_prepare(void *rctx, struct session *sess, inum_t root_id)
         if (ret != 1) {
             if (ret == 0)
                 ret = -EILSEQ;
-            goto err6;
+            goto err7;
         }
 
         /* Note: Any space allocation changes must be handled by the format
@@ -3932,14 +3938,14 @@ simplefs_init_prepare(void *rctx, struct session *sess, inum_t root_id)
                           FMT_VERSION, dbargs.hdrlen, dbargs.jlen, md->ro,
                           md->fmtconv);
         if (ret != 0)
-            goto err6;
+            goto err7;
 
         /* FIXME: validate root I-node number */
 
         if (!dbargs.ro) {
             ret = remove_ulinked_nodes(priv->be, root_id);
             if (ret != 0)
-                goto err6;
+                goto err7;
         }
     }
 
@@ -3952,14 +3958,14 @@ simplefs_init_prepare(void *rctx, struct session *sess, inum_t root_id)
 
     ret = -pthread_create(&priv->worker_td, NULL, &worker_td, md);
     if (ret != 0)
-        goto err6;
+        goto err7;
 
     /* root I-node implicitly looked up on completion of init request */
     ret = inc_refcnt(priv->be, &priv->ref_inodes, root_id, 0, 0, 1,
                      &refinop[0]);
     if (ret != 0) {
         join_worker(priv);
-        goto err6;
+        goto err7;
     }
 
     if (md->wd != -1) {
@@ -3969,14 +3975,16 @@ simplefs_init_prepare(void *rctx, struct session *sess, inum_t root_id)
 
     return 0;
 
-err7:
+err8:
     space_alloc_abort_op(priv->be);
-err6:
+err7:
     back_end_close(priv->be);
-err5:
+err6:
     pthread_mutex_destroy(&priv->ref_inodes.ref_inodes_mtx);
-err4:
+err5:
     avl_tree_free(priv->ref_inodes.ref_inodes);
+err4:
+    file_tab_destroy(priv->ftab);
 err3:
     fifo_free(priv->queue);
 err2:
@@ -4025,6 +4033,8 @@ simplefs_destroy_finish(void *userdata)
     avl_tree_free(priv->ref_inodes.ref_inodes);
 
     pthread_mutex_destroy(&priv->ref_inodes.ref_inodes_mtx);
+
+    file_tab_destroy(priv->ftab);
 
     tmp = back_end_close(priv->be);
     if (tmp != 0)
@@ -4553,6 +4563,7 @@ simplefs_open(void *req, inum_t ino, struct file_info *fi)
     struct mount_data *md = req_userdata(req);
     struct op_args opargs;
     struct open_file *ofile;
+    uint64_t desc;
 
     if (md->ro && (fi->flags & O_ACCMODE) != O_RDONLY) {
         ret = -EROFS;
@@ -4573,26 +4584,32 @@ simplefs_open(void *req, inum_t ino, struct file_info *fi)
         goto err1;
     }
 
-    ret = do_queue_op(priv, &do_open, &opargs);
+    ret = file_tab_get(priv->ftab, ofile, &desc);
     if (ret != 0)
         goto err2;
 
+    ret = do_queue_op(priv, &do_open, &opargs);
+    if (ret != 0)
+        goto err3;
+
     ofile->ino = ino;
 
-    fi->fh = (uintptr_t)ofile;
+    fi->fh = desc;
     fi->keep_cache = KEEP_CACHE_OPEN;
 
     ret = reply_open(req, fi);
     if (ret != 0) {
         if (ret == -ENOENT)
             interrupted = 1;
-        goto err3;
+        goto err4;
     }
 
     return;
 
-err3:
+err4:
     do_queue_op(priv, &do_close, &opargs);
+err3:
+    file_tab_put(priv->ftab, desc);
 err2:
     free(ofile);
 err1:
@@ -4717,6 +4734,7 @@ simplefs_opendir(void *req, inum_t ino, struct file_info *fi)
     struct mount_data *md = req_userdata(req);
     struct op_args opargs;
     struct open_dir *odir;
+    uint64_t desc;
 
     priv = md->priv;
 
@@ -4732,28 +4750,34 @@ simplefs_opendir(void *req, inum_t ino, struct file_info *fi)
         goto err1;
     }
 
-    ret = do_queue_op(priv, &do_open, &opargs);
+    ret = file_tab_get(priv->ftab, odir, &desc);
     if (ret != 0)
         goto err2;
+
+    ret = do_queue_op(priv, &do_open, &opargs);
+    if (ret != 0)
+        goto err3;
 
     odir->ino = ino;
     odir->cur_name[0] = '\0';
     odir->off = 0;
 
-    fi->fh = (uintptr_t)odir;
+    fi->fh = desc;
     fi->keep_cache = KEEP_CACHE_OPEN;
 
     ret = reply_open(req, fi);
     if (ret != 0) {
         if (ret == -ENOENT)
             interrupted = 1;
-        goto err3;
+        goto err4;
     }
 
     return;
 
-err3:
+err4:
     do_queue_op(priv, &do_close, &opargs);
+err3:
+    file_tab_put(priv->ftab, desc);
 err2:
     free(odir);
 err1:
@@ -4770,9 +4794,13 @@ simplefs_readdir(void *req, inum_t ino, size_t size, off_t off,
     struct fspriv *priv;
     struct mount_data *md = req_userdata(req);
     struct op_args opargs;
-    struct open_dir *odir = (void *)(uintptr_t)fi->fh;
+    struct open_dir *odir;
 
     (void)ino;
+
+    priv = md->priv;
+
+    odir = file_tab_look_up(priv->ftab, fi->fh);
 
     if (off == 0) { /* newly-opened directory stream or rewinddir() */
         odir->cur_name[0] = '\0';
@@ -4788,8 +4816,6 @@ simplefs_readdir(void *req, inum_t ino, size_t size, off_t off,
         ret = -EOPNOTSUPP;
         goto err;
     }
-
-    priv = md->priv;
 
     buf = do_malloc(size);
     if (buf == NULL) {
@@ -4833,7 +4859,7 @@ simplefs_release(void *req, inum_t ino, struct file_info *fi)
 
     priv = md->priv;
 
-    ofile = (void *)(uintptr_t)fi->fh;
+    ofile = file_tab_look_up(priv->ftab, fi->fh);
 
     opargs.be = priv->be;
     opargs.ro = md->ro;
@@ -4843,6 +4869,8 @@ simplefs_release(void *req, inum_t ino, struct file_info *fi)
     opargs.ino = ino;
 
     ret = do_queue_op(priv, &do_close, &opargs);
+
+    file_tab_put(priv->ftab, fi->fh);
 
     free(ofile);
 
@@ -4889,7 +4917,7 @@ simplefs_releasedir(void *req, inum_t ino, struct file_info *fi)
 
     priv = md->priv;
 
-    odir = (void *)(uintptr_t)fi->fh;
+    odir = file_tab_look_up(priv->ftab, fi->fh);
 
     opargs.be = priv->be;
     opargs.ro = md->ro;
@@ -4899,6 +4927,8 @@ simplefs_releasedir(void *req, inum_t ino, struct file_info *fi)
     opargs.ino = ino;
 
     ret = do_queue_op(priv, &do_close, &opargs);
+
+    file_tab_put(priv->ftab, fi->fh);
 
     free(odir);
 
@@ -5200,6 +5230,7 @@ simplefs_create(void *req, inum_t parent, const char *name, mode_t mode,
     struct mount_data *md = req_userdata(req);
     struct op_args opargs;
     struct open_file *ofile;
+    uint64_t desc;
 
     if (md->ro && (fi->flags & O_ACCMODE) != O_RDONLY) {
         ret = -EROFS;
@@ -5224,13 +5255,17 @@ simplefs_create(void *req, inum_t parent, const char *name, mode_t mode,
         goto err1;
     }
 
-    ret = do_queue_op(priv, &do_create, &opargs);
+    ret = file_tab_get(priv->ftab, ofile, &desc);
     if (ret != 0)
         goto err2;
 
+    ret = do_queue_op(priv, &do_create, &opargs);
+    if (ret != 0)
+        goto err3;
+
     ofile->ino = opargs.attr.st_ino;
 
-    fi->fh = (uintptr_t)ofile;
+    fi->fh = desc;
     fi->keep_cache = KEEP_CACHE_OPEN;
 
     e.ino = opargs.attr.st_ino;
@@ -5241,14 +5276,16 @@ simplefs_create(void *req, inum_t parent, const char *name, mode_t mode,
     if (ret != 0) {
         if (ret == -ENOENT)
             interrupted = 1;
-        goto err3;
+        goto err4;
     }
 
     return;
 
-err3:
+err4:
     do_queue_op(priv, &do_close, &opargs);
     dec_refcnt(&priv->ref_inodes, 0, 0, -1, opargs.refinop[1]);
+err3:
+    file_tab_put(priv->ftab, desc);
 err2:
     free(ofile);
 err1:
