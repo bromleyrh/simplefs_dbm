@@ -59,6 +59,7 @@ struct fspriv {
     struct back_end     *be;
     struct fifo         *queue;
     pthread_t           worker_td;
+    int                 worker_td_status;
     int                 blkdev;
     uint64_t            blkdevsz;
     inum_t              root_id;
@@ -438,7 +439,9 @@ worker_td(void *args)
         pthread_mutex_unlock(&op->mtx);
     }
 
-    return (void *)(intptr_t)ret;
+    priv->worker_td_status = ret;
+
+    return args;
 }
 
 static int
@@ -486,7 +489,6 @@ join_worker(struct fspriv *priv)
 {
     int err;
     struct queue_elem op, *opp;
-    void *retval;
 
     op.op = NULL;
     opp = &op;
@@ -494,9 +496,9 @@ join_worker(struct fspriv *priv)
     if (err)
         return err;
 
-    err = -pthread_join(priv->worker_td, &retval);
+    err = -pthread_join(priv->worker_td, NULL);
 
-    return err ? err : (intptr_t)retval;
+    return err ? err : priv->worker_td_status;
 }
 
 static void
