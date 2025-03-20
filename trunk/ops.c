@@ -3808,17 +3808,15 @@ simplefs_init_prepare(void *rctx, struct session *sess, inum_t root_id)
 
     (void)sess;
 
-    if (oemalloc(&priv) == NULL) {
-        ret = MINUS_ERRNO;
-        goto err1;
-    }
+    if (oemalloc(&priv) == NULL)
+        return MINUS_ERRNO;
 
     priv->root_id = root_id;
     priv->wb_err = 0;
 
     ret = fifo_new(&priv->queue, sizeof(struct queue_elem *), 1024);
     if (ret != 0)
-        goto err2;
+        goto err1;
 
     dbargs.wd = md->wd;
     dbargs.db_pathname = md->db_pathname == NULL
@@ -3840,15 +3838,15 @@ simplefs_init_prepare(void *rctx, struct session *sess, inum_t root_id)
 
     ret = file_tab_init(&priv->ftab);
     if (ret != 0)
-        goto err3;
+        goto err2;
 
     ret = avl_tree_new(&priv->ref_inodes.ref_inodes, sizeof(struct ref_ino *),
                        &ref_inode_cmp, 0, NULL, NULL, NULL);
     if (ret != 0)
-        goto err4;
+        goto err3;
     ret = -pthread_mutex_init(&priv->ref_inodes.ref_inodes_mtx, NULL);
     if (ret != 0)
-        goto err5;
+        goto err4;
 
     /* Note: The following calls to back_end_open() and back_end_create()
        prevent simultaneous mounts of the same block device or file by other
@@ -3862,7 +3860,7 @@ simplefs_init_prepare(void *rctx, struct session *sess, inum_t root_id)
         uint64_t *freeino_used_ino;
 
         if (ret != -ENOENT)
-            goto err6;
+            goto err5;
 
         if (dbargs.ro) {
             infomsg("Warning: Ignoring read-only mount flag (creating file "
@@ -3877,24 +3875,24 @@ simplefs_init_prepare(void *rctx, struct session *sess, inum_t root_id)
         ret = back_end_create(&priv->be, sizeof(struct db_key),
                               BACK_END_FUSE_CACHE, &db_key_cmp, &args);
         if (ret != 0)
-            goto err6;
+            goto err5;
 
         ret = back_end_ctl(priv->be, BACK_END_DBM_OP_GET_HDR_LEN, &db_hdrlen);
         if (ret != 0)
-            goto err7;
+            goto err6;
         pack_u64(db_obj_header, &hdr, usedbytes,
                  dbargs.hdrlen + db_hdrlen + sctx.delta + dbargs.jlen);
 
         ret = space_alloc_init_op(&sctx, priv->be);
         if (ret != 0)
-            goto err7;
+            goto err6;
 
         pack_u32(db_key, &k, type, TYPE_HEADER);
         pack_u64(db_obj_header, &hdr, version, FMT_VERSION);
         pack_u64(db_obj_header, &hdr, numinodes, 1);
         ret = back_end_insert(priv->be, &k, &hdr, sizeof(hdr));
         if (ret != 0)
-            goto err8;
+            goto err7;
 
         freeino_used_ino = (uint64_t *)packed_memb_addr(db_obj_free_ino,
                                                         &freeino, used_ino);
@@ -3907,21 +3905,21 @@ simplefs_init_prepare(void *rctx, struct session *sess, inum_t root_id)
         pack_u8(db_obj_free_ino, &freeino, flags, FREE_INO_LAST_USED);
         ret = back_end_insert(priv->be, &k, &freeino, sizeof(freeino));
         if (ret != 0)
-            goto err8;
+            goto err7;
 
         /* create root directory */
         ret = new_dir(priv->be, root_id, &priv->ref_inodes, 0, NULL, getuid(),
                       getgid(), ROOT_DIR_INIT_PERMS, NULL, refinop, 0);
         if (ret != 0)
-            goto err8;
+            goto err7;
 
         ret = space_alloc_finish_op(&sctx, priv->be);
         if (ret != 0)
-            goto err7;
+            goto err6;
 
         ret = back_end_sync(priv->be);
         if (ret != 0)
-            goto err7;
+            goto err6;
     } else {
         pack_u32(db_key, &k, type, TYPE_HEADER);
 
@@ -3929,7 +3927,7 @@ simplefs_init_prepare(void *rctx, struct session *sess, inum_t root_id)
         if (ret != 1) {
             if (ret == 0)
                 ret = -EILSEQ;
-            goto err7;
+            goto err6;
         }
 
         /* Note: Any space allocation changes must be handled by the format
@@ -3938,14 +3936,14 @@ simplefs_init_prepare(void *rctx, struct session *sess, inum_t root_id)
                           FMT_VERSION, dbargs.hdrlen, dbargs.jlen, md->ro,
                           md->fmtconv);
         if (ret != 0)
-            goto err7;
+            goto err6;
 
         /* FIXME: validate root I-node number */
 
         if (!dbargs.ro) {
             ret = remove_ulinked_nodes(priv->be, root_id);
             if (ret != 0)
-                goto err7;
+                goto err6;
         }
     }
 
@@ -3958,14 +3956,14 @@ simplefs_init_prepare(void *rctx, struct session *sess, inum_t root_id)
 
     ret = -pthread_create(&priv->worker_td, NULL, &worker_td, md);
     if (ret != 0)
-        goto err7;
+        goto err6;
 
     /* root I-node implicitly looked up on completion of init request */
     ret = inc_refcnt(priv->be, &priv->ref_inodes, root_id, 0, 0, 1,
                      &refinop[0]);
     if (ret != 0) {
         join_worker(priv);
-        goto err7;
+        goto err6;
     }
 
     if (md->wd != -1) {
@@ -3975,21 +3973,20 @@ simplefs_init_prepare(void *rctx, struct session *sess, inum_t root_id)
 
     return 0;
 
-err8:
-    space_alloc_abort_op(priv->be);
 err7:
-    back_end_close(priv->be);
+    space_alloc_abort_op(priv->be);
 err6:
-    pthread_mutex_destroy(&priv->ref_inodes.ref_inodes_mtx);
+    back_end_close(priv->be);
 err5:
-    avl_tree_free(priv->ref_inodes.ref_inodes);
+    pthread_mutex_destroy(&priv->ref_inodes.ref_inodes_mtx);
 err4:
-    file_tab_destroy(priv->ftab);
+    avl_tree_free(priv->ref_inodes.ref_inodes);
 err3:
-    fifo_free(priv->queue);
+    file_tab_destroy(priv->ftab);
 err2:
-    free(priv);
+    fifo_free(priv->queue);
 err1:
+    free(priv);
     return ret;
 }
 
