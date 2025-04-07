@@ -45,9 +45,6 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/types.h>
-#ifdef HAVE_LINUX_MAGIC_H
-#include <sys/vfs.h>
-#endif
 
 /* The disk header size must be a multiple of 4096 */
 STATIC_ASSERT(sizeof(struct disk_header) == 4096);
@@ -77,6 +74,19 @@ struct blkdev_ctx {
     int                 jinit;
 };
 
+typedef struct {
+    int64_t val[2];
+} fs_id_t;
+
+struct fs_stat {
+    uint64_t    f_type;     /* type of file system */
+    uint64_t    f_blocks;   /* total data blocks in file system */
+    uint64_t    f_bfree;    /* free blocks in file system */
+    uint64_t    f_files;    /* total file nodes in file system */
+    fs_id_t     f_fsid;     /* file system ID */
+    uint64_t    f_flags;    /* mount flags of file system */
+};
+
 struct fs_ops {
     int (*openfs)(void **ctx, void *args);
     int (*closefs)(void *ctx);
@@ -100,9 +110,7 @@ struct fs_ops {
     int (*fdatasync)(void *ctx, int fd, const struct interrupt_data *intdata);
     int (*flock)(void *ctx, int fd, int operation);
     int (*fcntl_setfl)(void *ctx, int fd, int flags);
-#ifdef HAVE_LINUX_MAGIC_H
-    int (*fstatfs)(void *ctx, int fd, struct statfs *buf);
-#endif
+    int (*fstatfs)(void *ctx, int fd, struct fs_stat *buf);
 };
 
 static int fs_blkdev_openfs(void **ctx, void *args);
@@ -131,9 +139,7 @@ static int fs_blkdev_fdatasync(void *ctx, int fd,
                                const struct interrupt_data *intdata);
 static int fs_blkdev_flock(void *ctx, int fd, int operation);
 static int fs_blkdev_fcntl_setfl(void *ctx, int fd, int flags);
-#ifdef HAVE_LINUX_MAGIC_H
-static int fs_blkdev_fstatfs(void *ctx, int fd, struct statfs *buf);
-#endif
+static int fs_blkdev_fstatfs(void *ctx, int fd, struct fs_stat *buf);
 
 #define JOURNAL_FILE_SUFFIX "_journal"
 
@@ -171,9 +177,7 @@ const struct fs_ops fs_blkdev_ops = {
     .fdatasync              = &fs_blkdev_fdatasync,
     .flock                  = &fs_blkdev_flock,
     .fcntl_setfl            = &fs_blkdev_fcntl_setfl,
-#ifdef HAVE_LINUX_MAGIC_H
     .fstatfs                = &fs_blkdev_fstatfs
-#endif
 };
 
 static int err_to_errno(int);
@@ -843,25 +847,25 @@ fs_blkdev_fcntl_setfl(void *ctx, int fd, int flags)
     return fcntl(fd, F_SETFL, flags);
 }
 
-#ifdef HAVE_LINUX_MAGIC_H
 /*
  * Currently, this function is only required to set the f_type field of the
- * statfs structure *buf to a value other than NFS_SUPER_MAGIC, if this macro is
- * defined in linux/magic.h.
+ * fs_stat structure *buf to a value other than NFS_SUPER_MAGIC, if this macro
+ * is defined in linux/magic.h.
  */
 static int
-fs_blkdev_fstatfs(void *ctx, int fd, struct statfs *buf)
+fs_blkdev_fstatfs(void *ctx, int fd, struct fs_stat *buf)
 {
     (void)ctx;
     (void)fd;
 
     omemset(buf, 0);
+#ifdef HAVE_LINUX_MAGIC_H
     /* Return f_type value other than NFS_SUPER_MAGIC */
     buf->f_type = ~NFS_SUPER_MAGIC;
+#endif
 
     return 0;
 }
 
-#endif
 
 /* vi: set expandtab sw=4 ts=4: */
