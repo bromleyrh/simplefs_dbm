@@ -342,20 +342,17 @@ do_ppwrite(int fd, const void *buf, size_t len, off_t offset, size_t maxwrite,
                  intdata);
 }
 
-#ifndef __APPLE__
 int
-do_pfsync(int fd, const struct interrupt_data *intdata)
+do_pfsync_dev(int fd, const struct interrupt_data *intdata)
 {
-    return interrupt_recv(intdata) ? -1 : pfsync(fd, intdata);
+    return interrupt_recv(intdata) ? -1 : pfsync_dev(fd, intdata);
 }
 
 int
-do_pfdatasync(int fd, const struct interrupt_data *intdata)
+do_pfdatasync_dev(int fd, const struct interrupt_data *intdata)
 {
-    return interrupt_recv(intdata) ? -1 : pfdatasync(fd, intdata);
+    return interrupt_recv(intdata) ? -1 : pfdatasync_dev(fd, intdata);
 }
-
-#endif
 
 int
 gettime(clockid_t clk_id, struct timespec *tm)

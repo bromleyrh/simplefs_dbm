@@ -776,26 +776,16 @@ static int
 fs_blkdev_fsync(void *ctx, int fd, const struct interrupt_data *intdata)
 {
     (void)ctx;
-    (void)intdata;
 
-#if defined(__APPLE__)
-    return fcntl(fd, F_FULLFSYNC);
-#else
-    return do_pfsync(fd, intdata);
-#endif
+    return do_pfsync_dev(fd, intdata);
 }
 
 static int
 fs_blkdev_fdatasync(void *ctx, int fd, const struct interrupt_data *intdata)
 {
     (void)ctx;
-    (void)intdata;
 
-#if defined(__APPLE__)
-    return fcntl(fd, F_FULLFSYNC);
-#else
-    return do_pfdatasync(fd, intdata);
-#endif
+    return do_pfdatasync_dev(fd, intdata);
 }
 
 #define LOCK_OPS (FILE_LOCK_SH | FILE_LOCK_EX | FILE_LOCK_UN)

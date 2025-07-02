@@ -96,8 +96,8 @@ size_t do_ppread(int, void *, size_t, off_t, size_t,
                  const struct interrupt_data *);
 size_t do_ppwrite(int, const void *, size_t, off_t, size_t,
                   const struct interrupt_data *);
-int do_pfsync(int, const struct interrupt_data *);
-int do_pfdatasync(int, const struct interrupt_data *);
+int do_pfsync_dev(int, const struct interrupt_data *);
+int do_pfdatasync_dev(int, const struct interrupt_data *);
 
 int gettime(clockid_t clk_id, struct timespec *tm);
 
