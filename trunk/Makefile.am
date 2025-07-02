@@ -74,6 +74,7 @@ spec_to_h = scripts/spec_to_h.pl
 
 BUILT_SOURCES = obj.h
 check_LTLIBRARIES =
+noinst_LIBRARIES =
 check_PROGRAMS =
 TESTS =
 
@@ -82,12 +83,14 @@ CLEANFILES = obj.h
 obj.h: obj.idl
 	idlc <"$^" >"$@"
 
+sys_dep_cppflags = -Isys_dep
+
 include sys_dep/Makefile.am
 
 simplefs_SOURCES = back_end.c back_end_dbm.c blkdev.c compat.c file_tab.c \
 	fuse_cache.c ops.c request.c simplefs.c util.c
-simplefs_CPPFLAGS = $(AM_CPPFLAGS) -Isys_dep $(fuse_defines) @fuse_cppflags@ \
-	@libn_cppflags@ @libutil_cppflags@
+simplefs_CPPFLAGS = $(AM_CPPFLAGS) $(sys_dep_cppflags) $(fuse_defines) \
+	@fuse_cppflags@ @libn_cppflags@ @libutil_cppflags@
 simplefs_CFLAGS = $(AM_CFLAGS)
 simplefs_LDADD = @fuse_link_dep@ @libn_link_dep@ @libutil_link_dep@
 
@@ -101,7 +104,7 @@ mount_simplefs_CPPFLAGS = $(AM_CPPFLAGS)
 mount_simplefs_CFLAGS = $(AM_CFLAGS)
 
 simplefs_dbg_SOURCES = blkdev.c simplefs_dbg.c strptime.c util.c
-simplefs_dbg_CPPFLAGS = $(AM_CPPFLAGS) @libutil_cppflags@
+simplefs_dbg_CPPFLAGS = $(AM_CPPFLAGS) $(sys_dep_cppflags) @libutil_cppflags@
 simplefs_dbg_CFLAGS = $(AM_CFLAGS)
 simplefs_dbg_LDADD = -lreadline @libutil_link_dep@
 

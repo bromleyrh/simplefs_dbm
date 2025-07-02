@@ -25,6 +25,7 @@ obj.h
 
 .libs
 
+*.a
 *.la
 *.lo
 *.loT

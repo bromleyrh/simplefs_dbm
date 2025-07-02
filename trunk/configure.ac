@@ -73,6 +73,9 @@ AC_SUBST([strict_aliasing])
 
 AC_CHECK_HEADERS([linux/fs.h linux/magic.h sys/xattr.h])
 
+AM_CONDITIONAL([HAVE_LINUX_FS_H],
+               [test "x$ac_cv_header_linux_fs_h" = "xyes"])
+
 AC_CHECK_TYPES([clockid_t], [], [],
                [
 #include <time.h>
