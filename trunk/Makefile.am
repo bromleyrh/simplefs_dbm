@@ -92,7 +92,9 @@ simplefs_SOURCES = back_end.c back_end_dbm.c blkdev.c compat.c file_tab.c \
 simplefs_CPPFLAGS = $(AM_CPPFLAGS) $(sys_dep_cppflags) $(fuse_defines) \
 	@fuse_cppflags@ @libn_cppflags@ @libutil_cppflags@
 simplefs_CFLAGS = $(AM_CFLAGS)
-simplefs_LDADD = @fuse_link_dep@ @libn_link_dep@ @libutil_link_dep@
+simplefs_LDADD = sys_dep/libsys.a @fuse_link_dep@ @libn_link_dep@ \
+	@libutil_link_dep@
+simplefs_DEPENDENCIES = sys_dep/libsys.a
 
 mkfs_simplefs_SOURCES = mkfs.simplefs.c util.c
 mkfs_simplefs_CPPFLAGS = $(AM_CPPFLAGS) @libutil_cppflags@
@@ -106,7 +108,8 @@ mount_simplefs_CFLAGS = $(AM_CFLAGS)
 simplefs_dbg_SOURCES = blkdev.c simplefs_dbg.c strptime.c util.c
 simplefs_dbg_CPPFLAGS = $(AM_CPPFLAGS) $(sys_dep_cppflags) @libutil_cppflags@
 simplefs_dbg_CFLAGS = $(AM_CFLAGS)
-simplefs_dbg_LDADD = -lreadline @libutil_link_dep@
+simplefs_dbg_LDADD = sys_dep/libsys.a -lreadline @libutil_link_dep@
+simplefs_dbg_DEPENDENCIES = sys_dep/libsys.a
 
 umount_simplefs_SOURCES = umount.simplefs.c
 umount_simplefs_CPPFLAGS = $(AM_CPPFLAGS)

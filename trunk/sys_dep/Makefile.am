@@ -28,4 +28,6 @@ endif
 endif
 endif
 
+sys_dep_libsys_a_SOURCES += sys_dep/generic/file_lock.c
+
 ## vi: set noexpandtab sw=4 ts=4:

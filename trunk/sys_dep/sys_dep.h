@@ -13,8 +13,14 @@
 #include <linux/magic.h>
 
 #endif
+#define FILE_LOCK_SH 1
+#define FILE_LOCK_EX 2
+#define FILE_LOCK_NB 4
+#define FILE_LOCK_UN 8
 
 int blk_get_size(int fd, uint64_t *count);
+
+int file_lock(int fd, int operation);
 
 #endif
 

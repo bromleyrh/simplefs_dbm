@@ -9,6 +9,7 @@
 #include "blkdev.h"
 #include "common.h"
 #include "obj.h"
+#include "sys_dep.h"
 #include "util.h"
 
 #ifndef SYS_DEP_BLK_GET_SIZE
@@ -30,9 +31,6 @@
 #include <string.h>
 #include <unistd.h>
 
-#ifndef HAVE_FCNTL_F_OFD_LOCKS
-#include <sys/file.h>
-#endif
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -40,10 +38,10 @@
 /* The disk header size must be a multiple of 4096 */
 STATIC_ASSERT(sizeof(struct disk_header) == 4096);
 
-#define FILE_LOCK_SH 1
-#define FILE_LOCK_EX 2
-#define FILE_LOCK_NB 4
-#define FILE_LOCK_UN 8
+#define FLOCK_SH 1
+#define FLOCK_EX 2
+#define FLOCK_NB 4
+#define FLOCK_UN 8
 
 #define BLKDEV_OPEN(bctx) (unpack_u64(disk_header, &(bctx)->hdr, blkdevsz) > 0)
 
@@ -345,19 +343,18 @@ _flock(int fd, int operation, int blkdev)
 
     memset(&lk, 0, sizeof(lk));
 
-    if (operation & FILE_LOCK_EX) {
-        if (operation & FILE_LOCK_SH)
+    if (operation & FLOCK_EX) {
+        if (operation & FLOCK_SH)
             goto inval_err;
         lk.l_type = F_WRLCK;
-    } else if (operation & FILE_LOCK_SH)
+    } else if (operation & FLOCK_SH)
         lk.l_type = F_RDLCK;
     else
         goto inval_err;
 
     lk.l_whence = SEEK_SET;
 
-    return fcntl(fd, operation & FILE_LOCK_NB ? F_OFD_SETLK : F_OFD_SETLKW,
-                 &lk);
+    return fcntl(fd, operation & FLOCK_NB ? F_OFD_SETLK : F_OFD_SETLKW, &lk);
 
 inval_err:
     return err_to_errno(EINVAL);
@@ -369,10 +366,10 @@ inval_err:
         int src;
         int dst;
     } flmap[] = {
-        {FILE_LOCK_SH, LOCK_SH},
-        {FILE_LOCK_EX, LOCK_EX},
-        {FILE_LOCK_NB, LOCK_NB},
-        {FILE_LOCK_UN, LOCK_UN}
+        {FLOCK_SH, FILE_LOCK_SH},
+        {FLOCK_EX, FILE_LOCK_EX},
+        {FLOCK_NB, FILE_LOCK_NB},
+        {FLOCK_UN, FILE_LOCK_UN}
     };
 
     if (blkdev && operation & FILE_LOCK_SH) {
@@ -390,7 +387,7 @@ inval_err:
     }
 
     for (i = 0;; i++) { /* work around Linux kernel race condition */
-        if (flock(fd, fl) == 0)
+        if (file_lock(fd, fl) == 0)
             break;
         if (errno != EAGAIN || i == 10)
             return -1;
@@ -757,7 +754,7 @@ fs_blkdev_fdatasync(void *ctx, int fd, const struct interrupt_data *intdata)
     return do_pfdatasync_dev(fd, intdata);
 }
 
-#define LOCK_OPS (FILE_LOCK_SH | FILE_LOCK_EX | FILE_LOCK_UN)
+#define LOCK_OPS (FLOCK_SH | FLOCK_EX | FLOCK_UN)
 
 static int
 fs_blkdev_flock(void *ctx, int fd, int operation)
@@ -768,18 +765,18 @@ fs_blkdev_flock(void *ctx, int fd, int operation)
     if (fd != FD(bctx) && fd != JFD(bctx))
         return _flock(fd, operation, 0);
 
-    if (operation & ~(LOCK_OPS | FILE_LOCK_NB))
+    if (operation & ~(LOCK_OPS | FLOCK_NB))
         return err_to_errno(EINVAL);
 
     op = operation & LOCK_OPS;
 
-    if (op == FILE_LOCK_UN) {
+    if (op == FLOCK_UN) {
         if (bctx->lkfd == -1)
             goto end;
         if ((fd == FD(bctx) && bctx->jlk) || (fd == JFD(bctx) && bctx->lk))
             goto end;
     } else {
-        if (op != FILE_LOCK_SH && op != FILE_LOCK_EX)
+        if (op != FLOCK_SH && op != FLOCK_EX)
             return err_to_errno(EINVAL);
         if (bctx->lkfd != -1)
             goto end;
@@ -787,10 +784,10 @@ fs_blkdev_flock(void *ctx, int fd, int operation)
 
     if (_flock(fd, operation, 1) == -1)
         return -1;
-    bctx->lkfd = op == FILE_LOCK_UN ? -1 : fd;
+    bctx->lkfd = op == FLOCK_UN ? -1 : fd;
 
 end:
-    *(fd == FD(bctx) ? &bctx->lk : &bctx->jlk) = op != FILE_LOCK_UN;
+    *(fd == FD(bctx) ? &bctx->lk : &bctx->jlk) = op != FLOCK_UN;
     return 0;
 }
 
