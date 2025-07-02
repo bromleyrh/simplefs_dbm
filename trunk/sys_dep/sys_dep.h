@@ -20,6 +20,8 @@
 
 int blk_get_size(int fd, uint64_t *count);
 
+int fcntl_ofd_setlk(int fd, int operation);
+
 int file_lock(int fd, int operation);
 
 #endif

@@ -28,6 +28,12 @@ endif
 endif
 endif
 
+if LINUX
+sys_dep_libsys_a_SOURCES += sys_dep/linux/fcntl_ofd_setlk.c
+else
+sys_dep_libsys_a_SOURCES += sys_dep/generic/fcntl_ofd_setlk.c
+endif
+
 sys_dep_libsys_a_SOURCES += sys_dep/generic/file_lock.c
 
 ## vi: set noexpandtab sw=4 ts=4:

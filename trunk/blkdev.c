@@ -2,8 +2,6 @@
  * blkdev.c
  */
 
-#define _GNU_SOURCE
-
 #include "config.h"
 
 #include "blkdev.h"
@@ -187,6 +185,8 @@ static int check_fd_regular(int, struct blkdev_ctx *);
 static size_t do_blkdev_io(struct blkdev_ctx *, int, void *, size_t, off_t,
                            size_t, const struct interrupt_data *, int);
 
+static int xlat_lock_op(int);
+
 static int _flock(int, int, int);
 
 static int
@@ -334,31 +334,8 @@ do_blkdev_io(struct blkdev_ctx *bctx, int fd, void *buf, size_t count,
 }
 
 static int
-_flock(int fd, int operation, int blkdev)
+xlat_lock_op(int operation)
 {
-#ifdef HAVE_FCNTL_F_OFD_LOCKS
-    struct flock lk;
-
-    (void)blkdev;
-
-    memset(&lk, 0, sizeof(lk));
-
-    if (operation & FLOCK_EX) {
-        if (operation & FLOCK_SH)
-            goto inval_err;
-        lk.l_type = F_WRLCK;
-    } else if (operation & FLOCK_SH)
-        lk.l_type = F_RDLCK;
-    else
-        goto inval_err;
-
-    lk.l_whence = SEEK_SET;
-
-    return fcntl(fd, operation & FLOCK_NB ? F_OFD_SETLK : F_OFD_SETLKW, &lk);
-
-inval_err:
-    return err_to_errno(EINVAL);
-#else
     int fl;
     int i;
 
@@ -372,12 +349,6 @@ inval_err:
         {FLOCK_UN, FILE_LOCK_UN}
     };
 
-    if (blkdev && operation & FILE_LOCK_SH) {
-        if (operation & (FILE_LOCK_EX | FILE_LOCK_UN))
-            return err_to_errno(EINVAL);
-        operation = FILE_LOCK_EX | (operation & FILE_LOCK_NB);
-    }
-
     fl = 0;
     for (i = 0; i < (int)ARRAY_SIZE(flmap); i++) {
         const struct ent *ent = &flmap[i];
@@ -385,6 +356,30 @@ inval_err:
         if (operation & ent->src)
             fl |= ent->dst;
     }
+
+    return fl;
+}
+
+static int
+_flock(int fd, int operation, int blkdev)
+{
+#ifdef HAVE_FCNTL_F_OFD_LOCKS
+    int err;
+
+    (void)blkdev;
+
+    err = fcntl_ofd_setlk(fd, xlat_lock_op(operation));
+    return err ? err_to_errno(err) : 0;
+#else
+    int fl;
+
+    if (blkdev && operation & FILE_LOCK_SH) {
+        if (operation & (FILE_LOCK_EX | FILE_LOCK_UN))
+            return err_to_errno(EINVAL);
+        operation = FILE_LOCK_EX | (operation & FILE_LOCK_NB);
+    }
+
+    fl = xlat_lock_op(operation);
 
     for (i = 0;; i++) { /* work around Linux kernel race condition */
         if (file_lock(fd, fl) == 0)
