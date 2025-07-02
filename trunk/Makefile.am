@@ -82,9 +82,11 @@ CLEANFILES = obj.h
 obj.h: obj.idl
 	idlc <"$^" >"$@"
 
+include sys_dep/Makefile.am
+
 simplefs_SOURCES = back_end.c back_end_dbm.c blkdev.c compat.c file_tab.c \
 	fuse_cache.c ops.c request.c simplefs.c util.c
-simplefs_CPPFLAGS = $(AM_CPPFLAGS) $(fuse_defines) @fuse_cppflags@ \
+simplefs_CPPFLAGS = $(AM_CPPFLAGS) -Isys_dep $(fuse_defines) @fuse_cppflags@ \
 	@libn_cppflags@ @libutil_cppflags@
 simplefs_CFLAGS = $(AM_CFLAGS)
 simplefs_LDADD = @fuse_link_dep@ @libn_link_dep@ @libutil_link_dep@

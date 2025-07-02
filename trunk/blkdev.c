@@ -34,10 +34,6 @@
 #error "Support for platform not yet implemented"
 #endif
 
-#ifdef HAVE_LINUX_MAGIC_H
-#include <linux/magic.h>
-
-#endif
 #ifndef HAVE_FCNTL_F_OFD_LOCKS
 #include <sys/file.h>
 #endif
