@@ -793,8 +793,6 @@ fs_blkdev_fdatasync(void *ctx, int fd, const struct interrupt_data *intdata)
 
 #if defined(__APPLE__)
     return fcntl(fd, F_FULLFSYNC);
-#elif !defined(HAVE_FDATASYNC)
-    return do_pfsync(fd, intdata);
 #else
     return do_pfdatasync(fd, intdata);
 #endif

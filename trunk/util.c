@@ -349,14 +349,11 @@ do_pfsync(int fd, const struct interrupt_data *intdata)
     return interrupt_recv(intdata) ? -1 : pfsync(fd, intdata);
 }
 
-#ifdef HAVE_FDATASYNC
 int
 do_pfdatasync(int fd, const struct interrupt_data *intdata)
 {
     return interrupt_recv(intdata) ? -1 : pfdatasync(fd, intdata);
 }
-
-#endif
 
 #endif
 
