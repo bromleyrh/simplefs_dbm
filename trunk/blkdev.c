@@ -236,7 +236,7 @@ get_blkdev_size(int fd, uint64_t *sz)
 
     if (ioctl(fd, DIOCGMEDIASIZE, &count) == -1)
         return MINUS_ERRNO;
-#elif __APPLE__
+#else
     uint64_t count;
     uint32_t size;
 
