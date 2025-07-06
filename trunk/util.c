@@ -27,8 +27,25 @@
 #include <sys/time.h>
 #include <sys/types.h>
 
-typedef ssize_t (*io_fn_t)(int, void *, size_t, off_t,
-                           const struct interrupt_data *);
+enum {
+    IO_RD = 1,
+    IO_WR = 2
+};
+
+typedef ssize_t (*io_rd_fn_t)(int, void *, size_t, off_t,
+                              const struct interrupt_data *);
+typedef ssize_t (*io_wr_fn_t)(int, const void *, size_t, off_t,
+                              const struct interrupt_data *);
+
+struct io_buffers {
+    const void  *in_p;
+    size_t      in_nb;
+    io_wr_fn_t  wr;
+    void        *out_p;
+    size_t      out_nb;
+    io_rd_fn_t  rd;
+    unsigned    mask;
+};
 
 #define ASSURE_ERRNO_SET(ret, expr) \
     do { \
@@ -44,16 +61,13 @@ static int strlen_cmp(const void *, const void *, void *);
 #endif
 static int interrupt_recv(const struct interrupt_data *);
 
-static size_t do_io(io_fn_t, int, void *, size_t, off_t, size_t,
+static size_t do_io(int, const struct io_buffers *, off_t, size_t,
                     const struct interrupt_data *);
 
 static ssize_t read_fn(int, void *, size_t, off_t,
                        const struct interrupt_data *);
-static ssize_t write_fn(int, void *, size_t, off_t,
+static ssize_t write_fn(int, const void *, size_t, off_t,
                         const struct interrupt_data *);
-
-static ssize_t ppwrite_fn(int, void *, size_t, off_t,
-                          const struct interrupt_data *);
 
 #ifndef NDEBUG
 static int
@@ -92,12 +106,19 @@ interrupt_recv(const struct interrupt_data *intdata)
 }
 
 static size_t
-do_io(io_fn_t fn, int fd, void *buf, size_t len, off_t offset, size_t maxlen,
+do_io(int fd, const struct io_buffers *bufs, off_t offset, size_t maxlen,
       const struct interrupt_data *intdata)
 {
+    size_t len;
     size_t num_processed;
     ssize_t ret;
 
+    if (bufs->mask == (IO_RD | IO_WR)) {
+        errno = ENOSYS;
+        return 0;
+    }
+
+    len = bufs->mask == IO_RD ? bufs->out_nb : bufs->in_nb;
     if (maxlen == 0)
         maxlen = ~(size_t)0;
 
@@ -108,8 +129,13 @@ do_io(io_fn_t fn, int fd, void *buf, size_t len, off_t offset, size_t maxlen,
             break;
 
         errno = 0;
-        ret = (*fn)(fd, (char *)buf + num_processed, length,
-                    offset + num_processed, intdata);
+        if (bufs->mask == IO_RD) {
+            ret = (*bufs->rd)(fd, (char *)bufs->out_p + num_processed, length,
+                              offset + num_processed, intdata);
+        } else {
+            ret = (*bufs->wr)(fd, (const char *)bufs->in_p + num_processed,
+                              length, offset + num_processed, intdata);
+        }
         if (ret <= 0)
             break;
     }
@@ -128,20 +154,13 @@ read_fn(int fd, void *buf, size_t len, off_t offset,
 }
 
 static ssize_t
-write_fn(int fd, void *buf, size_t len, off_t offset,
+write_fn(int fd, const void *buf, size_t len, off_t offset,
          const struct interrupt_data *intdata)
 {
     (void)offset;
     (void)intdata;
 
     return write(fd, buf, len);
-}
-
-static ssize_t
-ppwrite_fn(int fd, void *buf, size_t len, off_t offset,
-           const struct interrupt_data *intdata)
-{
-    return ppwrite(fd, buf, len, offset, intdata);
 }
 
 void
@@ -328,27 +347,55 @@ is_pipe(int fd)
 size_t
 do_read(int fd, void *buf, size_t len, size_t maxread)
 {
-    return do_io(&read_fn, fd, buf, len, -1, maxread, NULL);
+    struct io_buffers bufs = {
+        .out_p  = buf,
+        .out_nb = len,
+        .rd     = &read_fn,
+        .mask   = IO_RD
+    };
+
+    return do_io(fd, &bufs, -1, maxread, NULL);
 }
 
 size_t
 do_write(int fd, const void *buf, size_t len, size_t maxwrite)
 {
-    return do_io(&write_fn, fd, (void *)buf, len, -1, maxwrite, NULL);
+    struct io_buffers bufs = {
+        .in_p   = buf,
+        .in_nb  = len,
+        .wr     = &write_fn,
+        .mask   = IO_WR
+    };
+
+    return do_io(fd, &bufs, -1, maxwrite, NULL);
 }
 
 size_t
 do_ppread(int fd, void *buf, size_t len, off_t offset, size_t maxread,
           const struct interrupt_data *intdata)
 {
-    return do_io(&ppread, fd, buf, len, offset, maxread, intdata);
+    struct io_buffers bufs = {
+        .out_p  = buf,
+        .out_nb = len,
+        .rd     = &ppread,
+        .mask   = IO_RD
+    };
+
+    return do_io(fd, &bufs, offset, maxread, intdata);
 }
 
 size_t
 do_ppwrite(int fd, const void *buf, size_t len, off_t offset, size_t maxwrite,
            const struct interrupt_data *intdata)
 {
-    return do_io(&ppwrite_fn, fd, (void *)buf, len, offset, maxwrite, intdata);
+    struct io_buffers bufs = {
+        .in_p   = buf,
+        .in_nb  = len,
+        .wr     = &ppwrite,
+        .mask   = IO_WR
+    };
+
+    return do_io(fd, &bufs, offset, maxwrite, intdata);
 }
 
 int
