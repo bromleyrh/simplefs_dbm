@@ -46,6 +46,9 @@ AC_CHECK_PROGS([pkgcfg], [pkg-config pkgconf])
 AM_CONDITIONAL([CLANG], [test "x$CC" = "xclang"])
 AM_CONDITIONAL([GCC], [test "x$CC" = "xgcc"])
 
+std_cppflags="-D_XOPEN_SOURCE=700"
+AC_SUBST([std_cppflags])
+
 AX_CHECK_COMPILE_FLAG([-std=c11], [std_flags="-std=c11"], [std_flags=])
 AC_SUBST([std_flags])
 
@@ -82,8 +85,11 @@ AC_CHECK_TYPES([clockid_t], [], [],
 ]
 )
 
+old_cflags=$CFLAGS
+CFLAGS="$CFLAGS $std_cppflags"
 AC_CHECK_MEMBERS([struct stat.st_atimespec, struct stat.st_mtimespec,
                   struct stat.st_ctimespec])
+CFLAGS=$old_cflags
 
 AC_CHECK_FUNCS([posix_fallocate])
 
