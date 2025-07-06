@@ -18,6 +18,7 @@
 #include "ops.h"
 #include "request.h"
 #include "simplefs.h"
+#include "sys_dep.h"
 #include "util.h"
 
 #include <arithmetic.h>
@@ -175,15 +176,6 @@ struct space_alloc_ctx {
 
 #define ALL_PERMS (S_ISUID | S_ISGID | S_ISVTX | ACC_MODE_ACCESS_PERMS)
 
-#ifdef HAVE_STRUCT_STAT_ST_MTIMESPEC
-#define st_tim_p(st, which) (&(st)->st_##which##timespec)
-#else
-#define st_tim_p(st, which) (&(st)->st_##which##tim)
-#endif
-#define st_atim_p(st) st_tim_p(st, a)
-#define st_mtim_p(st) st_tim_p(st, m)
-#define st_ctim_p(st) st_tim_p(st, c)
-
 #define DB_PATHNAME "fs.db"
 
 #define OP_RET_NONE INT_MAX
@@ -254,10 +246,10 @@ static int set_ref_inode_nodelete(struct back_end *, inum_t,
 
 static int remove_ulinked_nodes(struct back_end *, inum_t);
 
-static void do_set_ts(struct disk_timespec *, struct timespec *);
+static void do_set_ts(struct disk_timespec *, struct utim *);
 static void set_ts(struct disk_timespec *, struct disk_timespec *,
                    struct disk_timespec *);
-static void deserialize_ts(struct timespec *, struct disk_timespec *);
+static void deserialize_ts(struct utim *, struct disk_timespec *);
 
 static void deserialize_stat(struct stat *, struct db_obj_stat *);
 
@@ -1123,20 +1115,24 @@ err1:
 }
 
 static void
-do_set_ts(struct disk_timespec *ts, struct timespec *srcts)
+do_set_ts(struct disk_timespec *ts, struct utim *srcts)
 {
-    struct timespec timespec;
+    struct utim timespec;
 
     if (srcts == NULL) {
-        srcts = &timespec;
-        if (clock_gettime(CLOCK_REALTIME, srcts) != 0) {
+        struct timespec tmp;
+
+        if (clock_gettime(CLOCK_REALTIME, &tmp) != 0) {
             omemset(ts, 0);
             return;
         }
+        timespec.sec = tmp.tv_sec;
+        timespec.nsec = tmp.tv_nsec;
+        srcts = &timespec;
     }
 
-    pack_i32(disk_timespec, ts, tv_sec, srcts->tv_sec);
-    pack_i32(disk_timespec, ts, tv_nsec, srcts->tv_nsec);
+    pack_i32(disk_timespec, ts, tv_sec, srcts->sec);
+    pack_i32(disk_timespec, ts, tv_nsec, srcts->nsec);
 }
 
 static void
@@ -1152,11 +1148,20 @@ set_ts(struct disk_timespec *atim, struct disk_timespec *mtim,
 }
 
 static void
-deserialize_ts(struct timespec *ts, struct disk_timespec *disk_ts)
+deserialize_ts(struct utim *ts, struct disk_timespec *disk_ts)
 {
-    ts->tv_sec = unpack_i32(disk_timespec, disk_ts, tv_sec);
-    ts->tv_nsec = unpack_i32(disk_timespec, disk_ts, tv_nsec);
+    ts->sec = unpack_i32(disk_timespec, disk_ts, tv_sec);
+    ts->nsec = unpack_i32(disk_timespec, disk_ts, tv_nsec);
 }
+
+#define set_times(s, ds, which) \
+    do { \
+        struct utim ts; \
+        \
+        deserialize_ts(&ts, packed_st_tim(ds, which)); \
+        set_time_sec(s, which, ts.sec); \
+        set_time_nsec(s, which, ts.nsec); \
+    } while (0)
 
 static void
 deserialize_stat(struct stat *s, struct db_obj_stat *ds)
@@ -1171,10 +1176,12 @@ deserialize_stat(struct stat *s, struct db_obj_stat *ds)
     s->st_size = unpack_i64(db_obj_stat, ds, st_size);
     s->st_blksize = unpack_i64(db_obj_stat, ds, st_blksize);
     s->st_blocks = unpack_i64(db_obj_stat, ds, st_blocks);
-    deserialize_ts(st_atim_p(s), packed_st_tim(ds, a));
-    deserialize_ts(st_mtim_p(s), packed_st_tim(ds, m));
-    deserialize_ts(st_ctim_p(s), packed_st_tim(ds, c));
+    set_times(s, ds, a);
+    set_times(s, ds, m);
+    set_times(s, ds, c);
 }
+
+#undef set_times
 
 static int
 add_xattr_name(char **names, size_t *len, size_t *size, const char *name)
@@ -1982,6 +1989,7 @@ do_setattr(void *args)
     struct db_obj_stat s;
     struct op_args *opargs = args;
     struct space_alloc_ctx sctx;
+    struct utim tm;
 
     pack_u32(db_key, &k, type, TYPE_STAT);
     pack_u64(db_key, &k, ino, opargs->ino);
@@ -2044,14 +2052,20 @@ do_setattr(void *args)
     } else {
         if (to_set & REQUEST_SET_ATTR_MTIME_NOW)
             do_set_ts(packed_st_tim(&s, m), NULL);
-        if (to_set & REQUEST_SET_ATTR_MTIME)
-            do_set_ts(packed_st_tim(&s, m), st_mtim_p(&opargs->attr));
+        if (to_set & REQUEST_SET_ATTR_MTIME) {
+            tm.sec = opargs->attr.st_mtime;
+            tm.nsec = st_mtime_nsec(&opargs->attr);
+            do_set_ts(packed_st_tim(&s, m), &tm);
+        }
     }
 
     if (to_set & REQUEST_SET_ATTR_ATIME_NOW)
         do_set_ts(packed_st_tim(&s, a), NULL);
-    if (to_set & REQUEST_SET_ATTR_ATIME)
-        do_set_ts(packed_st_tim(&s, a), st_atim_p(&opargs->attr));
+    if (to_set & REQUEST_SET_ATTR_ATIME) {
+        tm.sec = opargs->attr.st_atime;
+        tm.nsec = st_atime_nsec(&opargs->attr);
+        do_set_ts(packed_st_tim(&s, a), &tm);
+    }
 
     /* ", ftruncate, para. 3:
      * "

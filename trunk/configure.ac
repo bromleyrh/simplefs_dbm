@@ -87,6 +87,10 @@ AC_CHECK_TYPES([clockid_t], [], [],
 
 old_cflags=$CFLAGS
 CFLAGS="$CFLAGS $std_cppflags"
+AC_CHECK_MEMBERS([struct stat.st_atimensec, struct stat.st_mtimensec,
+                  struct stat.st_ctimensec])
+AC_CHECK_MEMBERS([struct stat.st_atim, struct stat.st_mtim,
+                  struct stat.st_ctim])
 AC_CHECK_MEMBERS([struct stat.st_atimespec, struct stat.st_mtimespec,
                   struct stat.st_ctimespec])
 CFLAGS=$old_cflags
