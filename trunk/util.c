@@ -52,6 +52,9 @@ static ssize_t read_fn(int, void *, size_t, off_t,
 static ssize_t write_fn(int, void *, size_t, off_t,
                         const struct interrupt_data *);
 
+static ssize_t ppwrite_fn(int, void *, size_t, off_t,
+                          const struct interrupt_data *);
+
 #ifndef NDEBUG
 static int
 strlen_cmp(const void *e1, const void *e2, void *ctx)
@@ -132,6 +135,13 @@ write_fn(int fd, void *buf, size_t len, off_t offset,
     (void)intdata;
 
     return write(fd, buf, len);
+}
+
+static ssize_t
+ppwrite_fn(int fd, void *buf, size_t len, off_t offset,
+           const struct interrupt_data *intdata)
+{
+    return ppwrite(fd, buf, len, offset, intdata);
 }
 
 void
@@ -338,8 +348,7 @@ size_t
 do_ppwrite(int fd, const void *buf, size_t len, off_t offset, size_t maxwrite,
            const struct interrupt_data *intdata)
 {
-    return do_io((io_fn_t)&ppwrite, fd, (void *)buf, len, offset, maxwrite,
-                 intdata);
+    return do_io(&ppwrite_fn, fd, (void *)buf, len, offset, maxwrite, intdata);
 }
 
 int
