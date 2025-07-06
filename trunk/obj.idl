@@ -5,8 +5,6 @@
 #ifndef _OBJ_H
 #define _OBJ_H
 
-#include "config.h"
-
 #include "util.h"
 
 #include <limits.h>
@@ -86,23 +84,6 @@ PACKED_STRUCT(`db_obj_free_ino',
 PACKED_STRUCT(`db_obj_dirent',
     `uint64_t', `ino', `1')
 
-#ifdef HAVE_STRUCT_STAT_ST_MTIMESPEC
-PACKED_STRUCT(`db_obj_stat',
-    `uint64_t',             `st_dev',       `1',
-    `uint64_t',             `st_ino',       `1',
-    `uint32_t',             `st_mode',      `1',
-    `uint32_t',             `st_nlink',     `1',
-    `uint32_t',             `st_uid',       `1',
-    `uint32_t',             `st_gid',       `1',
-    `uint64_t',             `st_rdev',      `1',
-    `int64_t',              `st_size',      `1',
-    `int64_t',              `st_blksize',   `1',
-    `int64_t',              `st_blocks',    `1',
-    `struct disk_timespec', `st_atimespec', `1',
-    `struct disk_timespec', `st_mtimespec', `1',
-    `struct disk_timespec', `st_ctimespec', `1',
-    `uint32_t',             `num_ents',     `1')
-#else
 PACKED_STRUCT(`db_obj_stat',
     `uint64_t',             `st_dev',       `1',
     `uint64_t',             `st_ino',       `1',
@@ -118,7 +99,6 @@ PACKED_STRUCT(`db_obj_stat',
     `struct disk_timespec', `st_mtim',      `1',
     `struct disk_timespec', `st_ctim',      `1',
     `uint32_t',             `num_ents',     `1')
-#endif
 
 #ifndef DEV_BSIZE
 #define DEV_BSIZE 512

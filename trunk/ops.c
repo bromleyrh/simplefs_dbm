@@ -176,10 +176,13 @@ struct space_alloc_ctx {
 #define ALL_PERMS (S_ISUID | S_ISGID | S_ISVTX | ACC_MODE_ACCESS_PERMS)
 
 #ifdef HAVE_STRUCT_STAT_ST_MTIMESPEC
-#define st_atim st_atimespec
-#define st_mtim st_mtimespec
-#define st_ctim st_ctimespec
+#define st_tim_p(st, which) (&(st)->st_##which##timespec)
+#else
+#define st_tim_p(st, which) (&(st)->st_##which##tim)
 #endif
+#define st_atim_p(st) st_tim_p(st, a)
+#define st_mtim_p(st) st_tim_p(st, m)
+#define st_ctim_p(st) st_tim_p(st, c)
 
 #define DB_PATHNAME "fs.db"
 
@@ -1168,9 +1171,9 @@ deserialize_stat(struct stat *s, struct db_obj_stat *ds)
     s->st_size = unpack_i64(db_obj_stat, ds, st_size);
     s->st_blksize = unpack_i64(db_obj_stat, ds, st_blksize);
     s->st_blocks = unpack_i64(db_obj_stat, ds, st_blocks);
-    deserialize_ts(&s->st_atim, packed_st_tim(ds, a));
-    deserialize_ts(&s->st_mtim, packed_st_tim(ds, m));
-    deserialize_ts(&s->st_ctim, packed_st_tim(ds, c));
+    deserialize_ts(st_atim_p(s), packed_st_tim(ds, a));
+    deserialize_ts(st_mtim_p(s), packed_st_tim(ds, m));
+    deserialize_ts(st_ctim_p(s), packed_st_tim(ds, c));
 }
 
 static int
@@ -2042,13 +2045,13 @@ do_setattr(void *args)
         if (to_set & REQUEST_SET_ATTR_MTIME_NOW)
             do_set_ts(packed_st_tim(&s, m), NULL);
         if (to_set & REQUEST_SET_ATTR_MTIME)
-            do_set_ts(packed_st_tim(&s, m), &opargs->attr.st_mtim);
+            do_set_ts(packed_st_tim(&s, m), st_mtim_p(&opargs->attr));
     }
 
     if (to_set & REQUEST_SET_ATTR_ATIME_NOW)
         do_set_ts(packed_st_tim(&s, a), NULL);
     if (to_set & REQUEST_SET_ATTR_ATIME)
-        do_set_ts(packed_st_tim(&s, a), &opargs->attr.st_atim);
+        do_set_ts(packed_st_tim(&s, a), st_atim_p(&opargs->attr));
 
     /* ", ftruncate, para. 3:
      * "

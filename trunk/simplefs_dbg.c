@@ -35,12 +35,6 @@
 
 #include <sys/stat.h>
 
-#ifdef HAVE_STRUCT_STAT_ST_MTIMESPEC
-#define st_atim st_atimespec
-#define st_mtim st_mtimespec
-#define st_ctim st_ctimespec
-#endif
-
 #define DB_HL_USEFSOPS 64
 
 #define DB_PATHNAME "fs.db"
