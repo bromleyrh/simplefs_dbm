@@ -4,6 +4,10 @@
 
 #include "config.h"
 
+#ifdef __APPLE__
+#define _DARWIN_C_SOURCE 1
+#endif
+
 #include "common.h"
 #include "ops.h"
 #include "request.h"

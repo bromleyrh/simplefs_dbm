@@ -8,6 +8,10 @@
 
 #include "config.h"
 
+#ifdef __APPLE__
+#define _DARWIN_C_SOURCE 1
+#endif
+
 #include "back_end.h"
 #include "back_end_dbm.h"
 #include "common.h"
