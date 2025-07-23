@@ -372,6 +372,7 @@ _flock(int fd, int operation, int blkdev)
     return err ? err_to_errno(err) : 0;
 #else
     int fl;
+    int i;
 
     if (blkdev && operation & FILE_LOCK_SH) {
         if (operation & (FILE_LOCK_EX | FILE_LOCK_UN))
