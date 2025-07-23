@@ -2750,6 +2750,7 @@ do_rename(void *args)
         goto err2;
 
     ss_st_mode = unpack_u32(db_obj_stat, &ss, st_mode);
+    ss_st_ino = unpack_u64(db_obj_stat, &ss, st_ino);
 
     pack_u32(db_key, &k, type, TYPE_DIRENT);
     pack_u64(db_key, &k, ino, newparent);
@@ -2834,8 +2835,6 @@ do_rename(void *args)
         }
     } else
         existing = 0;
-
-    ss_st_ino = unpack_u64(db_obj_stat, &ss, st_ino);
 
     if (S_ISDIR(ss_st_mode)) {
         ret = new_dir_link(opargs->be, opargs->ref_inodes, ss_st_ino, newparent,
