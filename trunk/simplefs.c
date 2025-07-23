@@ -4,10 +4,6 @@
 
 #include "config.h"
 
-#ifdef __APPLE__
-#define _DARWIN_C_SOURCE 1
-#endif
-
 #include "common.h"
 #include "ops.h"
 #include "request.h"
@@ -541,7 +537,7 @@ write_errpipe(int pipefd, int err, const char *buf)
     if (buf == NULL)
         msg.err = 0;
     else {
-        len = strlcpy(msg.buf, buf, sizeof(msg.buf));
+        len = _strlcpy(msg.buf, buf, sizeof(msg.buf));
         if (len < sizeof(msg.buf)) {
             msg.err = err;
             msg.msglen += len;

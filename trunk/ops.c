@@ -8,10 +8,6 @@
 
 #include "config.h"
 
-#ifdef __APPLE__
-#define _DARWIN_C_SOURCE 1
-#endif
-
 #include "back_end.h"
 #include "back_end_dbm.h"
 #include "common.h"
@@ -1488,8 +1484,8 @@ new_node_link(struct back_end *be, struct ref_inodes *ref_inodes, inum_t ino,
 
     pack_u32(db_key, &k, type, TYPE_DIRENT);
     pack_u64(db_key, &k, ino, newparent);
-    strlcpy(packed_memb_addr(db_key, &k, name), newname,
-            packed_memb_size(db_key, name));
+    _strlcpy(packed_memb_addr(db_key, &k, name), newname,
+             packed_memb_size(db_key, name));
 
     pack_u64(db_obj_dirent, &de, ino, ino);
 
@@ -1748,8 +1744,8 @@ new_dir_link(struct back_end *be, struct ref_inodes *ref_inodes, inum_t ino,
 
     pack_u32(db_key, &k, type, TYPE_DIRENT);
     pack_u64(db_key, &k, ino, newparent);
-    strlcpy(packed_memb_addr(db_key, &k, name), newname,
-            packed_memb_size(db_key, name));
+    _strlcpy(packed_memb_addr(db_key, &k, name), newname,
+             packed_memb_size(db_key, name));
 
     pack_u64(db_obj_dirent, &de, ino, ino);
 
@@ -1800,8 +1796,8 @@ rem_node_link(struct back_end *be, inum_t root_id,
 
     pack_u32(db_key, &k, type, TYPE_DIRENT);
     pack_u64(db_key, &k, ino, parent);
-    strlcpy(packed_memb_addr(db_key, &k, name), name,
-            packed_memb_size(db_key, name));
+    _strlcpy(packed_memb_addr(db_key, &k, name), name,
+             packed_memb_size(db_key, name));
 
     ret = back_end_delete(be, &k);
     if (ret != 0)
@@ -1843,8 +1839,8 @@ rem_dir_link(struct back_end *be, inum_t root_id, struct ref_inodes *ref_inodes,
 
     pack_u32(db_key, &k, type, TYPE_DIRENT);
     pack_u64(db_key, &k, ino, parent);
-    strlcpy(packed_memb_addr(db_key, &k, name), name,
-            packed_memb_size(db_key, name));
+    _strlcpy(packed_memb_addr(db_key, &k, name), name,
+             packed_memb_size(db_key, name));
 
     ret = back_end_delete(be, &k);
     if (ret != 0)
@@ -2723,8 +2719,8 @@ do_rename(void *args)
 
     pack_u32(db_key, &k, type, TYPE_DIRENT);
     pack_u64(db_key, &k, ino, parent);
-    strlcpy(packed_memb_addr(db_key, &k, name), name,
-            packed_memb_size(db_key, name));
+    _strlcpy(packed_memb_addr(db_key, &k, name), name,
+             packed_memb_size(db_key, name));
 
     ret = back_end_look_up(opargs->be, &k, NULL, &sde, NULL, 0);
     if (ret != 1)
@@ -2757,8 +2753,8 @@ do_rename(void *args)
 
     pack_u32(db_key, &k, type, TYPE_DIRENT);
     pack_u64(db_key, &k, ino, newparent);
-    strlcpy(packed_memb_addr(db_key, &k, name), newname,
-            packed_memb_size(db_key, name));
+    _strlcpy(packed_memb_addr(db_key, &k, name), newname,
+             packed_memb_size(db_key, name));
 
     ret = back_end_look_up(opargs->be, &k, NULL, &dde, NULL, 0);
     if (ret != 0) {
@@ -3069,8 +3065,8 @@ do_read_entries(void *args)
 
     pack_u32(db_key, &k, type, TYPE_DIRENT);
     pack_u64(db_key, &k, ino, odir->ino);
-    strlcpy(packed_memb_addr(db_key, &k, name), odir->cur_name,
-            packed_memb_size(db_key, name));
+    _strlcpy(packed_memb_addr(db_key, &k, name), odir->cur_name,
+             packed_memb_size(db_key, name));
 
     off = odir->off;
     buflen = 0;
@@ -3107,7 +3103,7 @@ do_read_entries(void *args)
 
         name = packed_memb_addr(db_key, &k, name);
 
-        strlcpy(odir->cur_name, name, sizeof(odir->cur_name));
+        _strlcpy(odir->cur_name, name, sizeof(odir->cur_name));
 
         omemset(&s, 0);
         s.st_ino = unpack_u64(db_obj_dirent, &buf.de, ino);
@@ -3491,8 +3487,8 @@ do_setxattr(void *args)
 
     pack_u32(db_key, &k, type, TYPE_XATTR);
     pack_u64(db_key, &k, ino, opargs->ino);
-    strlcpy(packed_memb_addr(db_key, &k, name), opargs->op_data.xattr_data.name,
-            packed_memb_size(db_key, name));
+    _strlcpy(packed_memb_addr(db_key, &k, name),
+             opargs->op_data.xattr_data.name, packed_memb_size(db_key, name));
 
     value = opargs->op_data.xattr_data.value_a_wr;
     size = opargs->op_data.xattr_data.size;
@@ -3544,8 +3540,8 @@ do_getxattr(void *args)
 
     pack_u32(db_key, &k, type, TYPE_XATTR);
     pack_u64(db_key, &k, ino, opargs->ino);
-    strlcpy(packed_memb_addr(db_key, &k, name), opargs->op_data.xattr_data.name,
-            packed_memb_size(db_key, name));
+    _strlcpy(packed_memb_addr(db_key, &k, name),
+             opargs->op_data.xattr_data.name, packed_memb_size(db_key, name));
 
     ret = back_end_look_up(opargs->be, &k, NULL, NULL, &valsize, 0);
     if (ret != 1)
@@ -3667,8 +3663,8 @@ do_removexattr(void *args)
 
     pack_u32(db_key, &k, type, TYPE_XATTR);
     pack_u64(db_key, &k, ino, opargs->ino);
-    strlcpy(packed_memb_addr(db_key, &k, name), opargs->op_data.xattr_data.name,
-            packed_memb_size(db_key, name));
+    _strlcpy(packed_memb_addr(db_key, &k, name),
+             opargs->op_data.xattr_data.name, packed_memb_size(db_key, name));
 
     ret = back_end_look_up(opargs->be, &k, NULL, NULL, NULL, 0);
     if (ret != 1)
@@ -4086,8 +4082,8 @@ simplefs_lookup(void *req, inum_t parent, const char *name)
 
     pack_u32(db_key, &opargs.k, type, TYPE_DIRENT);
     pack_u64(db_key, &opargs.k, ino, parent);
-    strlcpy(packed_memb_addr(db_key, &opargs.k, name), name,
-            packed_memb_size(db_key, name));
+    _strlcpy(packed_memb_addr(db_key, &opargs.k, name), name,
+             packed_memb_size(db_key, name));
 
     opargs.op_data.inc_lookup_cnt = 1;
 
@@ -4360,8 +4356,8 @@ simplefs_unlink(void *req, inum_t parent, const char *name)
 
     pack_u32(db_key, &opargs.k, type, TYPE_DIRENT);
     pack_u64(db_key, &opargs.k, ino, parent);
-    strlcpy(packed_memb_addr(db_key, &opargs.k, name), name,
-            packed_memb_size(db_key, name));
+    _strlcpy(packed_memb_addr(db_key, &opargs.k, name), name,
+             packed_memb_size(db_key, name));
 
     opargs.op_data.inc_lookup_cnt = 0;
 
@@ -4412,8 +4408,8 @@ simplefs_rmdir(void *req, inum_t parent, const char *name)
 
     pack_u32(db_key, &opargs.k, type, TYPE_DIRENT);
     pack_u64(db_key, &opargs.k, ino, parent);
-    strlcpy(packed_memb_addr(db_key, &opargs.k, name), name,
-            packed_memb_size(db_key, name));
+    _strlcpy(packed_memb_addr(db_key, &opargs.k, name), name,
+             packed_memb_size(db_key, name));
 
     opargs.op_data.inc_lookup_cnt = 0;
 

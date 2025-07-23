@@ -6,10 +6,6 @@
 
 #include "config.h"
 
-#ifdef __APPLE__
-#define _DARWIN_C_SOURCE 1
-#endif
-
 #include "blkdev.h"
 #include "common.h"
 #include "obj.h"
@@ -267,8 +263,8 @@ get_key_ino_name(struct db_key *k)
     if (arg == NULL)
         return 2;
 
-    strlcpy(packed_memb_addr(db_key, k, name), arg,
-            packed_memb_size(db_key, name));
+    _strlcpy(packed_memb_addr(db_key, k, name), arg,
+             packed_memb_size(db_key, name));
 
     free(arg);
 
