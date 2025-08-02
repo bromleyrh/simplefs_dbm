@@ -43,7 +43,7 @@ return ret == 0 || ret == EAGAIN ? EXIT_SUCCESS : EXIT_FAILURE;
         ]
      )
      AS_IF(
-        [test $ax_cv_have_fcntl_f_ofd_locks = yes],
+        [test $ax_cv_have_fcntl_f_ofd_locks = "yes"],
         [AC_DEFINE(
             [HAVE_FCNTL_F_OFD_LOCKS],
             [1],
