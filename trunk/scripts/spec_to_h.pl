@@ -85,8 +85,8 @@ sub process_line {
             $in_quotes = 1;
             $line_erased = 0;
         } else {
-            last if ($c eq "#");
-            $line_erased = 0 if (!($c =~ /\s/));
+            last if $c eq "#";
+            $line_erased = 0 if !($c =~ /\s/);
         }
 
         $res .= $c;
@@ -109,7 +109,7 @@ sub process_file {
 
     while () {
         my $ln = <$f>;
-        last if (not defined($ln));
+        last if not defined($ln);
 
         my ($s, $line_erased) = process_line(substr($ln, 0, -1));
         if (!$line_erased) {
