@@ -71,7 +71,7 @@ sub process_line {
         if ($escaped) {
             $escaped = $line_erased = 0;
         } elsif ($in_quotes) {
-            if (($c eq $quotc) and (not $escaped)) {
+            if ($c eq $quotc and (not $escaped)) {
                 $in_quotes = 0;
             } elsif ($c eq $escapec) {
                 $escaped = 1;
@@ -114,7 +114,7 @@ sub process_file {
         my ($s, $line_erased) = process_line(substr($ln, 0, -1));
         if (!$line_erased) {
             my $lc = substr($s, -1);
-            my $sep = (($lc eq "") or ($lc =~ /\s/)) ? "\\" : " \\";
+            my $sep = ($lc eq "" or $lc =~ /\s/) ? "\\" : " \\";
             print("$s$sep\n");
         }
     }
@@ -127,6 +127,6 @@ sub process_file {
 }
 
 (my $filename, my $macroname) = parse_cmdline();
-(process_file($filename, $macroname) == 0) or exit(1);
+process_file($filename, $macroname) == 0 or exit(1);
 
 # vi: set expandtab sw=4 ts=4:
