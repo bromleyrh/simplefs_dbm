@@ -112,7 +112,7 @@ sub process_file {
         last if not defined($ln);
 
         my ($s, $line_erased) = process_line(substr($ln, 0, -1));
-        if (!$line_erased) {
+        if (not $line_erased) {
             my $lc = substr($s, -1);
             my $sep = ($lc eq "" or $lc =~ /\s/) ? "\\" : " \\";
             print("$s$sep\n");
