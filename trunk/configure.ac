@@ -122,17 +122,17 @@ AS_IF(
     [fusepkg=fuse]
 )
 
-fuse_cppflags=`eval $pkgcfg --cflags $fusepkg 2>/dev/null`
-libjson_cppflags=`eval $pkgcfg --cflags libjson`
-libn_cppflags=`eval $pkgcfg --cflags libn`
-libtest_cppflags=`eval $pkgcfg --cflags libtest`
-libutil_cppflags=`eval $pkgcfg --cflags libutil`
+fuse_cppflags=`eval "$pkgcfg" --cflags $fusepkg 2>/dev/null`
+libjson_cppflags=`eval "$pkgcfg" --cflags libjson`
+libn_cppflags=`eval "$pkgcfg" --cflags libn`
+libtest_cppflags=`eval "$pkgcfg" --cflags libtest`
+libutil_cppflags=`eval "$pkgcfg" --cflags libutil`
 
-fuse_link_dep=`eval $pkgcfg --libs $fusepkg 2>/dev/null`
-libjson_link_dep=`eval $pkgcfg --libs libjson`
-libn_link_dep=`eval $pkgcfg --libs libn`
-libtest_link_dep=`eval $pkgcfg --libs libtest`
-libutil_link_dep=`eval $pkgcfg --libs libutil`
+fuse_link_dep=`eval "$pkgcfg" --libs $fusepkg 2>/dev/null`
+libjson_link_dep=`eval "$pkgcfg" --libs libjson`
+libn_link_dep=`eval "$pkgcfg" --libs libn`
+libtest_link_dep=`eval "$pkgcfg" --libs libtest`
+libutil_link_dep=`eval "$pkgcfg" --libs libutil`
 
 AC_SUBST([fuse_cppflags])
 AC_SUBST([libjson_cppflags])
