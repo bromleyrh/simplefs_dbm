@@ -6,15 +6,26 @@ set -e
 
 if [ "$(basename "$0")" = "umount.simplefs-autofs" ]; then
 	unmount=1
-	mountpath=$1
-	shift
 else
-	mountpath=$2
-	shift 2
+	if [ -z "$1" ]; then
+		echo "Device path not specified" >&2
+		exit 1
+	fi
+	shift
 fi
+if [ -z "$1" ]; then
+	echo "Mount path not specified" >&2
+	exit 1
+fi
+mountpath=$1
+shift
 
 while [ "$1" ]; do
 	if [ "$1" = "-o" ]; then
+		if [ -z "$2" ]; then
+			echo "Mount options not specified" >&2
+			exit 1
+		fi
 		mountopts=$2
 		break
 	fi
