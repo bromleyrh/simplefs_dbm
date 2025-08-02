@@ -43,8 +43,8 @@ AC_PROG_RANLIB
 
 AC_CHECK_PROGS([pkgcfg], [pkg-config pkgconf])
 
-AM_CONDITIONAL([CLANG], [test "x$CC" = "xclang"])
-AM_CONDITIONAL([GCC], [test "x$CC" = "xgcc"])
+AM_CONDITIONAL([CLANG], [test "$CC" = "clang"])
+AM_CONDITIONAL([GCC], [test "$CC" = "gcc"])
 
 std_cppflags="-D_XOPEN_SOURCE=700"
 AC_SUBST([std_cppflags])
@@ -77,7 +77,7 @@ AC_SUBST([strict_aliasing])
 AC_CHECK_HEADERS([linux/fs.h linux/magic.h sys/xattr.h])
 
 AM_CONDITIONAL([HAVE_LINUX_FS_H],
-               [test "x$ac_cv_header_linux_fs_h" = "xyes"])
+               [test "$ac_cv_header_linux_fs_h" = "yes"])
 
 AC_CHECK_TYPES([clockid_t], [], [],
                [
