@@ -81,7 +81,7 @@ TESTS =
 CLEANFILES = obj.h
 
 obj.h: obj.idl
-	idlc <"$^" >"$@"
+	idlc <"$<" >"$@"
 
 sys_dep_cppflags = -Isys_dep
 
