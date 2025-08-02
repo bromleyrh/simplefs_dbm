@@ -706,8 +706,7 @@ get_ino(struct back_end *be, inum_t *ino)
         return -ENOSPC;
 
     k_ino = unpack_u64(db_key, &k, ino);
-    freeino_used_ino = (uint64_t *)packed_memb_addr(db_obj_free_ino, &freeino,
-                                                    used_ino);
+    freeino_used_ino = packed_memb_addr(db_obj_free_ino, &freeino, used_ino);
 
     ret = free_ino_find(freeino_used_ino, k_ino);
     if (ret == 0) {
@@ -776,8 +775,7 @@ release_ino(struct back_end *be, inum_t root_id, inum_t ino)
     uint64_t k_ino;
 
     k_ino = (ino - root_id) / FREE_INO_RANGE_SZ * FREE_INO_RANGE_SZ + root_id;
-    freeino_used_ino = (uint64_t *)packed_memb_addr(db_obj_free_ino, &freeino,
-                                                    used_ino);
+    freeino_used_ino = packed_memb_addr(db_obj_free_ino, &freeino, used_ino);
 
     pack_u32(db_key, &k, type, TYPE_FREE_INO);
     pack_u64(db_key, &k, ino, k_ino);
@@ -3912,8 +3910,8 @@ simplefs_init_prepare(void *rctx, struct session *sess, inum_t root_id)
         if (ret != 0)
             goto err7;
 
-        freeino_used_ino = (uint64_t *)packed_memb_addr(db_obj_free_ino,
-                                                        &freeino, used_ino);
+        freeino_used_ino = packed_memb_addr(db_obj_free_ino, &freeino,
+                                            used_ino);
 
         pack_u32(db_key, &k, type, TYPE_FREE_INO);
         pack_u64(db_key, &k, ino, root_id);
