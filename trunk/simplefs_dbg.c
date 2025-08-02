@@ -591,8 +591,7 @@ disp_free_ino_full(FILE *f, const struct db_key *key, const void *data,
     fputc('\n', f);
 
     ino = unpack_u64(db_key, key, ino);
-    freeino_used_ino = (uint64_t *)packed_memb_addr(db_obj_free_ino, freeino,
-                                                    used_ino);
+    freeino_used_ino = packed_memb_addr(db_obj_free_ino, freeino, used_ino);
 
     for (i = 0;; i++) {
         if (i == FREE_INO_RANGE_SZ) {
