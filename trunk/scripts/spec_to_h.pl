@@ -71,7 +71,7 @@ sub process_line {
         if ($escaped) {
             $escaped = $line_erased = 0;
         } elsif ($in_quotes) {
-            if ($c eq $quotc and (not $escaped)) {
+            if ($c eq $quotc and not $escaped) {
                 $in_quotes = 0;
             } elsif ($c eq $escapec) {
                 $escaped = 1;
