@@ -84,6 +84,10 @@ static int set_up_signal_handlers(void);
 
 static int enable_debugging_features(void);
 
+static int err_to_str(char *, size_t, int);
+static int print_err(int);
+static void clear_err(int);
+
 static void destroy_mount_data(struct mount_data *);
 
 static int read_errpipe(int, const char **);
@@ -95,9 +99,9 @@ static int parse_cmdline(struct fuse_args *, struct fuse_data *);
 
 static int set_privs(char *);
 
-static struct fuse_session *do_fuse_mount(const char *, struct fuse_args *,
-                                          const struct fuse_lowlevel_ops *,
-                                          size_t, void *, struct fuse_chan **);
+static int do_fuse_mount(struct fuse_session **, const char *,
+                         struct fuse_args *, const struct fuse_lowlevel_ops *,
+                         size_t, void *, struct fuse_chan **);
 static int do_fuse_daemonize(pid_t *);
 static int do_fuse_session_loop_mt(struct fuse_session *);
 static void do_fuse_unmount(const char *, struct fuse_chan *,
@@ -222,6 +226,93 @@ err:
     err = MINUS_ERRNO;
     error(0, errno, "%s", errmsg);
     return err;
+}
+
+static int
+err_to_str(char *str, size_t sz, int errdes)
+{
+    int errcode;
+    int i;
+    struct err_info_bt *inf;
+
+    errcode = errdes;
+
+    inf = err_get_bt(&errcode);
+    if (inf == NULL)
+        return errdes;
+
+    if (errcode != errdes) {
+        char buf[256];
+        int n;
+        size_t remsz;
+
+        remsz = sz;
+
+        n = snprintf(str, remsz, "Error at %s:%d\n", inf->file, inf->line);
+        if (n < 0 || n >= (int)remsz)
+            goto end;
+
+        for (i = 1; i < inf->len; i++) {
+            str += n;
+            remsz -= n;
+            n = snprintf(str, remsz, "%s\n", inf->bt[i]);
+            if (n < 0 || n >= (int)remsz)
+                goto end;
+        }
+
+        str += n;
+        remsz -= n;
+        snprintf(str, remsz, "%s\n", strperror_r(-errcode, buf, sizeof(buf)));
+    }
+
+end:
+    err_info_free(inf, 1);
+    return errcode;
+}
+
+static int
+print_err(int errdes)
+{
+    int errcode;
+    int i;
+    struct err_info_bt *inf;
+
+    errcode = errdes;
+
+    inf = err_get_bt(&errcode);
+    if (inf == NULL)
+        return errdes;
+
+    if (errcode != errdes) {
+        char buf[256];
+
+        if (fprintf(stderr, "Error at %s:%d\n", inf->file, inf->line) < 0)
+            goto end;
+
+        for (i = 1; i < inf->len; i++) {
+            if (fprintf(stderr, "%s\n", inf->bt[i]) < 0)
+                goto end;
+        }
+
+        fprintf(stderr, "%s\n", strperror_r(-errcode, buf, sizeof(buf)));
+    }
+
+end:
+    err_info_free(inf, 1);
+    return errcode;
+}
+
+static void
+clear_err(int errdes)
+{
+    int errcode;
+    struct err_info_bt *inf;
+
+    errcode = errdes;
+
+    inf = err_get_bt(&errcode);
+    if (inf != NULL)
+        err_info_free(inf, 1);
 }
 
 static void
@@ -457,10 +548,10 @@ err:
     return err;
 }
 
-static struct fuse_session *
-do_fuse_mount(const char *mountpoint, struct fuse_args *args,
-              const struct fuse_lowlevel_ops *ops, size_t op_size,
-              void *userdata, struct fuse_chan **ch)
+static int
+do_fuse_mount(struct fuse_session **sess, const char *mountpoint,
+              struct fuse_args *args, const struct fuse_lowlevel_ops *ops,
+              size_t op_size, void *userdata, struct fuse_chan **ch)
 {
 #if FUSE_USE_VERSION == 32
     struct fuse_session *ret;
@@ -469,32 +560,34 @@ do_fuse_mount(const char *mountpoint, struct fuse_args *args,
 
     ret = fuse_session_new(args, ops, op_size, userdata);
     if (ret == NULL)
-        return NULL;
+        return ERR_TAG(EIO);
 
     if (fuse_session_mount(ret, mountpoint) == -1) {
         fuse_session_destroy(ret);
-        return NULL;
+        return ERR_TAG(EIO);
     }
 
-    return ret;
+    *sess = ret;
+    return 0;
 #else
     struct fuse_chan *chan;
     struct fuse_session *ret;
 
     chan = fuse_mount(mountpoint, args);
     if (chan == NULL)
-        return NULL;
+        return ERR_TAG(EIO);
 
     ret = fuse_lowlevel_new(args, ops, op_size, userdata);
     if (ret == NULL) {
         fuse_unmount(mountpoint, chan);
-        return NULL;
+        return ERR_TAG(EIO);
     }
 
     fuse_session_add_chan(ret, chan);
 
+    *sess = ret;
     *ch = chan;
-    return ret;
+    return 0;
 #endif
 }
 
@@ -513,13 +606,13 @@ read_errpipe(int pipefd, const char **buf)
             if (ret == 0)
                 break;
             if (errno != EINTR)
-                return MINUS_ERRNO;
+                return ERR_TAG(errno);
             continue;
         }
     }
 
     if (numread < ERRPIPE_MIN_MSGLEN || numread != msg.msglen)
-        return -EIO;
+        return ERR_TAG(EIO);
 
     if (msg.err)
         *buf = msg.buf;
@@ -554,7 +647,7 @@ write_errpipe(int pipefd, int err, const char *buf)
             if (ret == 0)
                 break;
             if (errno != EINTR)
-                return MINUS_ERRNO;
+                return ERR_TAG(errno);
             continue;
         }
     }
@@ -570,50 +663,59 @@ do_fuse_daemonize(pid_t *fspid)
     pid_t pid;
 
     pid = fork();
-    if (pid == -1)
-        return MINUS_ERRNO;
+    if (pid == -1) {
+        err = ERR_TAG(errno);
+        goto err1;
+    }
 
     if (pid != 0) {
         *fspid = pid;
-        return 1;
+        return 0;
     }
 
     dfd = open(".", O_DIRECTORY | OPEN_MODE_EXEC);
-    if (dfd == -1)
-        return MINUS_ERRNO;
+    if (dfd == -1) {
+        err = ERR_TAG(errno);
+        goto err1;
+    }
 
     if (fuse_daemonize(0) == -1) {
-        err = -EIO;
-        goto err;
+        err = ERR_TAG(EIO);
+        goto err2;
     }
 
     if (fchdir(dfd) == -1) {
-        err = MINUS_ERRNO;
-        goto err;
+        err = ERR_TAG(errno);
+        goto err2;
     }
 
     close(dfd);
 
+    *fspid = -1;
     return 0;
 
-err:
+err2:
     close(dfd);
+err1:
+    *fspid = -1;
     return err;
 }
 
 static int
 do_fuse_session_loop_mt(struct fuse_session *se)
 {
+    int ret;
 #if FUSE_USE_VERSION == 32
     struct fuse_loop_config mtconf;
 
     mtconf.clone_fd = 0;
     mtconf.max_idle_threads = 10;
 
-    return fuse_session_loop_mt(se, &mtconf);
+    ret = fuse_session_loop_mt(se, &mtconf);
 #else
-    return fuse_session_loop_mt(se);
+    ret = fuse_session_loop_mt(se);
 #endif
+    return ret == -1 ? ERR_TAG(EIO) : 0;
 }
 
 /*
@@ -682,16 +784,16 @@ do_unmount_path(const char *mountpoint)
 
     pid = fork();
     if (pid == -1)
-        return MINUS_ERRNO;
+        return ERR_TAG(errno);
     if (pid == 0) {
         execlp(FUSERMOUNT_PATH, FUSERMOUNT_PATH, "-u", mountpoint, NULL);
         _exit(EXIT_FAILURE);
     }
 
     if (waitpid(pid, &status, 0) == -1)
-        return MINUS_ERRNO;
+        return ERR_TAG(errno);
 
-    return WIFEXITED(status) ? WEXITSTATUS(status) : -EIO;
+    return WIFEXITED(status) && WEXITSTATUS(status) == 0 ? 0 : ERR_TAG(EIO);
 }
 
 static int
@@ -712,27 +814,30 @@ init_fuse(struct fuse_args *args, struct fuse_data *fusedata)
 {
     char *bn, *dn;
     char buf[PATH_MAX];
-    const char *errmsg;
+    const char *errmsg, *errstr;
     int background;
     int errpipe[2];
-    int res = 0;
-    int status;
+    int res;
+    int tmp;
     pid_t pid;
 
     if (fuse_opt_add_arg(args, "-o") == -1
-        || fuse_opt_add_arg(args, DEFAULT_FUSE_OPTIONS) == -1)
+        || fuse_opt_add_arg(args, DEFAULT_FUSE_OPTIONS) == -1) {
+        res = ERR_TAG(ENOMEM);
         goto err1;
+    }
 
     dn = dirname_safe(fusedata->mountpoint, buf, sizeof(buf));
     if (dn == NULL) {
-        res = -ENAMETOOLONG;
+        res = ERR_TAG(ENAMETOOLONG);
         errmsg = "Pathname too long";
         goto err1;
     }
     bn = strdup(basename_safe(fusedata->mountpoint));
     if (bn == NULL) {
-        res = MINUS_ERRNO;
+        res = ERR_TAG(errno);
         goto err1;
+    }
 
     fusedata->mountpoint = bn;
 
@@ -742,21 +847,21 @@ init_fuse(struct fuse_args *args, struct fuse_data *fusedata)
         fusedata->md.wd = open(".", O_CLOEXEC | O_DIRECTORY | O_RDONLY);
         if (fusedata->md.wd == -1) {
             if (OPEN_MODE_EXEC == O_RDONLY || errno != EACCES) {
-                res = MINUS_ERRNO;
+                res = ERR_TAG(errno);
                 goto err1;
             }
             /* retry open with search permissions only */
             fusedata->md.wd = open(".",
                                    O_CLOEXEC | O_DIRECTORY | OPEN_MODE_EXEC);
             if (fusedata->md.wd == -1) {
-                res = MINUS_ERRNO;
+                res = ERR_TAG(errno);
                 goto err1;
             }
         }
     }
 
     if (chdir(dn) == -1) {
-        res = MINUS_ERRNO;
+        res = ERR_TAG(errno);
         errmsg = "Error changing directory";
         goto err2;
     }
@@ -765,19 +870,21 @@ init_fuse(struct fuse_args *args, struct fuse_data *fusedata)
 
     res = request_new(&fusedata->ctx, REQUEST_DEFAULT, REPLY_DEFAULT,
                       &fusedata->md, &sess_default_ops, fusedata);
-    if (res != 0)
+    if (res != 0) {
+        res = ERR_TAG(-res);
         goto err2;
+    }
 
     background = !fusedata->foreground;
 
     if (background) {
         if (pipe(errpipe) == -1) {
-            res = MINUS_ERRNO;
+            res = ERR_TAG(errno);
             goto err3;
         }
 
         res = do_fuse_daemonize(&pid);
-        if (res == 1) {
+        if (pid != -1) {
             close(errpipe[1]);
             goto parent_end;
         }
@@ -787,17 +894,25 @@ init_fuse(struct fuse_args *args, struct fuse_data *fusedata)
     }
 
     res = request_fuse_init_prepare(fusedata->ctx);
-    if (res != 0)
+    if (res != 0) {
+        res = ERR_TAG(-res);
         goto err4;
+    }
 
-    fusedata->sess = do_fuse_mount(fusedata->mountpoint, args,
-                                   &request_fuse_ops, sizeof(request_fuse_ops),
-                                   fusedata->ctx, &fusedata->chan);
-    if (fusedata->sess == NULL) {
-        res = -EIO;
+    res = do_fuse_mount(&fusedata->sess, fusedata->mountpoint, args,
+                        &request_fuse_ops, sizeof(request_fuse_ops),
+                        fusedata->ctx, &fusedata->chan);
+    if (res != 0) {
+        if (background) {
+            char errmsgbuf[4096];
+
+            if (res > 0)
+                res = err_to_str(errmsgbuf, sizeof(errmsgbuf), res);
+            tmp = write_errpipe(errpipe[1], res, errmsgbuf);
+            if (tmp > 0)
+                clear_err(tmp);
+        }
         errmsg = "Error mounting FUSE file system";
-        if (background)
-            write_errpipe(errpipe[1], res, errmsg);
         goto err5;
     }
 
@@ -818,9 +933,13 @@ parent_end:
     res = read_errpipe(errpipe[0], &errmsg);
     close(errpipe[0]);
     if (res != 0) {
-        waitpid(pid, &status, 0);
+        waitpid(pid, &tmp, 0);
+        errstr = "Error mounting FUSE file system";
         if (errmsg == NULL)
-            errmsg = "Error mounting FUSE file system";
+            fprintf(stderr, "%s\n", errstr);
+        else
+            fputs(errmsg, stderr);
+        errmsg = errstr;
         goto err3;
     }
     request_end(fusedata->ctx);
@@ -846,10 +965,8 @@ err2:
 err1:
     if (fusedata->mountpoint != fusedata->md.mountpoint)
         free(fusedata->mountpoint);
-    if (res == 0) {
-        res = -ENOMEM;
-        errmsg = "Out of memory";
-    }
+    if (res > 0)
+        res = print_err(res);
     error(0, -res, "%s", errmsg);
     return res;
 }
@@ -857,12 +974,16 @@ err1:
 static int
 process_fuse_events(struct fuse_data *fusedata)
 {
-    if (do_fuse_session_loop_mt(fusedata->sess) == -1) {
-        error(0, 0, "Error mounting FUSE file system");
-        return -EIO;
+    int ret;
+
+    ret = do_fuse_session_loop_mt(fusedata->sess);
+    if (ret != 0) {
+        if (ret > 0)
+            ret = print_err(ret);
+        error(0, -ret, "Error mounting FUSE file system");
     }
 
-    return 0;
+    return ret;
 }
 
 static int
@@ -877,8 +998,11 @@ terminate_fuse(struct fuse_data *fusedata)
     ret = request_fuse_destroy_finish(fusedata->ctx);
     if (ret == 0)
         syslog(LOG_INFO, FSNAME " terminated successfully");
-    else
+    else {
+        if (ret > 0)
+            clear_err(ret);
         syslog(LOG_ERR, FSNAME " terminated with error");
+    }
 
     request_end(fusedata->ctx);
 
@@ -891,8 +1015,11 @@ unmount_fuse(struct fuse_data *fusedata)
     int ret;
 
     ret = do_unmount_path(fusedata->mountpoint);
-    if (ret != 0)
+    if (ret != 0) {
+        if (ret > 0)
+            ret = print_err(ret);
         error(0, -ret, "Error unmounting FUSE file system");
+    }
 
     return ret;
 }

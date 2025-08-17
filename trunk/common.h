@@ -74,6 +74,9 @@ static _Thread_local int asserttmp;
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 #endif
 
+#define PL(val) PL_SUF(val, "", "s")
+#define PL_SUF(val, s, p) val, (val) == 1 ? (s) : (p)
+
 #endif
 
 /* vi: set expandtab sw=4 ts=4: */

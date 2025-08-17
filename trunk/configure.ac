@@ -95,7 +95,7 @@ AC_CHECK_MEMBERS([struct stat.st_atimespec, struct stat.st_mtimespec,
                   struct stat.st_ctimespec])
 CFLAGS=$old_cflags
 
-AC_CHECK_FUNCS([posix_fallocate])
+AC_CHECK_FUNCS([posix_fallocate strerror_l])
 
 AX_FUNC_ERROR
 AX_FUNC_FCNTL

@@ -18,10 +18,24 @@
 #include <stdlib.h>
 #include <time.h>
 
+struct err_info_bt {
+    int         errdes;
+    const char  *file;
+    int         line;
+    char        **bt;
+    int         len;
+};
+
 #define NBWD (sizeof(uint64_t) * CHAR_BIT)
 
 #define SOURCE_LINE_PARAMS const char *func, const char *file, int line
 #define SOURCE_LINE __func__, __FILE__, __LINE__
+
+#define ERRDES_MIN 128
+
+#define ERR_TAG(errn) err_tag_bt(-(errn))
+
+#define err_tag_bt(errcode) _err_tag_bt(errcode, __FILE__, __LINE__)
 
 #define _ERR_INJECT(enabled, err_period, funcname, errnum, errret, func, file, \
                     line, set) \
@@ -104,6 +118,25 @@ int gettime(clockid_t clk_id, struct timespec *tm);
 char *_strptime(const char *s, const char *format, struct tm *tm);
 
 #define INT_OUTPUT(num, e) num, (num) == 1 ? "" : e ? "es" : "s"
+
+int strerror_rp(int errnum, char *strerrbuf, size_t buflen);
+char *strperror_r(int errnum, char *strerrbuf, size_t buflen);
+
+int err_tag(int errcode, void *data);
+
+void *err_get(int errdes, int *errcode);
+int err_get_code(int errdes);
+
+int err_clear(int errdes);
+
+int err_foreach(int (*cb)(int, void *, void *), void *ctx);
+
+int _err_tag_bt(int errcode, const char *file, int line);
+struct err_info_bt *err_get_bt(int *err);
+
+int err_info_free(struct err_info_bt *info, int freeall);
+
+int err_print(FILE *f, int *err);
 
 #endif
 
