@@ -910,7 +910,7 @@ main(int argc, char **argv)
     if (enable_debugging_features() != 0)
         goto err1;
 
-    if (set_up_signal_handlers() == -1)
+    if (set_up_signal_handlers() != 0)
         goto err1;
 
     if (fusedata.md.pipefd != -1) {
