@@ -730,7 +730,8 @@ init_fuse(struct fuse_args *args, struct fuse_data *fusedata)
         goto err1;
     }
     bn = strdup(basename_safe(fusedata->mountpoint));
-    if (bn == NULL)
+    if (bn == NULL) {
+        res = MINUS_ERRNO;
         goto err1;
 
     fusedata->mountpoint = bn;
@@ -770,8 +771,10 @@ init_fuse(struct fuse_args *args, struct fuse_data *fusedata)
     background = !fusedata->foreground;
 
     if (background) {
-        if (pipe(errpipe) == -1)
+        if (pipe(errpipe) == -1) {
+            res = MINUS_ERRNO;
             goto err3;
+        }
 
         res = do_fuse_daemonize(&pid);
         if (res == 1) {
