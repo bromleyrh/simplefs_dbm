@@ -774,14 +774,13 @@ init_fuse(struct fuse_args *args, struct fuse_data *fusedata)
             goto err3;
 
         res = do_fuse_daemonize(&pid);
-        if (res != 0) {
-            if (res != 1)
-                goto err4;
+        if (res == 1) {
             close(errpipe[1]);
             goto parent_end;
         }
-
         close(errpipe[0]);
+        if (res != 0)
+            goto err4;
     }
 
     res = request_fuse_init_prepare(fusedata->ctx);
