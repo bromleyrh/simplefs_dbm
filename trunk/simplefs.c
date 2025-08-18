@@ -888,7 +888,13 @@ terminate_fuse(struct fuse_data *fusedata)
 static int
 unmount_fuse(struct fuse_data *fusedata)
 {
-    return do_unmount_path(fusedata->mountpoint);
+    int ret;
+
+    ret = do_unmount_path(fusedata->mountpoint);
+    if (ret != 0)
+        error(0, -ret, "Error unmounting FUSE file system");
+
+    return ret;
 }
 
 int
