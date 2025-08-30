@@ -276,8 +276,10 @@ open_blkdev(int fd, int create, int ro, int *initialized,
         err = write_header(fd, &bctx->hdr);
         if (err)
             return err;
-        if (fsync(fd) == -1)
-            return MINUS_ERRNO;
+        while (fsync(fd) == -1) {
+            if (errno != EINTR)
+                return MINUS_ERRNO;
+        }
         *initialized = 1;
         return 0;
     }
