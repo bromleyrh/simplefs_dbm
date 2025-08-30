@@ -99,6 +99,8 @@ static int dump_cb(const void *, const void *, size_t, void *);
 
 static int dump_db(FILE *, struct dbh *);
 
+static int syncfd(int);
+
 static int cmd_dump(struct dbh *);
 static int cmd_find(struct dbh *);
 static int cmd_help(struct dbh *);
@@ -800,6 +802,17 @@ dump_db(FILE *f, struct dbh *dbh)
 }
 
 static int
+syncfd(int fd)
+{
+    while (fsync(fd) == -1) {
+        if (errno != EINTR)
+            return MINUS_ERRNO;
+    }
+
+    return 0;
+}
+
+static int
 cmd_dump(struct dbh *dbh)
 {
     char *path;
@@ -844,8 +857,13 @@ cmd_dump(struct dbh *dbh)
         goto err2;
     }
 
-    if (fflush(f) != 0 || fsync(fileno(f)) == -1) {
+    if (fflush(f) != 0) {
         err = MINUS_ERRNO;
+        error(0, -err, "Error writing %s", path);
+        goto err2;
+    }
+    err = syncfd(fileno(f));
+    if (err) {
         error(0, -err, "Error writing %s", path);
         goto err2;
     }
