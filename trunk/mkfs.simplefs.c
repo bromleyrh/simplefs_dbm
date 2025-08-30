@@ -203,8 +203,10 @@ format_device(const char *dev, int force)
     if (res != 0)
         goto err1;
 
-    if (fsync(fd) == -1)
-        goto err2;
+    while (fsync(fd) == -1) {
+        if (errno != EINTR)
+            goto err2;
+    }
 
     if (close(fd) == -1) {
         fd = -1;
